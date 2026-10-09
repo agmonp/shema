@@ -1,0 +1,9 @@
+build/
+.gradle/
+.idea/
+local.properties
+app/build/
+*.apk
+*.bak_*
+_bak_*
+.kotlin/

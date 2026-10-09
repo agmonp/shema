@@ -1,0 +1,830 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>שמע</title>
+<link rel="icon" href="/home/icon.svg" type="image/svg+xml">
+<script src="/home/qrcode.js"></script>
+<style>
+:root{
+  --bg:#13100e; --surface:#1c1815; --surface2:#25201c; --surface3:#2f2924; --line:rgba(255,236,214,.11);
+  --line2:rgba(255,236,214,.16); --ink:#f4ede5; --dim:#b1a597; --faint:#958a7d; --accent:#eaa45e;
+  --accent-ink:#1b130b; --sage:#86bba8; --rose:#e48a7f; --sky:#8fb3e0; --gold:#ffd36b; --r:14px; color-scheme:dark;
+  --p0:#eaa45e; --p1:#86bba8; --p2:#8fb3e0; --p3:#e48a7f; --p4:#c9a3e6; --p5:#d8c37a; --unk:#6f665c;
+}
+*{box-sizing:border-box} html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font:15px/1.55 "Segoe UI",Heebo,Arial,sans-serif}
+.pairbtn{background:var(--accent);color:var(--accent-ink);border-radius:10px;padding:5px 12px;font-weight:700}
+.pair{display:flex;gap:18px;flex-wrap:wrap;align-items:flex-start}
+.pair .qr{background:#fff;padding:12px;border-radius:12px;line-height:0}
+.pair .qr img{width:240px;height:240px;image-rendering:pixelated}
+.pair .qr.small img{width:120px;height:120px}
+.pair ol{margin:0;padding-inline-start:20px;flex:1;min-width:220px}
+.pair ol li{margin:4px 0}
+.pair code{direction:ltr;display:inline-block;background:var(--surface2);border-radius:6px;padding:1px 6px;font-size:13px;user-select:all}
+button{font:inherit;color:inherit;cursor:pointer;background:none;border:0}
+.wrap{max-width:1100px;margin:0 auto;padding:18px 16px 60px}
+.top{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.top h1{font-size:24px;margin:0;font-weight:800}
+.top .logo{width:40px;height:40px;border-radius:11px;flex:none}
+.tabs{display:flex;gap:4px;margin-top:14px;border-bottom:1px solid var(--line);overflow-x:auto}
+.tabs a{padding:8px 14px;color:var(--dim);text-decoration:none;font-weight:500;border-bottom:2px solid transparent;white-space:nowrap}
+.tabs a.on{color:var(--ink);border-bottom-color:var(--accent);font-weight:700}
+.tabs a .n{background:var(--rose);color:#200c09;border-radius:10px;padding:0 7px;font-size:12px;margin-inline-start:4px;font-weight:700}
+.teach{display:grid;gap:10px}
+.tcard{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:14px 16px;cursor:pointer}
+.tcard.cur{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent);cursor:default}
+.tcard .txt{font-size:16px;margin:4px 0 8px}
+.tcard audio{width:100%;height:34px}
+.tcard .opts{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.tcard .opts button{background:var(--surface2);border:1px solid var(--line2);border-radius:18px;padding:5px 12px;font-size:14px}
+.tcard .opts button:hover{border-color:var(--accent)}
+.tcard .opts .guess{background:rgba(234,164,94,.16);border-color:var(--accent);color:var(--accent);font-weight:700}
+.tcard .opts kbd{font:11px monospace;color:var(--faint);margin-inline-start:5px}
+.progress{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:12px 0}
+.sgroups{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}
+.sgroups .chip{font-size:14px;padding:4px 12px;cursor:pointer}
+.sgroups .chip.on{background:var(--accent);color:var(--accent-ink)}
+.srow{display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px solid var(--line);flex-wrap:wrap}
+.srow .ic{font-size:22px;width:30px;text-align:center}
+.srow .nm{font-weight:700;min-width:120px}
+.srow .src{color:var(--faint);font-size:12px}
+.srow audio{height:30px;flex:1 1 220px;min-width:0}
+.srow .fix{color:var(--accent);border:1px solid var(--line2);border-radius:14px;padding:2px 10px;font-size:13px}
+.srow input{background:var(--surface2);border:1px solid var(--line2);border-radius:8px;color:var(--ink);padding:4px 8px;font:inherit;width:170px}
+.store{background:var(--surface2);border:1px solid var(--line2);border-radius:16px;padding:3px 10px;font-size:13px;color:var(--dim)}
+.store:hover{border-color:var(--accent)}
+.meter{height:8px;border-radius:4px;background:var(--surface3);overflow:hidden;margin:6px 0}
+.meter i{display:block;height:100%;background:var(--accent)}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;font-size:14px;margin:8px 0}
+.kv span:nth-child(odd){color:var(--faint)}
+.utt.media{opacity:.75}
+.utt.media .body{color:var(--faint);font-style:italic}
+.utt.media .who{color:var(--faint)!important}
+.chip.media{background:rgba(143,179,224,.14);color:var(--sky)}
+.people{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px}
+.pcard{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:14px 16px}
+.pcard .nm{font-size:18px;font-weight:800}
+.spark{display:flex;align-items:flex-end;gap:3px;height:44px;margin:8px 0 2px;direction:ltr}
+.spark i{flex:1;border-radius:3px 3px 0 0;min-height:2px}
+.spark i.z{background:var(--surface3)}
+.pcard .meta{color:var(--faint);font-size:13px}
+.pcard .last{color:var(--dim);font-size:14px;margin-top:6px;border-inline-start:3px solid var(--line2);padding-inline-start:8px}
+.status{margin-inline-start:auto;color:var(--faint);font-size:13px}
+.alarm{margin-top:12px;padding:12px 16px;border-radius:var(--r);background:rgba(229,72,77,.16);border:1px solid #e5484d;color:#ffd6d3;font-weight:600}
+.alarm small{display:block;font-weight:400;color:#f0b7b2}
+.pcards{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:12px;margin-top:12px}
+.pcard{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:12px 14px}
+.pcard.on{border-color:rgba(229,72,77,.5)}
+.pcard h3{margin:0 0 4px;font-size:16px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.pcard .dot{width:11px;height:11px;border-radius:50%;background:var(--unk);flex:none}
+.pcard.live .dot{background:var(--sage)} .pcard.on .dot{background:#e5484d;animation:pulse 1.8s infinite}
+.pcard .row{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+.pcard .pill{font-size:12px;padding:2px 9px;border-radius:12px;background:var(--surface3);color:var(--dim)}
+.pcard .pill.ts{background:rgba(143,179,224,.16);color:var(--sky)} .pcard .pill.warn{background:rgba(228,138,127,.18);color:var(--rose)}
+.strip{display:grid;grid-template-columns:repeat(96,1fr);gap:1px;margin-top:10px;direction:ltr;height:16px}
+.strip i{display:block;border-radius:1px;background:var(--surface3)}
+.strip i.rec{background:var(--sage)} .strip i.private,.strip i.cal,.strip i.mute,.strip i.pause{background:#c9a3e6}
+.strip i.battery{background:var(--rose)} .strip i.busy{background:var(--accent)} .strip i.unknown{background:#e5484d}
+.strip i.nolog{background:#3a342e}
+.strip i.off,.strip i.killed,.strip i.stall{background:#8a4a47} .strip i.away,.strip i.enroll_needed{background:#5c554d} .strip i.future{background:transparent;border:1px dashed var(--line)}
+.stripaxis{display:flex;justify-content:space-between;direction:ltr;font-size:10px;color:var(--faint);margin-top:2px}
+.legend2{display:flex;gap:10px;flex-wrap:wrap;font-size:11px;color:var(--faint);margin-top:6px}
+.legend2 b{display:inline-block;width:9px;height:9px;border-radius:2px;margin-inline-end:3px;vertical-align:middle}
+button.gold{font-size:11px;color:var(--faint);border:1px solid var(--line2);border-radius:10px;padding:0 8px;margin-inline-start:6px}
+button.gold:hover{color:var(--gold);border-color:var(--gold)}
+.source{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:12px;padding:12px 14px;border-radius:var(--r);
+  background:var(--surface);border:1px solid var(--line2)}
+.source .dot{width:12px;height:12px;border-radius:50%;flex:none;background:var(--unk)}
+.source.on .dot{background:#e5484d;box-shadow:0 0 0 0 rgba(229,72,77,.6);animation:pulse 1.8s infinite}
+.source.idle .dot{background:var(--accent)}
+@keyframes pulse{70%{box-shadow:0 0 0 10px rgba(229,72,77,0)}100%{box-shadow:0 0 0 0 rgba(229,72,77,0)}}
+.source b{font-size:15px}
+.source .sub{color:var(--faint);font-size:13px}
+.source .pc{margin-inline-start:auto;font-size:13px;color:var(--dim);background:var(--surface2);border-radius:20px;padding:4px 12px}
+.days{display:flex;gap:6px;overflow-x:auto;padding:12px 0 6px}
+.days button{background:var(--surface2);border:1px solid var(--line2);border-radius:20px;padding:5px 12px;white-space:nowrap;font-size:14px}
+.days button.on{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:700}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:14px 16px;margin:12px 0}
+.card h2{font-size:16px;margin:0 0 8px;font-weight:700;display:flex;align-items:center;gap:8px}
+.card h2 .act{margin-inline-start:auto;font-size:13px;font-weight:500;color:var(--accent);border:1px solid var(--line2);border-radius:16px;padding:2px 10px}
+.live{border-color:rgba(229,72,77,.35)}
+.live .proc{font-size:12px;color:var(--accent);font-weight:500}
+.live .empty{padding:14px 0;text-align:start}
+.ribbon{position:relative;height:46px;background:var(--surface2);border-radius:10px;overflow:hidden;direction:ltr}
+.ribbon .blk{position:absolute;top:6px;bottom:14px;border-radius:4px;min-width:3px;cursor:pointer}
+.ribbon .snd{position:absolute;bottom:0;font-size:11px;transform:translateX(-50%)}
+.hours{display:flex;justify-content:space-between;direction:ltr;color:var(--faint);font-size:11px;margin-top:2px}
+.talk{display:flex;gap:10px;flex-wrap:wrap}
+.talk .p{background:var(--surface2);border-radius:12px;padding:8px 12px;min-width:120px}
+.talk .p b{display:block}
+.talk .p small{color:var(--faint)}
+.conv{cursor:pointer;transition:border-color .15s}
+.conv:hover{border-color:var(--line2)}
+.when{color:var(--faint);font-size:13px}
+.topic{font-weight:700;font-size:16px}
+.sum{color:var(--dim);margin:4px 0}
+.mood{color:var(--faint);font-style:italic;font-size:14px}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+.chip{font-size:12px;padding:2px 9px;border-radius:12px;background:var(--surface3);color:var(--dim)}
+.chip.sig{background:rgba(134,187,168,.15);color:var(--sage)}
+.chip.prov{background:rgba(234,164,94,.15);color:var(--accent)}
+.bar{display:flex;height:6px;border-radius:3px;overflow:hidden;margin-top:8px;background:var(--surface3)}
+.bar span{display:block;height:100%}
+.empty{color:var(--faint);text-align:center;padding:40px 10px}
+.back{color:var(--dim);border:1px solid var(--line2);padding:5px 12px;border-radius:20px;font-size:14px}
+.utt{display:flex;gap:10px;padding:8px 0;border-top:1px solid var(--line)}
+.utt .who{width:104px;flex:none;font-weight:700;font-size:14px;text-align:start;padding:0;line-height:1.3}
+.utt .who small{display:block;font-weight:400;font-size:11px;color:var(--faint)}
+.utt .who:hover{text-decoration:underline dotted}
+.utt .body{flex:1;min-width:0}
+.utt .t{color:var(--faint);font-size:11px;direction:ltr;display:inline-block}
+.utt .feel{display:flex;gap:6px;flex-wrap:wrap;margin-top:3px}
+.utt .feel span{font-size:11px;padding:1px 7px;border-radius:10px;background:var(--surface3);color:var(--dim)}
+.utt .feel .hi{background:rgba(234,164,94,.18);color:var(--accent)}
+.utt .feel .lo{background:rgba(143,179,224,.16);color:var(--sky)}
+.legend{color:var(--faint);font-size:12px;margin-top:8px}
+svg.tone{width:100%;height:90px;display:block}
+.moment{border-inline-start:3px solid var(--accent);padding:2px 10px;margin:6px 0}
+.pp{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;margin-top:8px;font-size:14px}
+.pp b{white-space:nowrap}
+.sheet{position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:9;padding:16px}
+.sheet .box{background:var(--surface);border:1px solid var(--line2);border-radius:16px;padding:16px;max-width:480px;width:100%;max-height:85vh;overflow:auto}
+.sheet h3{margin:0 0 6px;font-size:17px}
+.sheet .q{color:var(--dim);font-size:14px;margin-bottom:8px}
+.sheet audio{width:100%;height:34px;margin:6px 0 10px}
+.sheet .grp{color:var(--faint);font-size:12px;margin:10px 0 4px}
+.sheet .opts{display:flex;flex-wrap:wrap;gap:6px}
+.sheet .opts button{background:var(--surface2);border:1px solid var(--line2);border-radius:18px;padding:5px 12px;font-size:14px}
+.sheet .opts button:hover{border-color:var(--accent)}
+.sheet .new{display:flex;gap:6px;margin-top:12px}
+.sheet input{flex:1;background:var(--surface2);border:1px solid var(--line2);border-radius:10px;color:var(--ink);padding:6px 10px;font:inherit}
+.sheet .ok{background:var(--accent);color:var(--accent-ink);border-radius:10px;padding:6px 14px;font-weight:700}
+.sheet .x{float:left;color:var(--faint);font-size:20px;line-height:1}
+.card .new{display:flex;gap:6px;margin-top:10px}
+.card input,.card select,.card textarea{flex:1;min-width:0;background:var(--surface2);border:1px solid var(--line2);border-radius:10px;color:var(--ink);padding:6px 10px;font:inherit}
+.card .ok{background:var(--accent);color:var(--accent-ink);border-radius:10px;padding:6px 14px;font-weight:700;border:0;cursor:pointer}
+mark{background:rgba(234,164,94,.3);color:inherit;border-radius:3px}
+.toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:var(--surface3);border:1px solid var(--line2);
+  border-radius:12px;padding:10px 16px;z-index:10;box-shadow:0 6px 24px rgba(0,0,0,.4)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top"><img class="logo" src="/home/icon.svg" alt=""><h1>שמע</h1><button class="pairbtn" id="pairbtn">📱 חבר טלפון</button><button class="store" id="store" title="מקום בדיסק">📦 …</button><span class="status" id="status"></span></div>
+  <div id="alarm"></div>
+  <div id="phones"></div>
+  <nav class="tabs" id="tabs">
+    <a href="#" data-t="day">היום ושיחות</a>
+    <a href="#teach" data-t="teach">ללמד קולות<span class="n" id="teachn" hidden></span></a>
+    <a href="#sounds" data-t="sounds">צלילים</a>
+    <a href="#people" data-t="people">אנשים</a>
+    <a href="#search" data-t="search">חיפוש ומשימות<span class="n" id="taskn" hidden></span></a>
+    <a href="#me" data-t="me">אני</a>
+    <a href="#privacy" data-t="privacy">פרטיות</a>
+    <a href="#system" data-t="system">מערכת</a>
+  </nav>
+  <div id="livebox"></div>
+  <div class="days" id="days"></div>
+  <div id="main"></div>
+</div>
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const J = async u => (await fetch(u)).json();
+const POST = async (u, b) => (await fetch(u, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(b)})).json();
+const COLORS = ["--p0","--p1","--p2","--p3","--p4","--p5"];
+const colorOf = (() => { const m = {}; let k = 0;
+  return n => n ? (m[n] ||= `var(${COLORS[k++ % COLORS.length]})`) : "var(--unk)"; })();
+const hm = iso => iso ? iso.slice(11, 16) : "";
+const hms = iso => iso ? iso.slice(11, 19) : "";
+const first = n => n ? n.split(" ")[0] : "לא מזוהה";
+const mins = s => s >= 60 ? `${Math.round(s / 60)} דק׳` : `${Math.round(s)} שנ׳`;
+const moodColor = v => v == null ? "var(--unk)" : v >= .58 ? "var(--sage)" : v <= .42 ? "var(--rose)" : "var(--accent)";
+const SND = {"דלת":"🚪","דלת הזזה":"🚪","טריקה":"💥","דפיקה בדלת":"✊","פעמון דלת":"🔔","ארון נפתח/נסגר":"🗄","מגירה":"🗄",
+  "חריקה":"🪑","חריקת רהיט/דלת":"🪑","גרירת כיסא/רהיט":"🪑","מפתחות":"🔑","זכוכית":"🥛","משהו נשבר":"💔","כדור קופץ":"⚽","כדור":"⚽",
+  "מיקרוגל":"📟","צפצוף מיקרוגל":"📟","בלנדר":"🌀","סכו\"ם":"🍴","חיתוך":"🔪","טיגון":"🍳","רתיחה/קומקום":"♨","קומקום":"♨","ברז":"🚰",
+  "כיור":"🚰","מזיגה":"🥤","הורדת מים":"🚽","אמבטיה/מקלחת":"🛁","פן":"💨","צחצוח שיניים":"🪥","מאוורר":"💨","מזגן":"❄",
+  "צפצוף":"📟","אזעקה/התראה":"⏰","שעון מעורר":"⏰","גלאי עשן":"🚨","טלפון מצלצל":"📱","רינגטון":"📱","הקלדה":"⌨","מדפסת":"🖨",
+  "גיטרה":"🎸","פסנתר":"🎹","קלידים":"🎹","תופים":"🥁","כינור":"🎻","שירי ילדים":"🎶","מקרר":"🧊","צעצוע":"🧸","מכונת כביסה":"🫧",
+  "מכונת קפה":"☕","תריס":"🪟","צעדים":"👣","ריצה":"🏃","שיעול":"🤧","התעטשות":"🤧","נחירות":"😴","שריקה":"😗","ילדים משחקים":"🧒",
+  "נביחה":"🐶","מיאו":"🐱","ציפורים":"🐦","ציוץ":"🐦","גשם":"🌧","רעם":"⛈","רכב":"🚗","סירנה":"🚨","צליל לא מזוהה":"❔",
+  "צחוק":"😂","בכי":"😢","צעקה":"📢","צעקות ילדים":"📢","מוזיקה":"🎵","שירה":"🎤","טלוויזיה":"📺","רדיו":"📻",
+  "כלב":"🐶","חתול":"🐱","כלים":"🍽","דלת":"🚪","פעמון":"🔔","שואב אבק":"🧹","טלפון":"📱","מחיאות כפיים":"👏","משחק מחשב":"🎮","מלמול תינוק":"👶"};
+const HOW = {user: "סימנת", voice: "לפי הקול", context: "לפי ההקשר"};
+const J0 = (s, d) => { try { return JSON.parse(s || "") ?? d; } catch { return d; } };
+let day = null, phoneOnline = false;
+function toast(t){ const e = document.createElement("div"); e.className = "toast"; e.textContent = t; document.body.appendChild(e); setTimeout(() => e.remove(), 4500); }
+
+const ago = s => s < 60 ? `לפני ${s} שנ׳` : s < 3600 ? `לפני ${Math.round(s / 60)} דק׳` : `לפני ${Math.round(s / 3600)} שעות`;
+let COV = null, HEALTH = null;
+const LINK = {lan: ["🏠 בבית", ""], tailscale: ["🛰 Tailscale", "ts"]};
+const LEG = [["rec", "var(--sage)", "הוקלט"], ["private", "#c9a3e6", "פרטי/מושהה"], ["battery", "var(--rose)", "סוללה"], ["busy", "var(--accent)", "מיקרופון תפוס"],
+  ["killed", "#8a4a47", "האפליקציה נעצרה"], ["away", "#5c554d", "לא בבית/ממתין לקול"], ["unknown", "#e5484d", "הטלפון לא ענה"]];
+function stripOf(code){
+  const c = COV && COV.phones.find(x => x.code === code);
+  if (!c) return "";
+  const R = COV.reasons;
+  const cells = c.cells.map((st, i) => `<i class="${st}" title="${String(Math.floor(i / 4)).padStart(2, "0")}:${String((i % 4) * 15).padStart(2, "0")} · ${esc(st === "future" ? "" : (R[st] || st))}"></i>`).join("");
+  const h = c.hours, rec = (h.rec || 0);
+  const gaps = Object.entries(h).filter(([k]) => k !== "rec" && h[k] >= 0.1).map(([k, v]) => `${esc(R[k] || k)} ${v.toFixed(1)} ש׳`).join(" · ");
+  return `<div class="strip">${cells}</div><div class="stripaxis"><span>00</span><span>06</span><span>12</span><span>18</span><span>24</span></div>
+    <div class="legend" style="margin-top:4px">היום: הוקלט ${rec.toFixed(1)} שעות${gaps ? " · פערים: " + gaps : ""}</div>`;
+}
+function phoneCard(p){
+  const speaking = p.online && /שומע דיבור/.test(p.state || "");
+  const listening = p.online && /מקשיב/.test(p.state || "");
+  const link = LINK[p.via] || ["", ""];
+  const q = +p.queued || 0;
+  const oldest = +p.oldest || 0;
+  const pills = [
+    p.online && link[0] ? `<span class="pill ${link[1]}">${link[0]}</span>` : "",
+    p.bat && +p.bat > 0 ? `<span class="pill ${+p.bat < 15 && p.charging !== "1" ? "warn" : ""}">🔋 ${p.bat}%${p.charging === "1" ? " ⚡" : ""}</span>` : "",
+    q ? `<span class="pill ${oldest > 48 * 3600 ? "warn" : ""}">ממתינים בטלפון: ${q}${p.qmb ? " · " + p.qmb + " MB" : ""}${oldest > 120 ? " · הישן " + ago(oldest).replace("לפני ", "מלפני ") : ""}</span>` : "",
+    p.vpn === "0" && !p.online ? `<span class="pill warn">Tailscale כבוי בטלפון?</span>` : "",
+  ].join("");
+  return `<div class="pcard ${speaking ? "on" : ""} ${p.online ? "live" : ""}"><h3><span class="dot"></span>${esc(p.device)}<span class="pill">${p.role === "wearer" ? "אישי" : "בית"}</span>
+    <span style="font-weight:400;font-size:13px;color:var(--dim)">${p.online ? esc(p.state || "") : "לא מחובר"}</span></h3>
+    <div class="row">${pills}<span class="pill">נראה ${ago(p.seconds_ago)}</span>${p.last_chunk ? `<span class="pill">קטע אחרון ${p.last_chunk.slice(11, 16)}</span>` : ""}</div>
+    ${stripOf(p.code)}</div>`;
+}
+function source(s){
+  const ph = s.phones || [];
+  phoneOnline = ph.some(x => x.online);
+  if (!ph.length) {
+    $("#phones").innerHTML = `<div class="pcards"><div class="pcard"><h3><span class="dot"></span>אין טלפון מחובר</h3><div class="legend">ההקלטה נעשית רק בטלפון (אפליקציית "שמע"). המחשב רק מנתח ואין בו מיקרופון.</div>
+      <div style="margin-top:8px"><button class="pairbtn" onclick="showPair()">📱 חבר טלפון</button></div></div></div>`;
+  } else {
+    $("#phones").innerHTML = `<div class="pcards">${ph.map(phoneCard).join("")}</div>
+      <div class="legend2">${LEG.map(([k, c, t]) => `<span><b style="background:${c}"></b>${t}</span>`).join("")}<span style="margin-inline-start:auto">🖥 המחשב רק מנתח · אין בו מיקרופון</span></div>`;
+  }
+}
+async function covHealth(){
+  try { COV = await J("/home/api/coverage"); } catch (e) {}
+  try {
+    HEALTH = await J("/home/api/health");
+    $("#alarm").innerHTML = HEALTH.alarm ? `<div class="alarm">⚠ ${HEALTH.failed_24h} קטעים נכשלו בניתוח ב-24 השעות האחרונות
+      <small>${Object.entries(HEALTH.reasons).map(([k, v]) => `${esc(k)}: ${v}`).join(" · ")} · <a href="#system" style="color:inherit">פרטים במערכת</a></small></div>` : "";
+  } catch (e) {}
+}
+async function status(){
+  const s = await J("/home/api/status");
+  source(s);
+  const n = s.chunks || {};
+  $("#status").innerHTML = `קטעים: ${n.done || 0} נותחו${n.new ? `, ${n.new} בתור` : ""}${n.failed ? `, ${n.failed} נכשלו` : ""}`;
+  $("#store").textContent = `📦 ${fmtMB((s.audio_mb || 0))} שמע`;
+}
+
+async function live(){
+  const L = await J("/home/api/live");
+  const box = $("#livebox");
+  if (document.querySelector(".sheet")) return;
+  if (location.hash && location.hash !== "#") { box.innerHTML = ""; live.key = null; return; }   // only on the main tab
+  // redraw only when something changed: a redraw every 4 s swallowed clicks on "מי זה?"
+  const key = JSON.stringify([L.utterances.map(u => [u.id, u.name]), L.conversation, L.queue, L.worker_busy, L.sounds, phoneOnline]);
+  if (key === live.key) return;
+  live.key = key;
+  if (!phoneOnline && !L.utterances.length) { box.innerHTML = ""; return; }
+  const c = L.conversation;
+  const proc = L.queue || L.worker_busy ? `<span class="proc">⏳ מנתח ${L.queue ? L.queue + " קטעים" : "קטע"}…</span>` : "";
+  const sum = c && c.summary ? `<div class="sum">${c.status === "open" ? '<span class="chip prov">סיכום ביניים</span> ' : ""}${esc(c.summary)}</div>${c.mood_text ? `<div class="mood">${esc(c.mood_text)}</div>` : ""}` : "";
+  const snd = L.sounds.filter(s => SND[s.tag]).map(s => `<span class="chip">${SND[s.tag]} ${esc(s.tag)} ${hm(s.t0)}</span>`).join("");
+  const U = L.utterances.slice(-8);
+  box.innerHTML = `<div class="card live"><h2>🔴 עכשיו בבית ${proc}${c ? `<button class="act" onclick="location.hash='c${c.id}'">לשיחה המלאה</button>` : ""}</h2>
+    ${c && c.topic ? `<div class="topic">${esc(c.topic)}</div>` : ""}${sum}
+    ${U.length ? U.map(uttRow).join("") : `<div class="empty">עוד לא נשמע דיבור ב-15 הדקות האחרונות.</div>`}
+    ${snd ? `<div class="chips">${snd}</div>` : ""}</div>`;
+  bindWho(box, U);
+}
+
+const MEDIA_ICON = {"טלוויזיה": "📺", "שיר": "🎵", "מוזיקה": "🎶"};
+function uttRow(u){
+  if (u.media) return `<div class="utt media"><button class="who" data-u="${u.id}" title="לחץ אם זה לא ${esc(u.media)}">${MEDIA_ICON[u.media] || "📺"} ${esc(u.media)}
+      <small>${u.how === "user" ? "סימנת" : "ברקע · לא תומלל"}</small></button>
+    <div class="body"><span class="t">${hms(u.t0)}</span> ${esc(u.media)} ברקע · ${Math.round(u.seconds)} שנ׳</div></div>`;
+  return `<div class="utt"><button class="who" data-u="${u.id}" style="color:${colorOf(u.name)}" title="לחץ כדי לומר מי זה">${esc(first(u.name))}
+      <small>${u.name ? (HOW[u.how] || "") : "מי זה? ✎"}</small></button>
+    <div class="body"><span class="t">${hms(u.t0)}</span> ${esc(u.text)}${u.text ? `<button class="gold" data-g="${u.id}" title="הוסף לסט הזהב: מדידת איכות התמלול">⭐ זהב</button>` : ""}<div class="feel">${feel(u)}</div></div></div>`;
+}
+let UMAP = {};
+function bindWho(root, U){
+  U.forEach(u => UMAP[u.id] = u);
+  root.querySelectorAll(".who[data-u]").forEach(b => b.onclick = () => askWho(UMAP[b.dataset.u]));
+  root.querySelectorAll("button.gold[data-g]").forEach(b => b.onclick = () => askGold(UMAP[b.dataset.g]));
+}
+function askGold(u){
+  const sh = document.createElement("div");
+  sh.className = "sheet";
+  sh.innerHTML = `<div class="box"><button class="x">×</button><h3>⭐ הוסף לסט הזהב</h3>
+    <div class="q">תקן את התמלול כך שיהיה נכון מילה במילה. כל 3 חודשים המחשב בודק עליו אם יש מודל תמלול טוב יותר.</div>
+    <audio controls src="/home/audio/utt/${u.id}"></audio>
+    <textarea id="goldtxt" rows="4" style="width:100%;background:var(--surface2);color:var(--ink);border:1px solid var(--line2);border-radius:10px;padding:8px;font:inherit">${esc(u.text)}</textarea>
+    <div class="new"><button class="ok" id="goldok">שמור בסט הזהב</button></div></div>`;
+  document.body.appendChild(sh);
+  sh.querySelector(".x").onclick = () => sh.remove();
+  sh.onclick = e => { if (e.target === sh) sh.remove(); };
+  sh.querySelector("#goldok").onclick = async () => {
+    const r = await POST("/home/api/gold", {utt_id: u.id, text: sh.querySelector("#goldtxt").value});
+    toast(r.ok ? `נוסף. בסט הזהב ${r.gold_items} משפטים` : (r.msg || "לא הצליח")); if (r.ok) sh.remove();
+  };
+}
+let PEOPLE = null;
+async function askWho(u){
+  PEOPLE ||= await J("/home/api/people");
+  const groups = {};
+  PEOPLE.forEach(p => (groups[p.group] ||= []).push(p));
+  const sh = document.createElement("div");
+  sh.className = "sheet";
+  sh.innerHTML = `<div class="box"><button class="x" title="סגור">×</button><h3>מי אמר את זה?</h3>
+    <div class="q">${u.media ? `${MEDIA_ICON[u.media] || ""} סומן כ${esc(u.media)} (לא תומלל)` : `״${esc(u.text.slice(0, 140))}״`} · ${hms(u.t0)}${u.name ? ` · עכשיו: ${esc(u.name)}` : ""}</div>
+    <audio controls preload="auto" src="/home/audio/utt/${u.id}"></audio>
+    ${Object.entries(groups).map(([g, ps]) => `<div class="grp">${esc(g)}</div><div class="opts">${ps.slice(0, g === "מוכנים מראש" ? 24 : 99)
+        .map(p => `<button data-id="${p.id}">${esc(p.name)}</button>`).join("")}</div>`).join("")}
+    <div class="grp">לא אדם</div>
+    <div class="opts">${u.media ? `<button data-id="__person__">זה לא ${esc(u.media)}: זה מישהו מדבר</button>`
+                                : `<button data-id="__tv__">📺 זו הטלוויזיה / רדיו / שיר</button>`}</div>
+    <div class="grp">מישהו חדש (אורח, בייביסיטר…)</div>
+    <div class="new"><input id="newname" placeholder="שם"><button class="ok" id="addnew">שמור</button></div>
+    <div class="legend">המחשב לומד את הקול מהמשפט הזה, ומיד מזהה מחדש משפטים לא מזוהים מ-30 הימים האחרונים.</div></div>`;
+  document.body.appendChild(sh);
+  const close = () => sh.remove();
+  sh.querySelector(".x").onclick = close;
+  sh.onclick = e => { if (e.target === sh) close(); };
+  const send = async body => {
+    const r = await POST("/home/api/label", Object.assign({utt_id: u.id}, body));
+    close();
+    if (!r.ok) return toast("לא נשמר: " + (r.msg || ""));
+    PEOPLE = null;
+    toast(r.name === "טלוויזיה" ? `סימנתי כטלוויזיה והמחשב לומד את הקולות שלה.${r.renamed ? ` עוד ${r.renamed} משפטים סומנו.` : ""}`
+        : `למדתי: ${r.name}.${r.renamed ? ` זיהיתי מחדש עוד ${r.renamed} משפטים.` : ""}`);
+    live.key = null;
+    route(true);
+  };
+  sh.querySelectorAll(".opts button").forEach(b => b.onclick = () => send({speaker: b.dataset.id}));
+  sh.querySelector("#addnew").onclick = () => { const v = sh.querySelector("#newname").value.trim(); if (v) send({new_name: v}); };
+}
+
+async function days(){
+  const d = await J("/home/api/days");
+  if (!day) day = d.length ? d[0].day : new Date().toISOString().slice(0, 10);
+  $("#days").innerHTML = d.map(x => `<button data-d="${x.day}" class="${x.day === day ? "on" : ""}">${x.day.slice(8)}/${x.day.slice(5, 7)} · ${x.conversations}</button>`).join("");
+  document.querySelectorAll("#days button").forEach(b => b.onclick = () => { day = b.dataset.d;
+    if (location.hash.startsWith("#sounds")) showSounds(); else { location.hash = ""; route(); } });
+}
+async function showDay(){
+  await days();
+  const D = await J("/home/api/day?d=" + day);
+  if (!D.conversations.length) { $("#main").innerHTML = `<div class="empty">אין שיחות ביום הזה.</div>`; return; }
+  const t0 = new Date(day + "T06:00:00"), span = 18 * 3600e3;
+  const x = iso => Math.max(0, Math.min(100, (new Date(iso) - t0) / span * 100));
+  const blocks = D.conversations.map(c => `<div class="blk" title="${hm(c.start)} ${esc(c.topic || "")}" data-id="${c.id}"
+      style="left:${x(c.start)}%;width:${Math.max(.3, x(c.end) - x(c.start))}%;background:${moodColor(c.mood_valence)}"></div>`).join("");
+  const seen = new Set();
+  const snd = D.sounds.filter(s => SND[s.tag] && !seen.has(s.tag + s.t0.slice(0, 15)) && seen.add(s.tag + s.t0.slice(0, 15)))
+    .map(s => `<span class="snd" style="left:${x(s.t0)}%" title="${esc(s.tag)} ${hm(s.t0)}">${SND[s.tag]}</span>`).join("");
+  const talk = D.talk.map(p => `<div class="p"><b style="color:${colorOf(p.name === "?" ? null : p.name)}">${esc(p.name === "?" ? "לא מזוהה" : first(p.name))}</b>
+      <small>${p.minutes} דקות דיבור</small></div>`).join("");
+  const dl = D.daily;
+  const daily = `<div class="card"><h2>סיכום היום <button class="act" id="sumday">${dl ? "רענן סיכום" : "סכם את היום"}</button></h2>
+    ${dl ? `<div>${esc(dl.summary)}</div>${dl.mood ? `<div class="mood">${esc(dl.mood)}</div>` : ""}
+      ${J0(dl.highlights, []).map(h => `<div class="moment">${esc(h)}</div>`).join("")}
+      <div class="legend">עודכן ${hm(dl.updated)} · מתוך ${dl.conversations} שיחות מסוכמות</div>`
+      : `<div class="legend">הסיכום נכתב אוטומטית אחרי שיחות שהסתיימו (לכל היותר פעם בחצי שעה), או בלחיצה.</div>`}</div>`;
+  const convs = D.conversations.map(c => {
+    const talkS = J0(c.talk_seconds, {}), tot = Object.values(talkS).reduce((a, b) => a + b, 0) || 1;
+    const bar = Object.entries(talkS).map(([n, s]) => `<span style="width:${s / tot * 100}%;background:${colorOf(n === "?" ? null : n)}"></span>`).join("");
+    const sounds = J0(c.sounds, []).slice(0, 4).map(s => `<span class="chip">${SND[s.tag] || ""} ${esc(s.tag)}</span>`).join("");
+    const ppl = J0(c.people, []).map(n => `<span class="chip" style="color:${colorOf(n)}">${esc(first(n))}</span>`).join("");
+    const sig = J0(c.signals, []).map(s => `<span class="chip sig">${esc(s)}</span>`).join("");
+    const intr = J0(c.interruptions, []).length;
+    return `<div class="card conv" data-id="${c.id}">
+      <div class="when">${hm(c.start)}–${hm(c.end)} · ${mins(c.seconds || 0)}${c.status === "open" ? ' · <span class="chip prov">ממשיכה עכשיו</span>' : ""}</div>
+      <div class="topic">${esc(c.topic || "שיחה")}</div>
+      ${c.summary ? `<div class="sum">${esc(c.summary)}</div>` : ""}${c.mood_text ? `<div class="mood">${esc(c.mood_text)}</div>` : ""}
+      <div class="chips">${c.marked ? '<span class="chip prov">⭐ סימנת</span>' : ""}${c.away ? '<span class="chip">בחוץ</span>' : ""}${c.place ? `<span class="chip">📍 ${esc(c.place)}</span>` : ""}${c.cal ? `<span class="chip">🗓 ${esc(c.cal)}</span>` : ""}${ppl}${c.media_note ? `<span class="chip media">📺 ${esc(c.media_note)}</span>` : ""}${sig}${sounds}${intr ? `<span class="chip">${intr} קטיעות</span>` : ""}</div>
+      <div class="bar">${bar}</div></div>`;
+  }).join("");
+  $("#main").innerHTML = `${daily}
+    <div class="card"><h2>היום על ציר הזמן</h2><div class="ribbon">${blocks}${snd}</div>
+      <div class="hours"><span>06</span><span>09</span><span>12</span><span>15</span><span>18</span><span>21</span><span>24</span></div>
+      <div class="legend">צבע = מצב הרוח בקול: <span style="color:var(--sage)">רגוע/חיובי</span> · <span style="color:var(--accent)">ביניים</span> · <span style="color:var(--rose)">מתוח/שלילי</span></div></div>
+    <div class="card"><h2>מי דיבר היום</h2><div class="talk">${talk}${(D.media || []).map(m => `<div class="p"><b style="color:var(--sky)">${MEDIA_ICON[m.media] || "📺"} ${esc(m.media)}</b><small>${m.minutes} דקות ברקע (לא תומלל)</small></div>`).join("")}</div></div>
+    ${convs}`;
+  document.querySelectorAll("#main [data-id]").forEach(e => e.onclick = () => location.hash = "c" + e.dataset.id);
+  $("#sumday").onclick = async e => { e.target.textContent = "מסכם…"; const r = await POST("/home/api/summarize_day", {day}); if (!r.ok) toast(r.msg || "לא הצליח"); showDay(); };
+}
+
+function toneChart(U){
+  const pts = U.filter(u => u.arousal != null);
+  if (pts.length < 3) return "";
+  const t0 = new Date(U[0].t0), T = (new Date(U[U.length - 1].t1) - t0) || 1;
+  const X = u => ((new Date(u.t0) - t0) / T * 980 + 10).toFixed(1);
+  const line = (k, col) => `<polyline fill="none" stroke="${col}" stroke-width="2" points="${pts.map(u => `${X(u)},${(80 - u[k] * 70).toFixed(1)}`).join(" ")}"/>`;
+  const dots = pts.map(u => `<circle cx="${X(u)}" cy="${(80 - u.arousal * 70).toFixed(1)}" r="3.5" fill="${colorOf(u.name)}"/>`).join("");
+  return `<svg class="tone" viewBox="0 0 1000 90" preserveAspectRatio="none" style="direction:ltr">${line("valence", "var(--sage)")}${line("arousal", "var(--accent)")}${dots}</svg>
+    <div class="legend"><span style="color:var(--accent)">━ עוררות (כמה אנרגטי/נסער)</span> · <span style="color:var(--sage)">━ חיוביות</span> · נקודה בצבע הדובר</div>`;
+}
+const EMO = {angry:"כעס",happy:"שמחה",sad:"עצב",fearful:"פחד",surprised:"הפתעה",disgusted:"גועל",neutral:"ניטרלי"};
+function feel(u){
+  const out = [];
+  if (u.emotion && u.emotion !== "neutral" && u.emotion !== "other" && u.emotion_p >= .8) out.push(`<span>${EMO[u.emotion] || u.emotion}</span>`);
+  const r = u.rel || {};
+  if (r.f0_hz != null && Math.abs(r.f0_hz) >= 25) out.push(`<span class="${r.f0_hz > 0 ? "hi" : "lo"}">קול ${r.f0_hz > 0 ? "גבוה" : "נמוך"} מהרגיל</span>`);
+  if (r.intensity_db != null && Math.abs(r.intensity_db) >= 5) out.push(`<span class="${r.intensity_db > 0 ? "hi" : "lo"}">${r.intensity_db > 0 ? "חזק" : "שקט"} מהרגיל</span>`);
+  if (r.syll_per_s != null && Math.abs(r.syll_per_s) >= 1.2) out.push(`<span class="${r.syll_per_s > 0 ? "hi" : "lo"}">${r.syll_per_s > 0 ? "מהר" : "לאט"} מהרגיל</span>`);
+  if (u.arousal != null && u.arousal >= .8) out.push(`<span class="hi">נסער/אנרגטי</span>`);
+  return out.join("");
+}
+async function showConv(id){
+  const D = await J("/home/api/conversation?id=" + id);
+  const c = D.conversation, U = D.utterances;
+  if (!c) { $("#main").innerHTML = `<div class="empty">לא נמצא.</div>`; return; }
+  const moments = J0(c.moments, []).map(m => `<div class="moment">${esc(m)}</div>`).join("");
+  const pp = Object.entries(J0(c.per_person, {}));
+  const sounds = D.sounds.map(s => `<span class="chip">${SND[s.tag] || ""} ${esc(s.tag)} ${hm(s.t0)}</span>`).join("");
+  const sig = J0(c.signals, []).map(s => `<span class="chip sig">${esc(s)}</span>`).join("");
+  const intr = J0(c.interruptions, []).map(i => `<span class="chip">${esc(first(i.who === "?" ? null : i.who))} קטע/ה את ${esc(first(i.cut === "?" ? null : i.cut))}</span>`).join("");
+  const unknown = U.filter(u => !u.name && !u.media).length;
+  $("#main").innerHTML = `
+    <button class="back" onclick="location.hash=''">→ חזרה ליום</button>
+    <div class="card"><div class="when">${c.start.slice(0, 10)} · ${hm(c.start)}–${hm(c.end)} · ${mins(c.seconds || 0)}${c.status === "open" ? ' · <span class="chip prov">ממשיכה עכשיו · סיכום ביניים</span>' : ""}</div>
+      <h2 style="font-size:20px">${esc(c.topic || "שיחה")} <button class="act" id="resum">סכם מחדש</button></h2>
+      ${c.summary ? `<div class="sum">${esc(c.summary)}</div>` : ""}${c.mood_text ? `<div class="mood">${esc(c.mood_text)}</div>` : ""}
+      ${pp.length ? `<div class="pp">${pp.map(([n, t]) => `<b style="color:${colorOf(n)}">${esc(first(n))}</b><span>${esc(t)}</span>`).join("")}</div>` : ""}
+      ${moments}<div class="chips">${c.media_note ? `<span class="chip media">📺 ברקע: ${esc(c.media_note)}</span>` : ""}${sig}${sounds}${intr}<span class="chip">${c.turns ?? 0} חילופי דוברים</span></div></div>
+    <div class="card" id="ctxcard" hidden></div>
+    <div class="card"><h2>טון השיחה</h2>${toneChart(U) || '<div class="legend">מעט מדי משפטים לגרף.</div>'}</div>
+    <div class="card"><h2>מי אמר מה</h2>
+      ${unknown ? `<div class="legend" style="margin:0 0 6px">${unknown} משפטים לא זוהו. לחץ על "מי זה? ✎" ליד משפט, הקשב ובחר מי מדבר: המחשב לומד את הקול ומזהה מחדש את השאר.</div>` : ""}
+      <div id="utts">${U.map(uttRow).join("")}</div>
+      <div class="legend">"מהרגיל" = לעומת הקול הרגיל של אותו אדם ב-30 הימים האחרונים (מופיע אחרי שנאספו מספיק משפטים שלו/ה).
+      רגש מהקול מוצג רק כשהמודל בטוח מאוד, וגם אז הוא הערכה ולא קביעה.</div></div>`;
+  bindWho($("#utts"), U);
+  J("/home/api/conv_context?id=" + id).then(x => {
+    if (!x) return;
+    if (!x.place && !x.cal && !x.marked) return;
+    const el = $("#ctxcard"); if (!el) return; el.hidden = false;
+    el.innerHTML = `<h2>הקשר</h2><div class="chips">${x.marked ? '<span class="chip prov">⭐ סימנת רגע</span>' : ""}${x.place ? `<span class="chip">📍 ${esc(x.place)}</span>` : ""}${x.cal ? `<span class="chip">🗓 ${esc(x.cal)}</span>` : ""}
+      ${x.lat != null && !x.place ? '<button class="act" id="nameplace">תן שם למקום הזה</button>' : ""}</div>`;
+    const np = $("#nameplace");
+    if (np) np.onclick = async () => { const n = prompt("איך קוראים למקום הזה?"); if (!n) return;
+      const mute = confirm("האם לא להקליט שם בכלל? (אישור = אזור פרטי, ביטול = רק שם)");
+      await POST("/home/api/place", {name: n, lat: x.lat, lon: x.lon, r_m: 150, mute}); toast("המקום נשמר"); showConv(id); };
+  }).catch(() => {});
+  $("#resum").onclick = async e => { e.target.textContent = "מסכם…"; await POST("/home/api/summarize_conv", {id: c.id, final: c.status !== "open"}); showConv(id); };
+}
+
+// ---------------------------------------------------------------- teach voices (quick queue)
+let T = null, tcur = 0, HOUSE = null;
+let TM = "smart";
+async function showTeach(){
+  $("#days").innerHTML = "";
+  T = await J("/home/api/teach" + (TM === "all" ? "?m=all" : ""));
+  HOUSE ||= (await J("/home/api/people")).filter(p => p.group === "בית" || p.group === "נוספו");
+  teachCount(T.left);
+  const taught = Object.entries(T.taught).map(([n, k]) => `<span class="chip">${esc(first(n))}: ${k}</span>`).join("");
+  const smart = T.mode === "smart";
+  const goalBar = smart ? `<div class="card" style="margin-bottom:10px"><b>לימוד חכם · ${Math.min(T.done_today, T.goal)}/${T.goal} היום</b>
+      <div class="bar"><span style="width:${Math.min(100, T.done_today / T.goal * 100)}%;background:var(--sage)"></span></div>
+      <div class="legend">המחשב בחר את ${T.goal} המשפטים שהכי יעזרו: של מי שיש לו הכי מעט דוגמאות, עם דובר אחד ברור, בלי כפילויות.
+        ${T.skipped_ambiguous ? `${T.skipped_ambiguous} משפטים נראים כמו כמה אנשים מדברים יחד, אז דילגתי עליהם ולא תלמד מהם בטעות.` : ""}
+        <button class="act" id="tmall" style="margin-inline-start:8px">כל המשפטים ›</button></div></div>`
+    : `<div class="card" style="margin-bottom:10px"><button class="act" id="tmsmart">‹ חזרה ללימוד חכם</button></div>`;
+  if (!T.items.length) {
+    $("#main").innerHTML = goalBar + `<div class="card"><h2>ללמד קולות</h2><div class="empty">${smart ? "אין כרגע משפטים ברורים וחדשים ללמוד. ✓" : "אין כרגע משפטים לא מזוהים."}</div>
+      ${taught ? `<div class="chips">דוגמאות שלימדת: ${taught}</div>` : ""}</div>`;
+    $("#tmall")?.addEventListener("click", () => { TM = "all"; showTeach(); });
+    $("#tmsmart")?.addEventListener("click", () => { TM = "smart"; showTeach(); });
+    return;
+  }
+  tcur = Math.min(tcur, T.items.length - 1);
+  const dmy = t => t.slice(5, 10).split("-").reverse().join("/");
+  $("#main").innerHTML = goalBar + `<div class="progress"><b>${T.left} משפטים לא מזוהים</b>
+      <span class="legend" style="margin:0">הקשב ובחר מי מדבר. מקלדת: <b>Enter</b> = הניחוש · <b>1-${HOUSE.length}</b> = אדם · <b>S</b> = דלג · <b>רווח</b> = נגן שוב.
+      3-5 דוגמאות לכל אדם כבר משפרות מאוד.</span>${taught ? `<span class="chips" style="margin:0">${taught}</span>` : ""}</div>
+    <div class="teach">${T.items.map((u, i) => `<div class="tcard ${i === tcur ? "cur" : ""}" data-i="${i}">
+      <div class="when">${dmy(u.t0)} ${hms(u.t0)} · ${u.seconds.toFixed(1)} שנ׳${u.conv_id ? ` · <a href="#c${u.conv_id}" style="color:var(--faint)">לשיחה</a>` : ""}</div>
+      <div class="txt">״${esc(u.text)}״</div>
+      ${i === tcur ? `<audio controls autoplay preload="auto" src="/home/audio/utt/${u.id}"></audio>` : ""}
+      <div class="opts">${u.guess && u.guess_sim >= .25 ? `<button class="guess" data-s="${u.guess}">אולי ${esc(first(u.guess_name))}?<kbd>Enter</kbd></button>` : ""}
+        ${HOUSE.map((p, k) => `<button data-s="${p.id}">${esc(first(p.name))}<kbd>${k + 1}</kbd></button>`).join("")}
+        <button data-s="__tv__">📺 טלוויזיה<kbd>T</kbd></button>
+        <button data-other="1">מישהו אחר…</button><button data-multi="1" title="כמה אנשים מדברים יחד או לא ברור: לא נלמד מזה ולא נשאל שוב">🗣 כמה מדברים / לא ברור</button><button data-skip="1">דלג<kbd>S</kbd></button></div></div>`).join("")}</div>`;
+  $("#tmall")?.addEventListener("click", () => { TM = "all"; showTeach(); });
+  $("#tmsmart")?.addEventListener("click", () => { TM = "smart"; showTeach(); });
+  document.querySelectorAll(".tcard").forEach(card => {
+    const u = T.items[+card.dataset.i];
+    card.onclick = e => { if (e.target.closest("button,audio,a") || +card.dataset.i === tcur) return; tcur = +card.dataset.i; showTeach(); };
+    card.querySelectorAll("button[data-s]").forEach(b => b.onclick = () => teachOne(u, {speaker: b.dataset.s}));
+    card.querySelector("[data-other]").onclick = () => askWho(Object.assign({}, u, {name: null}));
+    card.querySelector("[data-multi]").onclick = async () => { await POST("/home/api/teach_skip", {utt_id: u.id, reason: "multi"}); toast("סומן: לא נלמד ולא יוצג שוב"); showTeach(); };
+    card.querySelector("[data-skip]").onclick = () => { tcur = Math.min(tcur + 1, T.items.length - 1); showTeach(); };
+  });
+  document.querySelector(".tcard.cur")?.scrollIntoView({block: "center", behavior: "smooth"});
+}
+async function teachOne(u, body){
+  const r = await POST("/home/api/label", Object.assign({utt_id: u.id}, body));
+  if (!r.ok) return toast("לא נשמר: " + (r.msg || ""));
+  toast(r.name === "טלוויזיה" ? `סומן כטלוויזיה.${r.renamed ? ` עוד ${r.renamed} משפטים דומים סומנו.` : ""}`
+      : `למדתי: ${r.name}.${r.renamed ? ` זיהיתי מחדש עוד ${r.renamed} משפטים.` : ""}`);
+  showTeach();
+}
+function teachCount(n){ const e = $("#teachn"); if (n) { e.hidden = false; e.textContent = n > 99 ? "99+" : n; } else e.hidden = true; }
+document.addEventListener("keydown", e => {
+  if (!location.hash.startsWith("#teach") || !T || !T.items.length || document.querySelector(".sheet") || e.target.closest("input")) return;
+  const u = T.items[tcur];
+  if (e.key === "Enter" && u.guess && u.guess_sim >= .25) { e.preventDefault(); teachOne(u, {speaker: u.guess}); }
+  else if (/^[1-9]$/.test(e.key) && HOUSE[+e.key - 1]) teachOne(u, {speaker: HOUSE[+e.key - 1].id});
+  else if (e.key.toLowerCase() === "t" || e.key === "א") teachOne(u, {speaker: "__tv__"});
+  else if (e.key.toLowerCase() === "s" || e.key === "ד") { tcur = Math.min(tcur + 1, T.items.length - 1); showTeach(); }
+  else if (e.key === " ") { e.preventDefault(); const a = document.querySelector(".tcard.cur audio"); if (a) { a.currentTime = 0; a.play(); } }
+});
+
+// ---------------------------------------------------------------- sounds of the day
+let SDAY = null, SGRP = null;
+const GRP_ICON = {"בית":"🏠","מטבח":"🍽","אמבטיה":"🛁","מכשירים":"🔌","מוזיקה":"🎵","אנשים":"🧑","בעלי חיים":"🐾","בחוץ":"🌳","שלי":"⭐","לימדת":"⭐","לא מזוהה":"❔"};
+async function showSounds(){
+  await days();
+  const S = await J("/home/api/sounds?d=" + day);
+  const groups = {};
+  S.events.forEach(e => { const g = e.grp || "אחר"; groups[g] = (groups[g] || 0) + 1; });
+  const ev = S.events.filter(e => !SGRP || (e.grp || "אחר") === SGRP).slice().reverse();
+  const unknown = S.events.filter(e => e.tag === "צליל לא מזוהה").length;
+  $("#main").innerHTML = `<div class="card"><h2>מה נשמע היום בבית</h2>
+      <div class="legend" style="margin:0">CED (527 סוגי צלילים) + CLAP לצלילים שהוספת במילים + צלילים שלימדת. ${unknown ? `${unknown} צלילים לא זוהו: לחץ "מה זה?" ותן שם, המחשב יזהה צלילים דומים מעכשיו.` : ""}</div>
+      <div class="sgroups"><span class="chip ${SGRP ? "" : "on"}" data-g="">הכל ${S.events.length}</span>
+        ${Object.entries(groups).sort((a, b) => b[1] - a[1]).map(([g, n]) => `<span class="chip ${SGRP === g ? "on" : ""}" data-g="${esc(g)}">${GRP_ICON[g] || "•"} ${esc(g)} ${n}</span>`).join("")}</div>
+      <div class="chips">${S.tags.slice(0, 18).map(t => `<span class="chip">${SND[t.tag] || ""} ${esc(t.tag)} ×${t.n}</span>`).join("")}</div></div>
+    <div class="card">${ev.length ? ev.slice(0, 150).map(e => `<div class="srow" data-id="${e.id}">
+        <span class="ic">${e.source === "shazam" ? "🎵" : (SND[e.tag] || GRP_ICON[e.grp] || "•")}</span>
+        <span class="nm">${esc(e.tag)}</span>
+        <span class="t">${hms(e.t0)}</span>
+        <span class="src">${{ced: "זוהה", clap: "לפי תיאור", taught: "לפי מה שלימדת", user: "סימנת", loud: "רעש חזק", shazam: "זוהה ב-Shazam"}[e.source] || ""}</span>
+        <audio controls preload="none" src="/home/audio/sound/${e.id}"></audio>
+        ${e.teachable ? `<button class="fix">${e.tag === "צליל לא מזוהה" ? "מה זה?" : "לא נכון?"}</button>` : ""}</div>`).join("")
+      : `<div class="empty">אין צלילים ביום הזה.</div>`}
+      <datalist id="soundtags">${[...new Set([...S.known_tags, ...Object.keys(SND)])].map(t => `<option value="${esc(t)}">`).join("")}</datalist></div>`;
+  document.querySelectorAll(".sgroups .chip").forEach(c => c.onclick = () => { SGRP = c.dataset.g || null; showSounds(); });
+  document.querySelectorAll(".srow .fix").forEach(b => b.onclick = () => {
+    const row = b.closest(".srow");
+    b.outerHTML = `<input list="soundtags" placeholder="מה הצליל? (למשל: הפעמון שלנו)"><button class="fix ok">שמור</button>`;
+    const inp = row.querySelector("input"); inp.focus();
+    const save = async () => {
+      const v = inp.value.trim(); if (!v) return;
+      const r = await POST("/home/api/label_sound", {sound_id: +row.dataset.id, tag: v});
+      toast(r.ok ? `למדתי: ${r.tag}.${r.renamed ? ` עוד ${r.renamed} צלילים דומים קיבלו את השם.` : ""}` : "לא נשמר");
+      showSounds();
+    };
+    row.querySelector(".ok").onclick = save;
+    inp.onkeydown = e => { if (e.key === "Enter") save(); };
+  });
+}
+
+
+// ---------------------------------------------------------------- storage
+const fmtMB = mb => mb >= 1000 ? `${(mb / 1000).toFixed(1)} GB` : `${mb.toFixed(1)} MB`;
+async function showStorage(){
+  const S = await J("/home/api/storage");
+  const used = (S.audio_mb + S.db_mb) / 1000, free = S.disk_free_gb, total = S.disk_total_gb;
+  const months = Object.entries(S.by_month_mb).reverse();
+  const pol = {archive: "ארכיון קטן: דיבור כ-Opus ‏12kbps, צלילים נמחקים", keep: "נשמר הכל, מחיקה רק ידנית", teach: "נמחק אחרי ניתוח, חוץ ממה שמחכה ללימוד", none: "נמחק מיד אחרי ניתוח", days: "נשמר 14 יום"}[S.policy] || S.policy;
+  const sh = document.createElement("div");
+  sh.className = "sheet";
+  sh.innerHTML = `<div class="box"><button class="x">×</button><h3>📦 מקום בדיסק</h3>
+    <div class="kv"><span>הקלטות שמורות</span><b>${fmtMB(S.audio_mb)} · ${S.files} קטעים · ${S.audio_hours.toFixed(1)} שעות דיבור</b>
+      <span>מסד הנתונים</span><span>${fmtMB(S.db_mb)} (תמלול, טון, רגשות, צלילים)</span>
+      <span>קצב</span><span>כ-${fmtMB(S.per_day_mb)} ליום</span>
+      <span>מדיניות</span><span>${esc(pol)}</span>
+      <span>הערכה לשנה</span><span>${S.est_gb_year} GB (${S.speech_min_per_day} דקות דיבור ביום · יעד ${S.est_gb_year_target} GB)</span>
+      <span>מקום פנוי בדיסק</span><span>${free} GB מתוך ${total} GB</span>
+      ${S.days_left_on_disk ? `<span>מספיק ל</span><span>כ-${S.days_left_on_disk > 3650 ? "יותר מ-10 שנים" : S.days_left_on_disk + " ימים"} (עד חצי מהמקום הפנוי)</span>` : ""}</div>
+    <div class="meter" title="הדיסק: תפוס / פנוי"><i style="width:${Math.min(100, (total - free) / total * 100).toFixed(1)}%"></i></div>
+    <div class="legend" style="margin:0">החלק של שמע: ${(used / total * 100).toFixed(3)}% מהדיסק</div>
+    ${months.length ? `<div class="grp" style="margin-top:12px">לפי חודש</div><div class="kv">${months.map(([m, mb]) => `<span>${m.slice(5)}/${m.slice(0, 4)}</span><span>${fmtMB(mb)}</span>`).join("")}</div>` : ""}
+    <div class="grp" style="margin-top:12px">פינוי מקום (רק השמע; התמלול, הטון והרגשות נשארים)</div>
+    <div class="new"><span style="align-self:center">מחק הקלטות מלפני</span><input type="date" id="delbefore" style="flex:0 0 auto"><button class="ok" id="dodel">מחק</button></div>
+    <div class="legend">משפטים שהשמע שלהם נמחק עדיין אפשר לשייך לאדם (לפי החתימה הקולית ששמורה), רק בלי להאזין.</div></div>`;
+  document.body.appendChild(sh);
+  sh.querySelector(".x").onclick = () => sh.remove();
+  sh.onclick = e => { if (e.target === sh) sh.remove(); };
+  sh.querySelector("#dodel").onclick = async () => {
+    const d = sh.querySelector("#delbefore").value;
+    if (!d) return toast("בחר תאריך");
+    if (!confirm(`למחוק לצמיתות את כל ההקלטות מלפני ${d.split("-").reverse().join("/")}? התמלול והניתוח נשארים.`)) return;
+    const r = await POST("/home/api/delete_audio", {before: d, confirm: "yes"});
+    toast(r.ok ? `נמחקו ${r.deleted} הקלטות` : (r.msg || "לא הצליח"));
+    sh.remove(); status();
+  };
+}
+document.addEventListener("DOMContentLoaded", () => {});
+// ---------------------------------------------------------------- connect a phone (QR made here, nothing leaves the PC)
+async function showPair(){
+  const sh = document.createElement("div");
+  sh.className = "sheet";
+  let body;
+  try {
+    const r = await fetch("/home/api/pair");
+    if (!r.ok) throw new Error("remote");
+    const P = await r.json();
+    const qr = qrcode(0, "M"); qr.addData(P.uri); qr.make();
+    const apk = `${P.server}/home/app.apk`;
+    const aq = qrcode(0, "M"); aq.addData(apk); aq.make();
+    body = `<div class="pair">
+      <div><div class="qr">${qr.createImgTag(6, 0)}</div><div class="legend" style="text-align:center">QR לחיבור</div></div>
+      <ol>
+        <li>מורידים את האפליקציה לטלפון: סורקים את ה-QR הקטן במצלמה, או פותחים בדפדפן של הטלפון <code>${esc(apk)}</code> ${P.apk ? "" : '<b style="color:var(--rose)">(הקובץ חסר: הרץ שוב את Install.bat)</b>'}</li>
+        <li>מתקינים ופותחים את "שמע" (אם נשאל: מאשרים התקנה ממקור זה).</li>
+        <li>באפליקציה לוחצים "חבר למחשב" וסורקים את ה-QR הגדול. זהו.</li>
+      </ol>
+      <div><div class="qr small" style="padding:8px">${aq.createImgTag(3, 0)}</div><div class="legend" style="text-align:center">הורדת האפליקציה</div></div></div>
+      <div class="kv" style="margin-top:12px"><span>כתובת בבית</span><code>${esc(P.server)}</code>
+        <span>כתובת מבחוץ</span>${P.remote ? `<code>${esc(P.remote)}</code>` : '<span>אין (Tailscale לא מותקן: הקלטה תגיע רק כשהטלפון בבית)</span>'}
+        <span>קוד גישה</span><code>${esc(P.token)}</code></div>
+      <div class="legend">הטלפון והמחשב צריכים להיות באותה רשת Wi-Fi בבית. הקוד הוא הסיסמה של המחשב שלך: אל תשתף את ה-QR.</div>`;
+  } catch (e) {
+    body = `<div class="legend">את ה-QR אפשר לראות רק במחשב שבו "שמע" מותקן (הוא מכיל את קוד הגישה). פתח שם את <code>http://localhost:8770/home</code>.</div>`;
+  }
+  sh.innerHTML = `<div class="box" style="max-width:760px"><button class="x">×</button><h3>📱 חבר טלפון</h3>${body}</div>`;
+  document.body.appendChild(sh);
+  sh.querySelector(".x").onclick = () => sh.remove();
+  sh.onclick = e => { if (e.target === sh) sh.remove(); };
+}
+// ---------------------------------------------------------------- system: health, storage, models
+async function showSystem(){
+  const [H, S, A] = await Promise.all([J("/home/api/health"), J("/home/api/storage"), J("/home/api/asr")]);
+  const pol = {archive: "ארכיון קטן (Opus ‏12kbps)", keep: "נשמר הכל", teach: "נמחק אחרי ניתוח, חוץ ממה שמחכה ללימוד", none: "נמחק מיד", days: "נשמר 14 יום"}[S.policy] || S.policy;
+  $("#main").innerHTML = `
+    <div class="card"><h2>תקינות</h2>
+      <div class="kv"><span>קטעים שנכשלו ב-24 שעות</span><b style="color:${H.alarm ? "#e5484d" : H.failed_24h ? "var(--accent)" : "var(--sage)"}">${H.failed_24h}</b>
+        <span>בתור לניתוח</span><span>${H.backlog}</span>
+        <span>ניסיונות חוזרים אוטומטיים</span><span>${H.requeued_total}</span></div>
+      ${Object.keys(H.reasons).length ? `<div class="legend">סיבות: ${Object.entries(H.reasons).map(([k, v]) => `${esc(k)}: ${v}`).join(" · ")}</div>` : `<div class="legend">הכל נותח בלי תקלות.</div>`}
+      <div class="legend">קטע שנכשל בגלל המחשב (חסימה, קובץ ארוך מדי) חוזר לתור לבד, עד 3 פעמים.</div></div>
+    <div class="card"><h2>אחסון</h2>
+      <div class="kv"><span>ארכיון שמע</span><b>${fmtMB(S.audio_mb)} · ${S.files} קטעים · ${S.audio_hours.toFixed(1)} שעות</b>
+        <span>מסד נתונים</span><span>${fmtMB(S.db_mb)} (תמלול, דוברים, טון, צלילים)</span>
+        <span>הערכה לשנה</span><span>${S.est_gb_year} GB · ${S.speech_min_per_day} דקות דיבור ביום · יעד ${S.est_gb_year_target} GB</span>
+        <span>מדיניות</span><span>${esc(pol)}</span>
+        <span>דיסק פנוי</span><span>${S.disk_free_gb} GB מתוך ${S.disk_total_gb} GB</span></div>
+      <div class="legend">נשמרים לצמיתות: תמלול, דוברים, טון, רגש, תגי צלילים, חתימות קול ושיחות. שמע של צלילים ושל לימוד קול נמחק.</div></div>
+    <div class="card"><h2>מודל תמלול</h2>
+      <div class="kv"><span>מודל נוכחי</span><b style="direction:ltr;display:inline-block">${esc(A.model)}</b>
+        <span>בדיקה אחרונה</span><span>${A.last ? A.last.slice(0, 10) : "עוד לא נבדק"} · הבאה: ${esc(A.next)}</span>
+        <span>שגיאות מילים (WER)</span><span>${A.wer != null ? (A.wer * 100).toFixed(1) + "%" : "לא נמדד (אין סט זהב)"}</span>
+        <span>סט זהב</span><span>${A.gold_items} משפטים ${A.gold_items < 20 ? "· מומלץ לפחות 20 (כפתור ⭐ ליד משפט בשיחה)" : ""}</span>
+        <span>בדיקה כל 3 חודשים</span><span>${A.enabled ? "פעילה" : "כבויה אחרי 3 בדיקות בלי שיפור"} ${A.enabled ? "" : '<button class="ok" id="asron">הפעל מחדש</button>'}</span></div>
+      ${A.note ? `<div class="legend" style="color:var(--accent)">${esc(A.note)}</div>` : ""}
+      <div class="legend">מודל חדש מאומץ רק אם הוא טוב ב-10% או יותר על הסט הזהב שלך.</div></div>`;
+  const on = $("#asron");
+  if (on) on.onclick = async () => { await POST("/home/api/asr_check", {enabled: true}); showSystem(); };
+}
+// ---------------------------------------------------------------- people
+async function showPeople(){
+  $("#days").innerHTML = "";
+  const P = await J("/home/api/people_stats");
+  if (!P.people.length) { $("#main").innerHTML = `<div class="empty">עוד אין אנשים מזוהים. התחל ב"ללמד קולות".</div>`; return; }
+  const days = [...Array(14)].map((_, i) => { const d = new Date(P.since + "T12:00:00"); d.setDate(d.getDate() + i); return d.toISOString().slice(0, 10); });
+  $("#main").innerHTML = `<div class="legend" style="margin:12px 0">14 הימים האחרונים · דקות דיבור ביום</div><div class="people">${P.people.map(p => {
+    const mx = Math.max(1, ...Object.values(p.days));
+    const bars = days.map(d => { const v = p.days[d] || 0;
+      return `<i class="${v ? "" : "z"}" title="${d.slice(8)}/${d.slice(5, 7)}: ${v} דק׳" style="height:${v ? Math.max(6, v / mx * 100) : 4}%;${v ? `background:${colorOf(p.name)}` : ""}"></i>`; }).join("");
+    const mood = p.valence == null ? "" : ` · מצב רוח בקול: <span style="color:${moodColor(p.valence)}">${p.valence >= .58 ? "רגוע/חיובי" : p.valence <= .42 ? "מתוח" : "ביניים"}</span>`;
+    return `<div class="pcard"><div class="nm" style="color:${colorOf(p.name)}">${esc(p.name)}</div>
+      <div class="spark">${bars}</div>
+      <div class="meta">${p.minutes} דקות · ${p.lines} משפטים${mood}</div>
+      ${p.with.length ? `<div class="meta">מדבר/ת הכי הרבה עם: ${p.with.map(w => esc(first(w.name))).join(", ")}</div>` : ""}
+      <div class="meta">${p.taught ? `לימדת ${p.taught} דוגמאות קול` : "עוד לא לימדת דוגמאות מהטלפון"}</div>
+      ${p.last ? `<div class="last">״${esc(p.last.text.slice(0, 120))}״ <span class="t">${p.last.t0.slice(5, 10).split("-").reverse().join("/")} ${hm(p.last.t0)}</span></div>` : ""}</div>`;
+  }).join("")}</div>`;
+}
+
+
+// ---------------------------------------------------------------- search, questions, tasks
+const mark = t => esc(t).replace(/«/g, "<mark>").replace(/»/g, "</mark>");
+async function showSearch(){
+  $("#days").innerHTML = "";
+  const T = await J("/home/api/tasks");
+  const tasks = T.map(t => `<div class="utt" data-t="${t.id}"><div class="body"><b>${esc(t.who)}</b>: ${esc(t.what)}${t.due ? ` <span class="chip">${esc(t.due)}</span>` : ""}
+      <div class="legend" style="margin:2px 0 0">״${esc(t.quote)}״ · ${t.conv_start ? t.conv_start.slice(8, 10) + "/" + t.conv_start.slice(5, 7) + " " + hm(t.conv_start) : ""}${t.place ? " · " + esc(t.place) : ""}
+      · <a href="#c${t.conv_id}" style="color:var(--accent)">לשיחה</a></div></div>
+      <button class="act" data-s="done">בוצע</button><button class="act" data-s="dismissed">לא רלוונטי</button></div>`).join("");
+  $("#main").innerHTML = `<div class="card"><h2>חיפוש בשיחות</h2>
+      <div class="new" style="margin:0"><input id="q" placeholder="מה חיפשת? למשל: חוזה, רופא, המחיר שדיברנו עליו"><button class="ok" id="dosearch">חפש</button><button class="ok" id="doask" style="background:var(--sage)">שאל</button></div>
+      <div class="chips" id="rng" style="margin-top:8px">${[["today","היום"],["yesterday","אתמול"],["week","7 ימים"],["month","30 יום"],["all","הכל"]].map(([k, t]) =>
+        `<button class="chip ${k === (window.SR || "today") ? "prov" : ""}" data-r="${k}" style="border:0;cursor:pointer;font-size:14px;padding:4px 12px">${t}</button>`).join("")}
+        <button class="ok" id="dosum" style="margin-inline-start:auto">סכם את התקופה</button></div>
+      <div class="legend">"חפש" מציג שיחות שמכילות את המילים (בלי מילים: כל שיחות התקופה). "שאל" מנסח תשובה קצרה, רק מתוך מה שנאמר (דגם מקומי, בלי ענן).
+      "סכם את התקופה" כותב סיכום לכל התקופה שנבחרה.</div><div id="sres"></div></div>
+    <div class="card"><h2>משימות והתחייבויות שנאמרו</h2>${tasks || '<div class="legend">אין משימות פתוחות. המחשב מחלץ אותן אחרי כל שיחה (רק מה שנאמר במפורש, עם ציטוט).</div>'}</div>`;
+  const run = async ask => {
+    const q = $("#q").value.trim(); const r = window.SR || "today";
+    if (!q && ask) return toast("כתוב שאלה");
+    $("#sres").innerHTML = '<div class="legend">מחפש…</div>';
+    const conv = c => `<div class="card conv" data-id="${c.id}" style="margin-top:8px"><div class="when">${c.start.slice(0, 10)} ${hm(c.start)} ${c.place ? "· 📍 " + esc(c.place) : ""}</div>
+      <div class="topic">${esc(c.topic || "שיחה")}</div>${c.snippet ? `<div class="sum">${mark(c.snippet)}</div>` : c.summary ? `<div class="sum">${esc(c.summary)}</div>` : ""}</div>`;
+    if (ask) {
+      const a = await J("/home/api/ask?r=" + r + "&q=" + encodeURIComponent(q));
+      $("#sres").innerHTML = `<div class="card" style="margin-top:8px"><div class="sum">${esc(a.answer || "לא הצלחתי לנסח תשובה")}</div></div>` + (a.conversations || []).map(conv).join("");
+    } else {
+      const a = await J("/home/api/search?r=" + r + "&q=" + encodeURIComponent(q));
+      $("#sres").innerHTML = a.results.length ? `<div class="legend">${a.results.length} שיחות</div>` + a.results.map(conv).join("") : '<div class="empty">לא נמצא.</div>';
+    }
+    document.querySelectorAll("#sres [data-id]").forEach(e => e.onclick = () => location.hash = "c" + e.dataset.id);
+  };
+  $("#dosearch").onclick = () => run(false); $("#doask").onclick = () => run(true);
+  document.querySelectorAll("#rng [data-r]").forEach(b => b.onclick = () => { window.SR = b.dataset.r;
+    document.querySelectorAll("#rng [data-r]").forEach(x => x.classList.toggle("prov", x === b)); run(false); });
+  $("#dosum").onclick = async () => {
+    $("#sres").innerHTML = '<div class="legend">כותב סיכום…</div>';
+    const S = await J("/home/api/range_summary?r=" + (window.SR || "week"));
+    if (!S.ok) { $("#sres").innerHTML = `<div class="empty">${esc(S.msg || "לא הצליח")}</div>`; return; }
+    const days = S.per_day.map(d => `<span class="chip">${d.day.slice(8)}/${d.day.slice(5, 7)}: ${d.n} שיחות · ${d.minutes} דק׳</span>`).join("");
+    $("#sres").innerHTML = `<div class="card" style="margin-top:8px"><h2>סיכום ${esc({today: "היום", yesterday: "אתמול", week: "7 הימים האחרונים", month: "30 הימים האחרונים", all: "הכל"}[S.range])} · ${S.conversations} שיחות</h2>
+      <div class="sum">${esc(S.summary)}</div>${S.highlights.map(h => `<div class="moment">${esc(h)}</div>`).join("")}
+      ${Object.keys(S.by_person).length ? `<div class="pp">${Object.entries(S.by_person).map(([n, t]) => `<b style="color:${colorOf(n)}">${esc(first(n))}</b><span>${esc(t)}</span>`).join("")}</div>` : ""}
+      <div class="chips">${days}</div></div>`;
+  };
+  window.SR ||= "today"; document.querySelector(`#rng [data-r="${window.SR}"]`)?.click();
+  $("#q").onkeydown = e => { if (e.key === "Enter") run(false); };
+  document.querySelectorAll("[data-t] .act").forEach(b => b.onclick = async () => {
+    await POST("/home/api/task", {id: +b.closest("[data-t]").dataset.t, state: b.dataset.s}); showSearch(); });
+}
+
+// ---------------------------------------------------------------- me
+async function showMe(){
+  await days();
+  const M = await J("/home/api/me?d=" + day);
+  if (!M.seconds) { $("#main").innerHTML = `<div class="empty">הקול שלך לא נשמע ביום הזה (או שהטלפון עוד לא למד אותו: ראה "פרטיות").</div>`; return; }
+  const pace = M.pace && M.pace_usual ? ` · ${M.pace} הברות/שנ׳ (הרגיל שלך ${M.pace_usual})` : M.pace ? ` · ${M.pace} הברות/שנ׳` : "";
+  const where = Object.entries(M.where_min || {}).map(([k, v]) => `<span class="chip">📍 ${esc(k)}: ${v} דק׳</span>`).join("");
+  $("#main").innerHTML = `<div class="card"><h2>הדיבור שלי · ${day.slice(8)}/${day.slice(5, 7)}</h2>
+    <div class="kv" style="grid-template-columns:auto 1fr;display:grid;gap:6px 14px">
+      <span>זמן דיבור</span><b>${mins(M.seconds)} · ${M.words} מילים · ${M.conversations} שיחות</b>
+      <span>חלק מהדיבור בשיחות</span><b>${M.share != null ? Math.round(M.share * 100) + "%" : "—"}</b>
+      <span>קצב</span><b>${pace.slice(3) || "—"}</b>
+      <span>מילות מילוי</span><b>${M.fillers_per_100 != null ? M.fillers_per_100 + " ל-100 מילים" : "—"}</b>
+      <span>קטיעות</span><b>קטעת ${M.cut_others} · נקטעת ${M.was_cut}</b></div>
+    <div class="chips" style="margin-top:10px">${where}</div>
+    <div class="legend">המדדים נמדדים רק על הדיבור שזוהה כשלך. כלי לתצפית עצמית, לא ציון.</div></div>`;
+}
+
+// ---------------------------------------------------------------- privacy
+async function showPrivacy(){
+  $("#days").innerHTML = "";
+  const [P, people, S] = await Promise.all([J("/home/api/privacy"), J("/home/api/people"), J("/home/api/status")]);
+  const why = {"owner-not-in-conversation": "הקול שלך לא היה בשיחה", "mute-place": "אזור פרטי", "bystander": "דוברים רחוקים", "optout": "ביקשו לא להיות מוקלטים"};
+  const dropped = P.dropped_14d.length ? P.dropped_14d.map(d => `<div class="srow">${esc(why[d.reason] || d.reason)}: ${d.utterances} משפטים${d.seconds ? ` · ${Math.round(d.seconds)} שנ׳` : ""}</div>`).join("") : '<div class="legend">עוד לא נמחק כלום.</div>';
+  const own = Object.entries(P.owner_samples).map(([d, n]) => `<span class="chip ${n >= P.min_samples ? "sig" : ""}">${esc(d)}: ${n} דגימות ${n >= P.min_samples ? "✓" : "(עוד לא מספיק)"}</span>`).join("") || '<span class="chip">אף טלפון עוד לא למד את הקול שלך (באפליקציה: "ללמד את הקול שלי")</span>';
+  $("#main").innerHTML = `
+    <div class="card"><h2>הכלל מחוץ לבית</h2>
+      <div class="sum">הטלפון האישי שומר רק שיחות שהקול שלך נשמע בהן (לפחות ${P.owner_min_seconds} שנ׳). כל שיחה אחרת, וגם הקלטות שנשארו ממנה, נמחקות מהמחשב אחרי הניתוח. דוברים לא מזוהים שקטים ב-${P.bystander_db} דציבל ויותר מהקול שלך נחשבים עוברי אורח ונמחקים. שיחה שסימנת ⭐ נשמרת תמיד.</div>
+      <div class="chips" style="margin-top:8px">${own}</div>
+      <div class="grp" style="margin-top:12px;color:var(--faint);font-size:12px">נמחק ב-14 הימים האחרונים</div>${dropped}
+      <div class="new" style="display:flex;gap:6px;margin-top:10px"><span style="align-self:center">שיחה צריכה לפחות</span><input id="oms" type="number" value="${P.owner_min_seconds}" style="flex:0 0 70px"><span style="align-self:center">שנ׳ שלך · עוברי אורח מעל</span><input id="bdb" type="number" value="${P.bystander_db}" style="flex:0 0 70px"><span style="align-self:center">dB</span><button class="ok" id="savepv">שמור</button></div></div>
+    <div class="card"><h2>מי ביקש לא להיות מוקלט</h2>
+      <div class="legend">הקול שלהם ממשיך להיות מוכר כדי שאפשר יהיה לזהות ולמחוק: כל מה שהם אומרים נמחק מיד, גם בבית, ולא נשמר בעתיד.</div>
+      <div class="chips">${P.optout.map(o => `<span class="chip">${esc(o.name)} <button class="act" data-un="${o.id}">הסר</button></span>`).join("") || '<span class="legend">אף אחד.</span>'}</div>
+      <div class="new" style="display:flex;gap:6px;margin-top:10px"><select id="optsel" style="flex:1;background:var(--surface2);color:var(--ink);border:1px solid var(--line2);border-radius:10px;padding:6px">${people.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join("")}</select><button class="ok" id="addopt">הוסף</button></div></div>
+    <div class="card"><h2>מקומות</h2>
+      ${P.places.map(x => `<div class="srow">📍 ${esc(x.name)} · רדיוס ${x.r_m} מ׳ · ${x.mute ? "<b style='color:var(--rose)'>פרטי: נמחק</b>" : "שם בלבד"} <button class="act" data-pd="${x.id}">מחק</button></div>`).join("") || '<div class="legend">אין מקומות. שמות נוספים מתוך שיחה: "תן שם למקום הזה". אזורי השתקה בטלפון עצמו: באפליקציה ← "אזורים פרטיים".</div>'}</div>
+    <div class="card"><h2>ייבוא הקלטות</h2>
+      <div class="legend">תיקיות במחשב (אחת בכל שורה) שמסתנכרנות מהטלפון: הודעות קוליות מוואטסאפ, הקלטות שיחה. כל קובץ חדש נקרא כשיחה נפרדת. מהטלפון אפשר גם: שיתוף ← שמע.</div>
+      <textarea id="dirs" rows="3" style="width:100%;margin-top:6px;background:var(--surface2);color:var(--ink);border:1px solid var(--line2);border-radius:10px;padding:8px;direction:ltr;font:inherit">${esc(P.import_dirs.join("\n"))}</textarea>
+      <div class="new" style="margin-top:6px"><button class="ok" id="savedirs">שמור</button></div></div>`;
+  $("#savepv").onclick = async () => { await POST("/home/api/privacy_set", {owner_min_seconds: +$("#oms").value, bystander_db: +$("#bdb").value}); toast("נשמר"); };
+  $("#addopt").onclick = async () => { const id = $("#optsel").value, nm = $("#optsel").selectedOptions[0].textContent;
+    if (!confirm(`למחוק לצמיתות את כל מה ש${nm} אמר/ה עד היום, ולא להקליט אותו/ה יותר?`)) return;
+    const r = await POST("/home/api/optout", {id, on: true}); toast(`נמחקו ${r.deleted} משפטים`); showPrivacy(); };
+  document.querySelectorAll("[data-un]").forEach(b => b.onclick = async () => { await POST("/home/api/optout", {id: b.dataset.un, on: false}); showPrivacy(); });
+  document.querySelectorAll("[data-pd]").forEach(b => b.onclick = async () => { await POST("/home/api/place", {delete: +b.dataset.pd}); showPrivacy(); });
+  $("#savedirs").onclick = async () => { await POST("/home/api/import_dirs", {dirs: $("#dirs").value.split("\n").map(x => x.trim()).filter(Boolean)}); toast("נשמר"); };
+}
+
+function route(soft){
+  status();
+  live();
+  const h = location.hash;
+  const tab = h.startsWith("#teach") ? "teach" : h.startsWith("#people") ? "people" : h.startsWith("#sounds") ? "sounds"
+    : h.startsWith("#search") ? "search" : h.startsWith("#me") ? "me" : h.startsWith("#privacy") ? "privacy" : h.startsWith("#system") ? "system" : "day";
+  document.querySelectorAll("#tabs a").forEach(a => a.classList.toggle("on", a.dataset.t === tab));
+  const m = h.match(/^#c(\d+)/);
+  if (m) showConv(+m[1]); else if (tab === "teach") showTeach(); else if (tab === "people") showPeople();
+  else if (tab === "search") showSearch(); else if (tab === "me") showMe(); else if (tab === "privacy") showPrivacy(); else if (tab === "system") showSystem();
+  else if (tab === "sounds") showSounds(); else showDay();
+  J("/home/api/teach").then(t => teachCount(t.left)).catch(() => {});
+  J("/home/api/tasks").then(t => { const e = $("#taskn"); e.hidden = !t.length; e.textContent = t.length; }).catch(() => {});
+}
+window.onhashchange = () => route();
+$("#store").onclick = showStorage;
+$("#pairbtn").onclick = showPair;
+if (location.hash === "#pair") showPair();
+route();
+covHealth();
+setInterval(covHealth, 20000);
+setInterval(() => { status(); live(); }, 4000);
+setInterval(() => { if (!location.hash && !document.querySelector(".sheet")) showDay(); }, 30000);
+setInterval(() => J("/home/api/teach").then(t => teachCount(t.left)).catch(() => {}), 30000);
+</script>
+</body>
+</html>

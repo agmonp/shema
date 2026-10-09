@@ -1,0 +1,25 @@
+# personal data and secrets: never in the repository
+data/
+config.json
+.env
+*.sqlite*
+*.ogg
+*.m4a
+*.wav
+*.opus
+*.jks
+*.keystore
+names.json
+voiceprints.*
+
+# build / environment
+venv/
+.venv*/
+__pycache__/
+build/
+.gradle/
+.kotlin/
+.idea/
+local.properties
+*.apk
+dist/
