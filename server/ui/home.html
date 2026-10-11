@@ -629,15 +629,16 @@ async function showPair(){
     const P = await r.json();
     const qr = qrcode(0, "M"); qr.addData(P.uri); qr.make();
     const apk = `${P.server}/home/app.apk`;
-    const aq = qrcode(0, "M"); aq.addData(apk); aq.make();
+    const play = "https://play.google.com/store/apps/details?id=app.shema.listener";
+    const aq = qrcode(0, "M"); aq.addData(play); aq.make();
     body = `<div class="pair">
       <div><div class="qr">${qr.createImgTag(6, 0)}</div><div class="legend" style="text-align:center">QR לחיבור</div></div>
       <ol>
-        <li>מורידים את האפליקציה לטלפון: סורקים את ה-QR הקטן במצלמה, או פותחים בדפדפן של הטלפון <code>${esc(apk)}</code> ${P.apk ? "" : '<b style="color:var(--rose)">(הקובץ חסר: הרץ שוב את Install.bat)</b>'}</li>
-        <li>מתקינים ופותחים את "שמע" (אם נשאל: מאשרים התקנה ממקור זה).</li>
+        <li>מתקינים את "שמע" מ-Google Play: סורקים את ה-QR הקטן במצלמה של הטלפון.</li>
+        <li>פותחים את "שמע". <span class="legend">בלי Google Play? אפשר להתקין ישירות מ-<code>${esc(apk)}</code> ${P.apk ? "" : '<b style="color:var(--rose)">(הקובץ חסר: הרץ שוב את Install.bat)</b>'}. לא מתקינים את שתי הגרסאות: גרסה מ-Play וגרסה מהמחשב לא מתקינות אחת מעל השנייה.</span></li>
         <li>באפליקציה לוחצים "חבר למחשב" וסורקים את ה-QR הגדול. זהו.</li>
       </ol>
-      <div><div class="qr small" style="padding:8px">${aq.createImgTag(3, 0)}</div><div class="legend" style="text-align:center">הורדת האפליקציה</div></div></div>
+      <div><div class="qr small" style="padding:8px">${aq.createImgTag(3, 0)}</div><div class="legend" style="text-align:center">Google Play</div></div></div>
       <div class="kv" style="margin-top:12px"><span>כתובת בבית</span><code>${esc(P.server)}</code>
         <span>כתובת מבחוץ</span>${P.remote ? `<code>${esc(P.remote)}</code>` : '<span>אין (Tailscale לא מותקן: הקלטה תגיע רק כשהטלפון בבית)</span>'}
         <span>קוד גישה</span><code>${esc(P.token)}</code></div>
