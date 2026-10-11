@@ -8,7 +8,8 @@ prints the analysed conversation as JSON (nothing stored -- home_listener.py sto
 Per utterance (one speaker, consecutive words):
   speaker  the voices the user taught on the screen (+ optional voiceprints.json) or None
   prosody  Praat: f0 median / range (semitones), intensity dB, syllable rate, pause share
-  emotion  emotion2vec+ large: 9 classes + scores; audeering MSP-dim: arousal/dominance/valence
+  emotion  emotion2vec+ large: 9 classes + scores -> arousal/dominance/valence (circumplex mapping);
+           audeering MSP-dim only when config.json "msp_dim": true (CC-BY-NC-SA: personal, non-commercial use)
 Whole file:
   sounds   AST AudioSet tags per 5 s window (laughter, crying, TV, music, dog, shouting ...)
   dynamics talk share, turns, overlaps (word times of different speakers cross), interruptions
@@ -51,7 +52,16 @@ def asr_prompt(cfg=None):
     return ", ".join(terms[:60]) if terms else None      # no header word: "מונחים:" leaked into the transcript (test 2026-10-09)
 AST_MODEL = "MIT/ast-finetuned-audioset-10-10-0.4593"
 EMO_MODEL = "emotion2vec/emotion2vec_plus_large"
-DIM_MODEL = "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim"
+DIM_MODEL = "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim"   # CC-BY-NC-SA-4.0: opt-in only
+# emotion2vec class -> (arousal, dominance, valence) on the same 0..1 scale as MSP-dim (Russell's circumplex)
+EMO_DIMS = {"angry": (0.85, 0.75, 0.15), "disgusted": (0.60, 0.60, 0.20), "fearful": (0.80, 0.25, 0.20),
+            "happy": (0.70, 0.65, 0.85), "neutral": (0.35, 0.50, 0.50), "sad": (0.25, 0.30, 0.20),
+            "surprised": (0.80, 0.50, 0.60), "other": (0.50, 0.50, 0.50), "<unk>": (0.50, 0.50, 0.50)}
+
+
+def use_msp_dim():
+    """The audeering model is CC-BY-NC-SA (non-commercial). Off unless the user turns it on."""
+    return bool(home_config().get("msp_dim"))
 EMO_HE = {"angry": "כעס", "disgusted": "גועל", "fearful": "פחד", "happy": "שמחה", "neutral": "ניטרלי",
           "other": "אחר", "sad": "עצב", "surprised": "הפתעה", "<unk>": "לא ידוע"}
 SOUND_KEEP = {  # AudioSet label -> our tag (home life)
@@ -67,6 +77,16 @@ SOUND_KEEP = {  # AudioSet label -> our tag (home life)
     "Child speech, kid speaking": "דיבור ילדים", "Babbling": "מלמול תינוק",
 }
 SOUND_MIN = 0.25
+
+
+def dims_from_emotion(emo):
+    """Arousal/dominance/valence as the score-weighted mean of the emotion2vec classes."""
+    sc = (emo or {}).get("scores") or {}
+    tot = sum(v for k, v in sc.items() if k in EMO_DIMS)
+    if tot <= 0:
+        return {}
+    a, d, v = (round(sum(sc[k] * EMO_DIMS[k][i] for k in sc if k in EMO_DIMS) / tot, 3) for i in range(3))
+    return {"arousal": a, "dominance": d, "valence": v}
 
 
 class Brain:
@@ -228,7 +248,9 @@ class Brain:
         return {"label": top, "he": EMO_HE.get(top, top), "p": round(sc[top], 3),
                 "scores": {k: round(v, 3) for k, v in sc.items() if v >= 0.05}}
 
-    def dims(self, wave):
+    def dims(self, wave, emo=None):
+        if not use_msp_dim():
+            return dims_from_emotion(emo)
         proc, m = self.dim()
         x = proc(wave, sampling_rate=SR)["input_values"][0]
         with self.torch.no_grad():
@@ -414,7 +436,7 @@ def utterances(B, audio, words, cands, names=None, raw=None, away=False):
         u["prosody"]["syll_per_s"] = round(syllables_he(u["text"]) / dur, 2)
         if len(wave) >= 0.8 * SR:
             u["emotion"] = B.emotion(wave)
-            u["dims"] = B.dims(wave)
+            u["dims"] = B.dims(wave, u["emotion"])
     return U
 
 
