@@ -48,7 +48,9 @@ def prefetch():
         pass
     from huggingface_hub import snapshot_download
     import home_analyze as HA
-    names = [cfg.get("whisper_model") or HA.WHISPER_MODEL, HA.EMO_MODEL, HA.DIM_MODEL]
+    names = [cfg.get("whisper_model") or HA.WHISPER_MODEL, HA.EMO_MODEL]
+    if cfg.get("msp_dim"):                       # non-commercial model: only when the user turned it on
+        names.append(HA.DIM_MODEL)
     if cfg.get("clap", paths.device() == "cuda"):
         import home_sounds
         names.append(home_sounds.CLAP_MODEL)
