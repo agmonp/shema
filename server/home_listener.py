@@ -1863,8 +1863,7 @@ def scan_imports():
 def _clean(rows):
     out = []
     for r in rows:
-        d = dict(r)
-        d.pop("emb", None)
+        d = {k: v for k, v in dict(r).items() if not isinstance(v, (bytes, bytearray))}   # embeddings (emb, sounds.vec) are not JSON
         d.pop("media_text", None)
         out.append(d)
     return out
@@ -2047,8 +2046,14 @@ def api(path, qs):
             daily = c.execute("SELECT * FROM daily WHERE day=?", (day,)).fetchone()
             media = [dict(r) for r in c.execute("SELECT media, round(sum(seconds)/60.0,1) AS minutes FROM utterances "
                                                 "WHERE substr(t0,1,10)=? AND media IS NOT NULL GROUP BY media", (day,))]
+            # every utterance as [start s, end s (seconds since midnight), name, media, conv_id]: the zoomable
+            # day timeline draws one row per speaker from these
+            sod = lambda s: round(int(s[11:13]) * 3600 + int(s[14:16]) * 60 + float(s[17:] or 0), 1)
+            segs = [[sod(r["t0"]), sod(r["t1"] or r["t0"]), r["name"], r["media"], r["conv_id"]]
+                    for r in c.execute("SELECT t0, t1, name, media, conv_id FROM utterances WHERE substr(t0,1,10)=? "
+                                       "ORDER BY t0", (day,))]
             return {"day": day, "conversations": convs, "sounds": sounds, "talk": talk, "media": media,
-                    "daily": dict(daily) if daily else None}
+                    "segs": segs, "daily": dict(daily) if daily else None}
         if path == "/home/api/conversation":
             cid = int(qs.get("id", ["0"])[0])
             conv = c.execute("SELECT * FROM conversations WHERE id=?", (cid,)).fetchone()
@@ -2059,7 +2064,7 @@ def api(path, qs):
                 if b:
                     u["rel"] = {k: (round(u[k] - b[k], 2) if u.get(k) is not None and b.get(k) is not None else None)
                                 for k in ("f0_hz", "intensity_db", "syll_per_s", "arousal", "valence")}
-            S = [dict(r) for r in c.execute("SELECT * FROM sounds WHERE conv_id=? ORDER BY t0", (cid,))]
+            S = _clean(c.execute("SELECT * FROM sounds WHERE conv_id=? ORDER BY t0", (cid,)).fetchall())
             return {"conversation": dict(conv) if conv else None, "utterances": U, "sounds": S}
     return None
 
@@ -2236,6 +2241,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, (PROJ / "ui" / "home_icon.svg").read_bytes(), "image/svg+xml")
         if u.path == "/home/qrcode.js":
             return self._send(200, (PROJ / "ui" / "qrcode.js").read_bytes(), "text/javascript; charset=utf-8")
+        if u.path == "/home/daytl.js":                     # the zoomable day timeline
+            return self._send(200, (PROJ / "ui" / "daytl.js").read_bytes(), "text/javascript; charset=utf-8")
         if u.path == "/home/app.apk":                      # install on the phone over the home Wi-Fi
             apk = apk_path()
             if not apk:

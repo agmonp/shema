@@ -1,3 +1,5 @@
+# Builds the Windows server zip for a release:  .\package_windows.ps1 1.0.3
+param([string]$Version = "1.0.3")
 $ErrorActionPreference = "Stop"
 $root = Resolve-Path (Join-Path $PSScriptRoot "..\..")
 $dist = Join-Path $root "commercial\dist"
@@ -12,7 +14,7 @@ Copy-Item -Path (Join-Path $root "requirements.txt"), (Join-Path $root "README.m
 Get-ChildItem $stage -Recurse -Directory -Filter "__pycache__" | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
 Get-ChildItem $stage -Recurse -Directory -Filter ".pytest_cache" | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
 
-$zipPath = Join-Path $dist "shema-windows-v1.0.2.zip"
+$zipPath = Join-Path $dist "shema-windows-v$Version.zip"
 if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
 
 Compress-Archive -Path "$stage\*" -DestinationPath $zipPath

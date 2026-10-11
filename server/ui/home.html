@@ -116,6 +116,19 @@ button.gold:hover{color:var(--gold);border-color:var(--gold)}
 .ribbon .blk{position:absolute;top:6px;bottom:14px;border-radius:4px;min-width:3px;cursor:pointer}
 .ribbon .snd{position:absolute;bottom:0;font-size:11px;transform:translateX(-50%)}
 .hours{display:flex;justify-content:space-between;direction:ltr;color:var(--faint);font-size:11px;margin-top:2px}
+.phline{display:flex;align-items:center;gap:8px;flex-wrap:wrap;width:100%;margin-top:10px;padding:6px 10px;border-radius:12px;
+  background:var(--surface);border:1px solid var(--line);text-align:start;font-size:13px;color:var(--dim)}
+.phline:hover{border-color:var(--line2)}
+.phchip{display:inline-flex;align-items:center;gap:7px;flex-wrap:wrap}
+.phchip+.phchip{border-inline-start:1px solid var(--line2);padding-inline-start:10px}
+.phchip b{color:var(--ink);font-weight:700}
+.phchip .dot{width:9px;height:9px;border-radius:50%;background:var(--unk);flex:none}
+.phchip.live .dot{background:var(--sage)} .phchip.on .dot{background:#e5484d;animation:pulse 1.8s infinite}
+.phchip .w{color:var(--rose);font-weight:600}
+.phmore{margin-inline-start:auto;color:var(--accent);font-size:12px;white-space:nowrap}
+.tlhead{display:flex;align-items:center;gap:8px;margin-top:4px}
+.tlhead b{margin-inline-end:auto;color:var(--dim);font-size:14px}
+.card.tlsel{border-color:var(--accent);box-shadow:0 0 0 1px rgba(234,164,94,.35)}
 .talk{display:flex;gap:10px;flex-wrap:wrap}
 .talk .p{background:var(--surface2);border-radius:12px;padding:8px 12px;min-width:120px}
 .talk .p b{display:block}
@@ -185,10 +198,10 @@ mark{background:rgba(234,164,94,.3);color:inherit;border-radius:3px}
     <a href="#privacy" data-t="privacy">פרטיות</a>
     <a href="#system" data-t="system">מערכת</a>
   </nav>
-  <div id="livebox"></div>
   <div class="days" id="days"></div>
   <div id="main"></div>
 </div>
+<script src="/home/daytl.js?v=20261011d"></script>
 <script>
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
@@ -214,7 +227,7 @@ const SND = {"דלת":"🚪","דלת הזזה":"🚪","טריקה":"💥","דפ�
   "כלב":"🐶","חתול":"🐱","כלים":"🍽","דלת":"🚪","פעמון":"🔔","שואב אבק":"🧹","טלפון":"📱","מחיאות כפיים":"👏","משחק מחשב":"🎮","מלמול תינוק":"👶"};
 const HOW = {user: "סימנת", voice: "לפי הקול", context: "לפי ההקשר"};
 const J0 = (s, d) => { try { return JSON.parse(s || "") ?? d; } catch { return d; } };
-let day = null, phoneOnline = false;
+let day = null, phoneOnline = false, TL_OPEN = null;
 function toast(t){ const e = document.createElement("div"); e.className = "toast"; e.textContent = t; document.body.appendChild(e); setTimeout(() => e.remove(), 4500); }
 
 const ago = s => s < 60 ? `לפני ${s} שנ׳` : s < 3600 ? `לפני ${Math.round(s / 60)} דק׳` : `לפני ${Math.round(s / 3600)} שעות`;
@@ -256,9 +269,26 @@ function source(s){
     $("#phones").innerHTML = `<div class="pcards"><div class="pcard"><h3><span class="dot"></span>אין טלפון מחובר</h3><div class="legend">ההקלטה נעשית רק בטלפון (אפליקציית "שמע"). המחשב רק מנתח ואין בו מיקרופון.</div>
       <div style="margin-top:8px"><button class="pairbtn" onclick="showPair()">📱 חבר טלפון</button></div></div></div>`;
   } else {
-    $("#phones").innerHTML = `<div class="pcards">${ph.map(phoneCard).join("")}</div>
-      <div class="legend2">${LEG.map(([k, c, t]) => `<span><b style="background:${c}"></b>${t}</span>`).join("")}<span style="margin-inline-start:auto">🖥 המחשב רק מנתח · אין בו מיקרופון</span></div>`;
+    const open = PH_OPEN;
+    $("#phones").innerHTML = `<button class="phline${open ? " open" : ""}" id="phtoggle" title="${open ? "סגור" : "פרטי הטלפונים: כיסוי ההקלטה היום, סוללה, חיבור"}">
+        ${ph.map(phoneChip).join("")}<span class="phmore">${open ? "סגור ▴" : "פרטים ▾"}</span></button>
+      ${open ? `<div class="pcards">${ph.map(phoneCard).join("")}</div>
+      <div class="legend2">${LEG.map(([k, c, t]) => `<span><b style="background:${c}"></b>${t}</span>`).join("")}<span style="margin-inline-start:auto">🖥 המחשב רק מנתח · אין בו מיקרופון</span></div>` : ""}`;
+    $("#phtoggle").onclick = () => { PH_OPEN = !PH_OPEN; try { localStorage.setItem("shema_ph_open", PH_OPEN ? "1" : ""); } catch (e) {} source(s); };
   }
+}
+// the closed phones line: one chip per phone (state, battery, hours recorded today) + any warning
+let PH_OPEN = (() => { try { return !!localStorage.getItem("shema_ph_open"); } catch (e) { return false; } })();
+function phoneChip(p){
+  const speaking = p.online && /שומע דיבור/.test(p.state || "");
+  const c = COV && COV.phones.find(x => x.code === p.code);
+  const rec = c && c.hours ? (c.hours.rec || 0) : null;
+  const q = +p.queued || 0, oldest = +p.oldest || 0;
+  const warn = [p.vpn === "0" && !p.online ? "Tailscale כבוי?" : "", p.bat && +p.bat > 0 && +p.bat < 15 && p.charging !== "1" ? "סוללה חלשה" : "",
+    q && oldest > 48 * 3600 ? `${q} ממתינים` : ""].filter(Boolean).join(" · ");
+  return `<span class="phchip ${speaking ? "on" : ""} ${p.online ? "live" : ""}"><span class="dot"></span><b>${esc(p.device.split(" ").slice(0, 2).join(" "))}</b>
+    <span>${p.online ? esc((p.state || "").split("·")[0].trim()) : "לא מחובר"}</span>${p.bat && +p.bat > 0 ? `<span>🔋${p.bat}%${p.charging === "1" ? "⚡" : ""}</span>` : ""}
+    ${rec != null ? `<span>הוקלט ${rec.toFixed(1)} ש׳</span>` : ""}${warn ? `<span class="w">⚠ ${esc(warn)}</span>` : ""}</span>`;
 }
 async function covHealth(){
   try { COV = await J("/home/api/coverage"); } catch (e) {}
@@ -279,7 +309,7 @@ async function status(){
 async function live(){
   const L = await J("/home/api/live");
   const box = $("#livebox");
-  if (document.querySelector(".sheet")) return;
+  if (!box || document.querySelector(".sheet")) return;          // the box lives in the day page (under the timeline)
   if (location.hash && location.hash !== "#") { box.innerHTML = ""; live.key = null; return; }   // only on the main tab
   // redraw only when something changed: a redraw every 4 s swallowed clicks on "מי זה?"
   const key = JSON.stringify([L.utterances.map(u => [u.id, u.name]), L.conversation, L.queue, L.worker_busy, L.sounds, phoneOnline]);
@@ -376,13 +406,6 @@ async function showDay(){
   await days();
   const D = await J("/home/api/day?d=" + day);
   if (!D.conversations.length) { $("#main").innerHTML = `<div class="empty">אין שיחות ביום הזה.</div>`; return; }
-  const t0 = new Date(day + "T06:00:00"), span = 18 * 3600e3;
-  const x = iso => Math.max(0, Math.min(100, (new Date(iso) - t0) / span * 100));
-  const blocks = D.conversations.map(c => `<div class="blk" title="${hm(c.start)} ${esc(c.topic || "")}" data-id="${c.id}"
-      style="left:${x(c.start)}%;width:${Math.max(.3, x(c.end) - x(c.start))}%;background:${moodColor(c.mood_valence)}"></div>`).join("");
-  const seen = new Set();
-  const snd = D.sounds.filter(s => SND[s.tag] && !seen.has(s.tag + s.t0.slice(0, 15)) && seen.add(s.tag + s.t0.slice(0, 15)))
-    .map(s => `<span class="snd" style="left:${x(s.t0)}%" title="${esc(s.tag)} ${hm(s.t0)}">${SND[s.tag]}</span>`).join("");
   const talk = D.talk.map(p => `<div class="p"><b style="color:${colorOf(p.name === "?" ? null : p.name)}">${esc(p.name === "?" ? "לא מזוהה" : first(p.name))}</b>
       <small>${p.minutes} דקות דיבור</small></div>`).join("");
   const dl = D.daily;
@@ -405,13 +428,18 @@ async function showDay(){
       <div class="chips">${c.marked ? '<span class="chip prov">⭐ סימנת</span>' : ""}${c.away ? '<span class="chip">בחוץ</span>' : ""}${c.place ? `<span class="chip">📍 ${esc(c.place)}</span>` : ""}${c.cal ? `<span class="chip">🗓 ${esc(c.cal)}</span>` : ""}${ppl}${c.media_note ? `<span class="chip media">📺 ${esc(c.media_note)}</span>` : ""}${sig}${sounds}${intr ? `<span class="chip">${intr} קטיעות</span>` : ""}</div>
       <div class="bar">${bar}</div></div>`;
   }).join("");
-  $("#main").innerHTML = `${daily}
-    <div class="card"><h2>היום על ציר הזמן</h2><div class="ribbon">${blocks}${snd}</div>
-      <div class="hours"><span>06</span><span>09</span><span>12</span><span>15</span><span>18</span><span>21</span><span>24</span></div>
-      <div class="legend">צבע = מצב הרוח בקול: <span style="color:var(--sage)">רגוע/חיובי</span> · <span style="color:var(--accent)">ביניים</span> · <span style="color:var(--rose)">מתוח/שלילי</span></div></div>
+  $("#main").innerHTML = `<div class="card"><h2>היום על ציר הזמן</h2><div id="daytl"></div></div>
+    <div id="tlconv"></div>
+    ${daily}
     <div class="card"><h2>מי דיבר היום</h2><div class="talk">${talk}${(D.media || []).map(m => `<div class="p"><b style="color:var(--sky)">${MEDIA_ICON[m.media] || "📺"} ${esc(m.media)}</b><small>${m.minutes} דקות ברקע (לא תומלל)</small></div>`).join("")}</div></div>
+    <div id="livebox"></div>
     ${convs}`;
-  document.querySelectorAll("#main [data-id]").forEach(e => e.onclick = () => location.hash = "c" + e.dataset.id);
+  document.querySelectorAll("#main .conv[data-id]").forEach(e => e.onclick = () => location.hash = "c" + e.dataset.id);
+  live.key = null; live();
+  const openInline = id => { TL_OPEN = id; showConv(id, $("#tlconv")); };
+  const tl = DayTL.mount($("#daytl"), D, {color: n => colorOf(n), mood: moodColor, snd: SND, media: MEDIA_ICON, onOpen: openInline});
+  if (TL_OPEN && D.conversations.some(c => c.id === TL_OPEN)) showConv(TL_OPEN, $("#tlconv"), true);
+  else if (tl) { TL_OPEN = null; tl.select(null); }
   $("#sumday").onclick = async e => { e.target.textContent = "מסכם…"; const r = await POST("/home/api/summarize_day", {day}); if (!r.ok) toast(r.msg || "לא הצליח"); showDay(); };
 }
 
@@ -436,19 +464,22 @@ function feel(u){
   if (u.arousal != null && u.arousal >= .8) out.push(`<span class="hi">נסער/אנרגטי</span>`);
   return out.join("");
 }
-async function showConv(id){
+// box = #main (own page, address #c<id>) or #tlconv under the day timeline (inline; quiet = no scrolling, after a refresh)
+async function showConv(id, box, quiet){
+  const inline = !!box; box ||= $("#main");
   const D = await J("/home/api/conversation?id=" + id);
   const c = D.conversation, U = D.utterances;
-  if (!c) { $("#main").innerHTML = `<div class="empty">לא נמצא.</div>`; return; }
+  if (!c) { box.innerHTML = `<div class="empty">לא נמצא.</div>`; return; }
   const moments = J0(c.moments, []).map(m => `<div class="moment">${esc(m)}</div>`).join("");
   const pp = Object.entries(J0(c.per_person, {}));
   const sounds = D.sounds.map(s => `<span class="chip">${SND[s.tag] || ""} ${esc(s.tag)} ${hm(s.t0)}</span>`).join("");
   const sig = J0(c.signals, []).map(s => `<span class="chip sig">${esc(s)}</span>`).join("");
   const intr = J0(c.interruptions, []).map(i => `<span class="chip">${esc(first(i.who === "?" ? null : i.who))} קטע/ה את ${esc(first(i.cut === "?" ? null : i.cut))}</span>`).join("");
   const unknown = U.filter(u => !u.name && !u.media).length;
-  $("#main").innerHTML = `
-    <button class="back" onclick="location.hash=''">→ חזרה ליום</button>
-    <div class="card"><div class="when">${c.start.slice(0, 10)} · ${hm(c.start)}–${hm(c.end)} · ${mins(c.seconds || 0)}${c.status === "open" ? ' · <span class="chip prov">ממשיכה עכשיו · סיכום ביניים</span>' : ""}</div>
+  box.innerHTML = `
+    ${inline ? `<div class="tlhead"><b>השיחה שנבחרה בציר</b><button class="back" id="tlfull">פתח בעמוד מלא</button><button class="back" id="tlclose" title="סגור">✕ סגור</button></div>`
+             : `<button class="back" onclick="location.hash=''">→ חזרה ליום</button>`}
+    <div class="card${inline ? " tlsel" : ""}"><div class="when">${c.start.slice(0, 10)} · ${hm(c.start)}–${hm(c.end)} · ${mins(c.seconds || 0)}${c.status === "open" ? ' · <span class="chip prov">ממשיכה עכשיו · סיכום ביניים</span>' : ""}</div>
       <h2 style="font-size:20px">${esc(c.topic || "שיחה")} <button class="act" id="resum">סכם מחדש</button></h2>
       ${c.summary ? `<div class="sum">${esc(c.summary)}</div>` : ""}${c.mood_text ? `<div class="mood">${esc(c.mood_text)}</div>` : ""}
       ${pp.length ? `<div class="pp">${pp.map(([n, t]) => `<b style="color:${colorOf(n)}">${esc(first(n))}</b><span>${esc(t)}</span>`).join("")}</div>` : ""}
@@ -461,6 +492,11 @@ async function showConv(id){
       <div class="legend">"מהרגיל" = לעומת הקול הרגיל של אותו אדם ב-30 הימים האחרונים (מופיע אחרי שנאספו מספיק משפטים שלו/ה).
       רגש מהקול מוצג רק כשהמודל בטוח מאוד, וגם אז הוא הערכה ולא קביעה.</div></div>`;
   bindWho($("#utts"), U);
+  if (inline) {
+    $("#tlclose").onclick = () => { TL_OPEN = null; box.innerHTML = ""; const st = DayTL.state(day); if (st) st.sel = null; document.querySelectorAll(".dtl-lane.cv b.sel").forEach(b => b.classList.remove("sel")); };
+    $("#tlfull").onclick = () => { location.hash = "c" + id; };
+    if (!quiet) box.scrollIntoView({behavior: "smooth", block: "start"});
+  }
   J("/home/api/conv_context?id=" + id).then(x => {
     if (!x) return;
     if (!x.place && !x.cal && !x.marked) return;
@@ -470,9 +506,9 @@ async function showConv(id){
     const np = $("#nameplace");
     if (np) np.onclick = async () => { const n = prompt("איך קוראים למקום הזה?"); if (!n) return;
       const mute = confirm("האם לא להקליט שם בכלל? (אישור = אזור פרטי, ביטול = רק שם)");
-      await POST("/home/api/place", {name: n, lat: x.lat, lon: x.lon, r_m: 150, mute}); toast("המקום נשמר"); showConv(id); };
+      await POST("/home/api/place", {name: n, lat: x.lat, lon: x.lon, r_m: 150, mute}); toast("המקום נשמר"); showConv(id, inline ? box : null, true); };
   }).catch(() => {});
-  $("#resum").onclick = async e => { e.target.textContent = "מסכם…"; await POST("/home/api/summarize_conv", {id: c.id, final: c.status !== "open"}); showConv(id); };
+  $("#resum").onclick = async e => { e.target.textContent = "מסכם…"; await POST("/home/api/summarize_conv", {id: c.id, final: c.status !== "open"}); showConv(id, inline ? box : null, true); };
 }
 
 // ---------------------------------------------------------------- teach voices (quick queue)
@@ -821,7 +857,7 @@ route();
 covHealth();
 setInterval(covHealth, 20000);
 setInterval(() => { status(); live(); }, 4000);
-setInterval(() => { if (!location.hash && !document.querySelector(".sheet")) showDay(); }, 30000);
+setInterval(() => { if (!location.hash && !document.querySelector(".sheet") && !TL_OPEN) showDay(); }, 30000);   // not while a conversation is open under the timeline
 setInterval(() => J("/home/api/teach").then(t => teachCount(t.left)).catch(() => {}), 30000);
 </script>
 </body>
