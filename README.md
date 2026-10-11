@@ -8,7 +8,7 @@
 
 <p align="center">
   <b>הקלטה, תמלול עברית וסיכום של מה שנאמר סביבך, מקומית לגמרי.</b><br>
-  אפליקציית אנדרואיד שמקשיבה + מחשב Windows שמתמלל ומנתח. בלי ענן, בלי חשבון, בלי מנוי.
+  אפליקציית אנדרואיד שמקשיבה + מחשב Windows שמתמלל ומנתח. בלי ענן ובלי חשבון. האפליקציה בחינם ב-[Google Play](https://play.google.com/store/apps/details?id=app.shema.listener), עם מנוי Pro שנתי אופציונלי (14 ימי ניסיון חינם).
 </p>
 
 <p align="center">
@@ -144,7 +144,7 @@ flowchart LR
 
 1. **הורדה:** בעמוד [Releases](../../releases/latest) מורידים את `shema-windows-vX.Y.Z.zip` ופותחים אותו (קליק ימני ← חלץ הכל).
 2. **מחשב:** בתיקייה שנפתחה נכנסים ל-`install` ולוחצים פעמיים על **`Install.bat`**. המתקין בודק את המחשב, מתקין את מה שחסר (Python, ffmpeg, Ollama והמודלים: כמה GB בפעם הראשונה, ולכן זה לוקח זמן), שואל איך קוראים לך, ופותח את המסך של שמע. בסוף Windows ישאל פעם אחת אם לאשר שינוי: זה פותח את הפורט לטלפון, רק ברשת הביתית.
-3. **טלפון:** במסך של שמע במחשב לוחצים **📱 חבר טלפון**. סורקים במצלמה של הטלפון את ה-QR הקטן כדי להוריד את האפליקציה, מתקינים (אם נשאל: מאשרים התקנה ממקור זה), פותחים, לוחצים **"חבר למחשב"** וסורקים את ה-QR הגדול. האפליקציה תבקש הרשאות, וכדאי לאשר הכל.
+3. **טלפון:** מתקינים את "שמע" מ-[Google Play](https://play.google.com/store/apps/details?id=app.shema.listener) (או סורקים את ה-QR הקטן במסך **📱 חבר טלפון** במחשב). פותחים, לוחצים **"חבר למחשב"** וסורקים את ה-QR הגדול. האפליקציה תבקש הרשאות, וכדאי לאשר הכל.
 4. **לימוד קול:** באפליקציה לוחצים **"ללמד את הקול שלי"** וקוראים בקול 25 שניות. אחר כך, בלשונית **"ללמד קולות"**, עונים על כמה שאלות "מי זה?" על בני הבית.
 
 <p align="center"><img src="docs/pc-pair.png" width="560" alt="חבר טלפון: QR לחיבור ו-QR להורדת האפליקציה"></p>
@@ -229,7 +229,7 @@ flowchart LR
 
 ## עדכון
 
-מורידים את ה-ZIP החדש מ-[Releases](../../releases/latest) ומריצים שוב את `Install.bat`. הנתונים, הקולות שלימדת וקוד הגישה נשארים. המתקין גם מוריד את האפליקציה העדכנית לטלפון. כדי לעדכן את הטלפון פותחים בו שוב את הקישור מ"📱 חבר טלפון", וההתקנה מעל הגרסה הקיימת שומרת את ההגדרות.
+מורידים את ה-ZIP החדש מ-[Releases](../../releases/latest) ומריצים שוב את `Install.bat`. הנתונים, הקולות שלימדת וקוד הגישה נשארים. האפליקציה בטלפון מתעדכנת לבד דרך Google Play.
 
 ## הסרה
 
@@ -255,7 +255,7 @@ flowchart LR
 | [CED-base](https://huggingface.co/mispeech/ced-base) (גרסת sherpa-onnx) | זיהוי צלילים | מורד | Apache-2.0 |
 | [emotion2vec+ large](https://huggingface.co/emotion2vec/emotion2vec_plus_large) | רגש מהקול | מורד | FunASR Model License 1.1 (שימוש חופשי בתנאי ייחוס) |
 | [FunASR](https://github.com/modelscope/FunASR) | הרצת emotion2vec | pip | MIT |
-| [audeering wav2vec2 MSP-dim](https://huggingface.co/audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim) | עוררות וחיוביות בקול | מורד | **CC-BY-NC-SA-4.0: לשימוש לא מסחרי בלבד** |
+| [audeering wav2vec2 MSP-dim](https://huggingface.co/audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim) | עוררות וחיוביות בקול | מורד | **CC-BY-NC-SA-4.0: לשימוש לא מסחרי בלבד.** כבוי כברירת מחדל ולא מורד; מופעל רק עם `"msp_dim": true` ב-config.json |
 | [LAION CLAP larger_clap_general](https://huggingface.co/laion/larger_clap_general) | צלילים שאתה מלמד (רק עם NVIDIA) | מורד | Apache-2.0 |
 | [Demucs htdemucs](https://github.com/facebookresearch/demucs) | הפרדת דיבור ממוזיקה | pip + מורד | MIT |
 | [Praat / parselmouth](https://github.com/YannickJadoul/Parselmouth) | גובה ועוצמת קול | pip | GPL-3.0 |
@@ -265,7 +265,7 @@ flowchart LR
 | [FFmpeg](https://ffmpeg.org) (build של Gyan) | המרת שמע | winget | GPL-3.0 |
 | [shazamio](https://github.com/shazamio/ShazamIO) | זיהוי שירים, **אופציונלי וכבוי** | לא מותקן | MIT |
 
-בגלל המודל של audeering, השימוש בשמע כמו שהוא מתאים **לשימוש אישי ולא מסחרי**.
+כברירת מחדל, עוררות וחיוביות מחושבות מתוך הסתברויות הרגש של emotion2vec (מיפוי לפי מודל ה-circumplex), ולא נעשה שימוש במודל של audeering. מי שמפעיל אותו (`"msp_dim": true`) מתחייב לשימוש אישי ולא מסחרי בלבד.
 
 ## לפיתוח
 
