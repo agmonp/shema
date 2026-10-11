@@ -1,4 +1,4 @@
-﻿# Shema (שמע) -- installer for the PC side. Run Install.bat (double click). Safe to run again: it updates, it does not break.
+# Shema (שמע) -- installer for the PC side. Run Install.bat (double click). Safe to run again: it updates, it does not break.
 #
 #   What it does: checks the PC, picks the speech / summary models for this hardware, installs Python 3.11, ffmpeg and
 #   Ollama (winget), a private Python environment, the models, the access code and config.json, a firewall rule for the
@@ -277,20 +277,8 @@ if (-not $SkipOllama) {
 }
 if ($Apk -and (Test-Path $Apk)) {
     Copy-Item $Apk $ApkDst -Force
-} elseif (-not $Test) {
-    try {
-        $rel = Invoke-RestMethod "https://api.github.com/repos/$Repo/releases/latest" -Headers @{ "User-Agent" = "shema-installer" } -TimeoutSec 30
-        $asset = $rel.assets | Where-Object { $_.name -like "*.apk" } | Select-Object -First 1
-        if ($asset) {
-            & curl.exe -L --fail --retry 3 -s -S -o "$ApkDst.part" $asset.browser_download_url
-            if ($LASTEXITCODE -eq 0) { Move-Item "$ApkDst.part" $ApkDst -Force; Write-Host "phone app: $($asset.name)" }
-        }
-    } catch { Write-Host "could not reach GitHub Releases: $_" }
-    if (-not (Test-Path $ApkDst)) {
-        $local = Get-ChildItem $Src -Filter "*.apk" -ErrorAction SilentlyContinue | Select-Object -First 1
-        if ($local) { Copy-Item $local.FullName $ApkDst -Force }
-        else { Say "לא הצלחתי להוריד את אפליקציית הטלפון. אפשר להוריד אותה ישירות מ-https://github.com/$Repo/releases/latest" "Warning" }
-    }
+} else {
+    Write-Host "phone app: Shema Pro on Google Play Store (app.shema.listener)"
 }
 
 # ------------------------------------------------------------------ 11. firewall, background task, shortcuts

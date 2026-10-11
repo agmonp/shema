@@ -32,6 +32,7 @@ def _popen_no_window(self, *a, **kw):
 
 subprocess.Popen.__init__ = _popen_no_window
 import urllib.parse
+from contextlib import contextmanager
 from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -128,11 +129,16 @@ MIGRATIONS = [   # columns added after the first version (2026-10-06 afternoon)
 ]
 
 
+@contextmanager
 def db():
     c = sqlite3.connect(DB, timeout=30)
     c.row_factory = sqlite3.Row
-    c.execute("PRAGMA journal_mode=WAL")
-    return c
+    try:
+        c.execute("PRAGMA journal_mode=WAL")
+        with c:
+            yield c
+    finally:
+        c.close()
 
 
 def migrate():
@@ -158,10 +164,10 @@ def migrate():
 def config():
     HOME.mkdir(parents=True, exist_ok=True)
     if CONFIG.exists():
-        return json.load(open(CONFIG, encoding="utf-8"))
+        return json.loads(CONFIG.read_text(encoding="utf-8"))
     cfg = {"token": secrets.token_urlsafe(24), "audio_days": AUDIO_DAYS, "paused_until": None, "audio_policy": "archive",
            "owner": OWNER}
-    json.dump(cfg, open(CONFIG, "w", encoding="utf-8"), indent=1)
+    CONFIG.write_text(json.dumps(cfg, indent=1), encoding="utf-8")
     return cfg
 
 

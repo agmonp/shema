@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- the letter shin made of three rounded sound-wave bars (the sides lean out, the middle is shorter) joined by a rounded base;
+     108dp adaptive canvas, art inside the 66dp safe zone -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
+    <path android:strokeColor="#FFF4EDE5" android:strokeWidth="7" android:strokeLineCap="round" android:strokeLineJoin="round"
+        android:fillColor="#00000000"
+        android:pathData="M32,34 L38,66 Q38,76 54,76 Q70,76 70,66 L76,34 M54,44 L54,66"/>
+</vector>

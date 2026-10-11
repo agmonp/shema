@@ -627,17 +627,15 @@ async function showPair(){
     const r = await fetch("/home/api/pair");
     if (!r.ok) throw new Error("remote");
     const P = await r.json();
-    const qr = qrcode(0, "M"); qr.addData(P.uri); qr.make();
-    const apk = `${P.server}/home/app.apk`;
-    const aq = qrcode(0, "M"); aq.addData(apk); aq.make();
+    const playStore = "https://play.google.com/store/apps/details?id=app.shema.listener";
+    const aq = qrcode(0, "M"); aq.addData(playStore); aq.make();
     body = `<div class="pair">
-      <div><div class="qr">${qr.createImgTag(6, 0)}</div><div class="legend" style="text-align:center">QR לחיבור</div></div>
+      <div><div class="qr">${qr.createImgTag(6, 0)}</div><div class="legend" style="text-align:center">QR לחיבור המכשיר</div></div>
       <ol>
-        <li>מורידים את האפליקציה לטלפון: סורקים את ה-QR הקטן במצלמה, או פותחים בדפדפן של הטלפון <code>${esc(apk)}</code> ${P.apk ? "" : '<b style="color:var(--rose)">(הקובץ חסר: הרץ שוב את Install.bat)</b>'}</li>
-        <li>מתקינים ופותחים את "שמע" (אם נשאל: מאשרים התקנה ממקור זה).</li>
-        <li>באפליקציה לוחצים "חבר למחשב" וסורקים את ה-QR הגדול. זהו.</li>
+        <li>מורידים את אפליקציית <b>שמע Pro</b> מ-Google Play (סורקים את ה-QR הקטן במצלמה או מחפשים "שמע Pro").</li>
+        <li>פותחים את האפליקציה בטלפון, לוחצים "חבר למחשב" וסורקים את ה-QR הגדול. זהו!</li>
       </ol>
-      <div><div class="qr small" style="padding:8px">${aq.createImgTag(3, 0)}</div><div class="legend" style="text-align:center">הורדת האפליקציה</div></div></div>
+      <div><div class="qr small" style="padding:8px">${aq.createImgTag(3, 0)}</div><div class="legend" style="text-align:center">הורדה ב-Google Play</div></div></div>
       <div class="kv" style="margin-top:12px"><span>כתובת בבית</span><code>${esc(P.server)}</code>
         <span>כתובת מבחוץ</span>${P.remote ? `<code>${esc(P.remote)}</code>` : '<span>אין (Tailscale לא מותקן: הקלטה תגיע רק כשהטלפון בבית)</span>'}
         <span>קוד גישה</span><code>${esc(P.token)}</code></div>

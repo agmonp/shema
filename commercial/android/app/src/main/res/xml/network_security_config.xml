@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- the PC is reached by its LAN address over plain HTTP; nothing else is contacted -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

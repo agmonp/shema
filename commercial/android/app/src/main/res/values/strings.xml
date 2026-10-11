@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">שמע Pro</string>
+    <string name="subscription_yearly_id">shema_pro_yearly</string>
+    <string name="desktop_download_url">https://github.com/agmonp/shema/releases/latest</string>
+</resources>

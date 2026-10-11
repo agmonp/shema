@@ -1,14 +1,14 @@
 # -*- coding: utf-8 -*-
 r"""home_analyze.py -- the home listener's brain: one audio file -> who said what, how it sounded,
-what was heard around it (torch + faster-whisper + sherpa-onnx + funasr).
+what was heard around it (torch + faster-whisper + sherpa-onnx).
 
     python -X utf8 home_analyze.py FILE.wav [--year 2026]
 prints the analysed conversation as JSON (nothing stored -- home_listener.py stores).
 
 Per utterance (one speaker, consecutive words):
   speaker  the voices the user taught on the screen (+ optional voiceprints.json) or None
-  prosody  Praat: f0 median / range (semitones), intensity dB, syllable rate, pause share
-  emotion  emotion2vec+ large: 9 classes + scores; audeering MSP-dim: arousal/dominance/valence
+  prosody  NumPy acoustic estimates: pitch, relative intensity, syllable rate, voiced share
+  emotion  unavailable in this distribution; no inferred emotion numbers are fabricated
 Whole file:
   sounds   AST AudioSet tags per 5 s window (laughter, crying, TV, music, dog, shouting ...)
   dynamics talk share, turns, overlaps (word times of different speakers cross), interruptions
@@ -24,6 +24,7 @@ import numpy as np
 PROJ = Path(__file__).resolve().parent
 sys.path.insert(0, str(PROJ))
 from paths import VOICE, CONFIG, device as _device  # noqa: E402
+from audio_features import prosody  # noqa: E402
 
 SR = 16000
 SIM_MIN, MARGIN = 0.45, 0.12          # a voice is named only when it is this close and beats the runner-up by MARGIN
@@ -49,11 +50,6 @@ def asr_prompt(cfg=None):
     Whisper toward the right spelling, in Hebrew or in Latin letters."""
     terms = [t.strip() for t in ((cfg or home_config()).get("asr_terms") or []) if str(t).strip()]
     return ", ".join(terms[:60]) if terms else None      # no header word: "מונחים:" leaked into the transcript (test 2026-10-09)
-AST_MODEL = "MIT/ast-finetuned-audioset-10-10-0.4593"
-EMO_MODEL = "emotion2vec/emotion2vec_plus_large"
-DIM_MODEL = "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim"
-EMO_HE = {"angry": "כעס", "disgusted": "גועל", "fearful": "פחד", "happy": "שמחה", "neutral": "ניטרלי",
-          "other": "אחר", "sad": "עצב", "surprised": "הפתעה", "<unk>": "לא ידוע"}
 SOUND_KEEP = {  # AudioSet label -> our tag (home life)
     "Laughter": "צחוק", "Baby laughter": "צחוק", "Giggle": "צחוק", "Chuckle, chortle": "צחוק",
     "Crying, sobbing": "בכי", "Baby cry, infant cry": "בכי", "Whimper": "בכי",
@@ -95,46 +91,6 @@ class Brain:
             self.names = json.load(open(VOICE / "names.json", encoding="utf-8"))
         except (OSError, ValueError):
             self.names = {}
-        self._emo = self._dim = self._ast = None
-
-    # ---- lazy models
-    def emo(self):
-        if self._emo is None:
-            from funasr import AutoModel
-            self._emo = AutoModel(model=EMO_MODEL, hub="hf", disable_update=True, device=self.dev)
-        return self._emo
-
-    def dim(self):
-        if self._dim is None:
-            import torch.nn as nn
-            from transformers import Wav2Vec2Processor
-            from transformers.models.wav2vec2.modeling_wav2vec2 import Wav2Vec2Model, Wav2Vec2PreTrainedModel
-
-            class Head(nn.Module):
-                def __init__(self, c):
-                    super().__init__()
-                    self.dense = nn.Linear(c.hidden_size, c.hidden_size)
-                    self.dropout = nn.Dropout(c.final_dropout)
-                    self.out_proj = nn.Linear(c.hidden_size, c.num_labels)
-
-                def forward(self, x):
-                    return self.out_proj(self.dropout(self.dense(self.dropout(x)).tanh()))
-
-            class EmotionModel(Wav2Vec2PreTrainedModel):     # from the model card
-                def __init__(self, c):
-                    super().__init__(c)
-                    self.config = c
-                    self.wav2vec2 = Wav2Vec2Model(c)
-                    self.classifier = Head(c)
-                    self.post_init()          # transformers 5: init_weights() no longer sets the tied-keys table
-
-                def forward(self, x):
-                    h = self.wav2vec2(x)[0].mean(dim=1)
-                    return h, self.classifier(h)
-            proc = Wav2Vec2Processor.from_pretrained(DIM_MODEL)
-            model = EmotionModel.from_pretrained(DIM_MODEL).to(self.dev).eval()
-            self._dim = (proc, model)
-        return self._dim
 
     def demucs(self):
         if getattr(self, "_demucs", None) is None:
@@ -162,15 +118,6 @@ class Brain:
             cfg = home_config()
             self._ears = home_sounds.Ears(device=self.dev, use_clap=cfg.get("clap", self.dev == "cuda"))
         return self._ears
-
-    def ast(self):
-        if self._ast is None:
-            from transformers import ASTFeatureExtractor, ASTForAudioClassification
-            fe = ASTFeatureExtractor.from_pretrained(AST_MODEL)
-            m = ASTForAudioClassification.from_pretrained(AST_MODEL).to(self.dev).eval()
-            m = m.half() if self.dev == "cuda" else m
-            self._ast = (fe, m)
-        return self._ast
 
     # ---- pieces
     def transcribe(self, audio):
@@ -220,22 +167,6 @@ class Brain:
             out.setdefault(pid, []).extend(vecs)
         return out
 
-    def emotion(self, wave):
-        r = self.emo().generate(wave, granularity="utterance", extract_embedding=False, disable_pbar=True)[0]
-        labels = [l.split("/")[-1] for l in r["labels"]]
-        sc = dict(zip(labels, [float(x) for x in r["scores"]]))
-        top = max(sc, key=sc.get)
-        return {"label": top, "he": EMO_HE.get(top, top), "p": round(sc[top], 3),
-                "scores": {k: round(v, 3) for k, v in sc.items() if v >= 0.05}}
-
-    def dims(self, wave):
-        proc, m = self.dim()
-        x = proc(wave, sampling_rate=SR)["input_values"][0]
-        with self.torch.no_grad():
-            _, y = m(self.torch.from_numpy(np.asarray(x)[None]).to(self.dev))
-        a, d, v = [round(float(t), 3) for t in y[0].cpu().numpy()]
-        return {"arousal": a, "dominance": d, "valence": v}
-
     def sounds(self, audio, sound_bank=None):
         """CED-base + CLAP + the user's taught sounds (home_sounds.py). Each event carries the mean
         CLAP vector of its windows so the user can later say what it was."""
@@ -257,23 +188,6 @@ HALLUCINATIONS = {"תודה רבה", "תודה", "תודה רבה לכם", "תו
 def hallucination(text):
     t = re.sub(r"[‏‪-‮.,!?״\"' ]+", " ", text).strip().lower()
     return t in HALLUCINATIONS
-
-
-def prosody(wave):
-    import parselmouth
-    snd = parselmouth.Sound(wave.astype(np.float64), sampling_frequency=SR)
-    pitch = snd.to_pitch(time_step=0.01, pitch_floor=75, pitch_ceiling=600)
-    f0 = pitch.selected_array["frequency"]
-    f0 = f0[f0 > 0]
-    inten = snd.to_intensity(minimum_pitch=75)
-    db = inten.values[0]
-    voiced_share = len(f0) / max(len(pitch.selected_array["frequency"]), 1)
-    out = {"voiced_share": round(voiced_share, 2), "intensity_db": round(float(np.median(db)), 1) if len(db) else None}
-    if len(f0) >= 10:
-        st = 12 * np.log2(f0 / 100.0)
-        out.update({"f0_hz": round(float(np.median(f0)), 1),
-                    "f0_range_st": round(float(np.percentile(st, 90) - np.percentile(st, 10)), 1)})
-    return out
 
 
 HEB_VOWELISH = re.compile(r"[אהוי]|[^\s]")
@@ -412,9 +326,8 @@ def utterances(B, audio, words, cands, names=None, raw=None, away=False):
         dur = max(u["t1"] - u["t0"], 0.01)
         u["prosody"] = prosody(wave) if len(wave) >= 0.3 * SR else {}
         u["prosody"]["syll_per_s"] = round(syllables_he(u["text"]) / dur, 2)
-        if len(wave) >= 0.8 * SR:
-            u["emotion"] = B.emotion(wave)
-            u["dims"] = B.dims(wave)
+        # Unavailable measurements stay absent, so the database stores NULL.
+        u["emotion"], u["dims"] = {}, {}
     return U
 
 
@@ -515,7 +428,7 @@ def main():
     ap.add_argument("file")
     ap.add_argument("--year", type=int)
     ap.add_argument("--people", default="", help="extra person ids (comma separated)")
-    ap.add_argument("--out", help="write JSON here (funasr prints its log to stdout)")
+    ap.add_argument("--out", help="write JSON here")
     args = ap.parse_args()
     B = Brain()
     r = analyse(B, args.file, args.year, [p for p in args.people.split(",") if p])

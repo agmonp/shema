@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="bg">#13100E</color>
+    <color name="surface">#1C1815</color>
+    <color name="surface2">#25201C</color>
+    <color name="ink">#F4EDE5</color>
+    <color name="dim">#B1A597</color>
+    <color name="faint">#958A7D</color>
+    <color name="accent">#EAA45E</color>
+    <color name="sage">#86BBA8</color>
+    <color name="rose">#E48A7F</color>
+    <color name="rec">#E5484D</color>
+</resources>

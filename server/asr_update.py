@@ -139,6 +139,10 @@ def candidates(cfg):
         mid = m.get("id") or m.get("modelId")
         if not mid or mid == cur or "ct2" not in mid.lower():
             continue
+        # Unknown or restrictive licensing must never enter via an automatic update.
+        details = hf_json(f"{HF}/{mid}")
+        if (details.get("cardData") or {}).get("license") not in ("apache-2.0", "mit", "bsd-3-clause"):
+            continue
         if cfg.get("device") == "cpu" and "large-v3-turbo" not in mid and not any(k in mid for k in ("small", "medium", "turbo")):
             continue
         mod = m.get("lastModified") or ""

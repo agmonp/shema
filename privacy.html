@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>מדיניות פרטיות — שמע Pro (Shema Pro)</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; line-height: 1.6; max-width: 800px; margin: 40px auto; padding: 0 20px; color: #222; background: #fafafa; }
+        h1, h2, h3 { color: #111; }
+        .card { background: #fff; padding: 30px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.06); }
+        .badge { display: inline-block; background: #e0f2fe; color: #0369a1; padding: 4px 10px; border-radius: 6px; font-size: 13px; font-weight: 600; margin-bottom: 20px; }
+        code { background: #f1f5f9; padding: 2px 6px; border-radius: 4px; font-size: 14px; }
+    </style>
+</head>
+<body>
+<div class="card">
+    <div class="badge">פרטיות בתכנון · ללא ענן</div>
+    <h1>מדיניות פרטיות — שמע Pro (Shema Pro)</h1>
+    <p><strong>תאריך עדכון אחרון:</strong> 11 באוקטובר 2026<br>
+    <strong>אפליקציה:</strong> שמע Pro (Shema Pro)<br>
+    <strong>מזהה חבילה:</strong> <code>app.shema.listener</code><br>
+    <strong>פרויקט:</strong> <a href="https://github.com/agmonp/shema">https://github.com/agmonp/shema</a></p>
+    
+    <h2>1. עקרון הליבה: אפס ענן (Zero Cloud Architecture)</h2>
+    <p>אפליקציית <strong>שמע Pro</strong> תוכננה מן היסוד על בסיס עקרון של פרטיות מוחלטת (Privacy by Design).<br>
+    <strong>אין שרתי ענן של שמע:</strong> שמע Pro אינה מפעילה שרתי ענן לקליטת הקלטות, תמלולים או פרופילים.<br>
+    <strong>עיבוד מקומי בלבד:</strong> קטעי הדיבור מוקלטים בטלפון, מסוננים מרעשים ומועברים ישירות למחשב האישי שלך (Windows) ברשת הביתית (או דרך Tailscale מאובטח).<br>
+    <strong>המידע נשאר אצלך:</strong> התמלול, זיהוי הדוברים, ניתוח הטון והסיכומים מתבצעים ומאוחסנים אך ורק במחשב האישי שלך.</p>
+
+    <h2>2. הרשאות ועיבוד נתונים</h2>
+    <p><strong>מיקרופון ושירות חזית (RECORD_AUDIO, FOREGROUND_SERVICE_MICROPHONE):</strong><br>
+    האזנה ברקע לקולך לצורך זיהוי קטעי דיבור (Silero VAD מקומי). קטעים ללא דיבור נמחקים מיד. בזמן פעילות מופיעה התראה קבועה בווילון ההתראות המאפשרת עצירה או השהיה בכל רגע.</p>
+    
+    <p><strong>מיקום ולוח שנה (עיבוד מקומי בלבד במכשיר — אינו נאסף):</strong><br>
+    נתוני המיקום ושמות האירועים ביומן מעובדים בזיכרון המכשיר בלבד (לצורך השבתת הקלטה באזורים פרטיים ובאירועים פרטיים). נתונים אלה <strong>לעולם אינם עוזבים את הטלפון</strong> ואינם מועברים או נשמרים.</p>
+
+    <p><strong>רכישות ומנויים (BILLING):</strong><br>
+    ניהול המנוי השנתי מתבצע ישירות ומאובטח באמצעות שירות Google Play Billing של גוגל.</p>
+
+    <hr style="margin: 25px 0; border: 0; border-top: 1px solid #eee;">
+
+    <a id="מחיקת-הקלטות"></a>
+    <h2>3. מחיקת הקלטות ונתונים (Data Deletion Policy)</h2>
+    <p>למשתמש יש שליטה מוחלטת ומלאה על מחיקת כל הנתונים, ההקלטות והתמלילים בכל רגע:</p>
+    <ul>
+        <li><strong>מחיקה מהטלפון:</strong> הסרת האפליקציה מהטלפון מוחקת מיידית את כל קבצי התור הזמניים, המטמון וההגדרות. ניתן גם לבצע "נקה נתונים" בהגדרות היישומים באנדרואיד.</li>
+        <li><strong>מחיקה מהמחשב:</strong> במסך שמע במחשב, תחת לשונית <strong>📦 מקום בדיסק</strong>, ניתן למחוק הקלטות ישנות בלחיצת כפתור או למחוק שיחות ספציפיות.</li>
+        <li><strong>מחיקה ידנית מלאה:</strong> כל ההקלטות והתמלילים שמורים בתיקייה <code>%LOCALAPPDATA%\Shema\data</code>. מחיקת התיקייה מוחקת את כל הנתונים לצמיתות. כמו כן, הרצת <code>Uninstall.bat</code> מסירה את התוכנה ומאפשרת מחיקה מלאה של הנתונים.</li>
+    </ul>
+
+    <h2>4. אי-שיתוף מידע ומחיקה</h2>
+    <p>אנו <strong>לעולם איננו מוכרים, משתפים או מעבירים</strong> הקלטות או תמלילים עם צדדים שלישיים.<br>
+    כל הנתונים נשמרים אצלך בלבד.</p>
+    
+    <h2>5. יצירת קשר</h2>
+    <p>לשאלות ובירורים: דרך עמוד הפרויקט ב-GitHub: <a href="https://github.com/agmonp/shema/issues">https://github.com/agmonp/shema/issues</a> או בכתובת המפתח המפורסמת ב-Google Play Console.</p>
+</div>
+</body>
+</html>

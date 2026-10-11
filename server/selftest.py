@@ -22,7 +22,7 @@ def check(name):
 
 def main():
     out = {"python": sys.version.split()[0], "errors": {}}
-    for m in ("torch", "faster_whisper", "sherpa_onnx", "ctranslate2", "funasr", "parselmouth", "librosa", "demucs"):
+    for m in ("torch", "faster_whisper", "sherpa_onnx", "ctranslate2", "numpy", "librosa", "demucs"):
         e = check(m)
         if e:
             out["errors"][m] = e
@@ -48,7 +48,7 @@ def prefetch():
         pass
     from huggingface_hub import snapshot_download
     import home_analyze as HA
-    names = [cfg.get("whisper_model") or HA.WHISPER_MODEL, HA.EMO_MODEL, HA.DIM_MODEL]
+    names = [cfg.get("whisper_model") or HA.WHISPER_MODEL]
     if cfg.get("clap", paths.device() == "cuda"):
         import home_sounds
         names.append(home_sounds.CLAP_MODEL)
