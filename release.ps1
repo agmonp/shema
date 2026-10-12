@@ -9,6 +9,12 @@ $root = $PSScriptRoot
 $gh = (Get-Command gh -ErrorAction SilentlyContinue).Source
 if (-not $gh) { $gh = "$env:ProgramFiles\GitHub CLI\gh.exe" }
 if (git -C $root status --porcelain) { throw "commit your changes first" }
+# Windows PowerShell 5.1 reads a .ps1 without BOM as ANSI: Hebrew text then breaks the parser on the user's PC.
+foreach ($f in Get-ChildItem "$root\install" -Filter *.ps1) {
+    $b = [IO.File]::ReadAllBytes($f.FullName)
+    $bom = $b.Length -ge 3 -and $b[0] -eq 0xEF -and $b[1] -eq 0xBB -and $b[2] -eq 0xBF
+    if (-not $bom -and ($b | Where-Object { $_ -gt 127 } | Select-Object -First 1)) { throw "$($f.Name) has non-ASCII text but no UTF-8 BOM: save it as UTF-8 with BOM" }
+}
 
 # 1. version in the app (versionCode = major*10000 + minor*100 + patch)
 $p = $Version.Split(".") | ForEach-Object { [int]$_ }
