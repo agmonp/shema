@@ -226,7 +226,7 @@ const SND = {"דלת":"🚪","דלת הזזה":"🚪","טריקה":"💥","דפ�
   "נביחה":"🐶","מיאו":"🐱","ציפורים":"🐦","ציוץ":"🐦","גשם":"🌧","רעם":"⛈","רכב":"🚗","סירנה":"🚨","צליל לא מזוהה":"❔",
   "צחוק":"😂","בכי":"😢","צעקה":"📢","צעקות ילדים":"📢","מוזיקה":"🎵","שירה":"🎤","טלוויזיה":"📺","רדיו":"📻",
   "כלב":"🐶","חתול":"🐱","כלים":"🍽","דלת":"🚪","פעמון":"🔔","שואב אבק":"🧹","טלפון":"📱","מחיאות כפיים":"👏","משחק מחשב":"🎮","מלמול תינוק":"👶"};
-const HOW = {user: "סימנת", voice: "לפי הקול", context: "לפי ההקשר", conv: "כנראה · לחץ לתקן"};
+const HOW = {user: "סימנת", voice: "לפי הקול", context: "לפי ההקשר", conv: "כנראה · לחץ לתקן", call: "לפי השיחה · לחץ לתקן"};
 const J0 = (s, d) => { try { return JSON.parse(s || "") ?? d; } catch { return d; } };
 let day = null, phoneOnline = false, TL_OPEN = null;
 function toast(t){ const e = document.createElement("div"); e.className = "toast"; e.textContent = t; document.body.appendChild(e); setTimeout(() => e.remove(), 4500); }
@@ -334,7 +334,7 @@ function uttRow(u){
   if (u.media) return `<div class="utt media"><button class="who" data-u="${u.id}" title="לחץ אם זה לא ${esc(u.media)}">${MEDIA_ICON[u.media] || "📺"} ${esc(u.media)}
       <small>${u.how === "user" ? "סימנת" : "ברקע · לא תומלל"}</small></button>
     <div class="body"><span class="t">${hms(u.t0)}</span> ${esc(u.media)} ברקע · ${Math.round(u.seconds)} שנ׳</div></div>`;
-  return `<div class="utt"><button class="who${u.how === "conv" ? " maybe" : ""}" data-u="${u.id}" style="color:${colorOf(u.name)}" title="לחץ כדי לומר מי זה">${esc(first(u.name))}${u.how === "conv" ? "?" : ""}
+  return `<div class="utt"><button class="who${u.how === "conv" || u.how === "call" ? " maybe" : ""}" data-u="${u.id}" style="color:${colorOf(u.name)}" title="לחץ כדי לומר מי זה">${esc(first(u.name))}${u.how === "conv" ? "?" : ""}
       <small>${u.name ? (HOW[u.how] || "") : "מי זה? ✎"}</small></button>
     <div class="body"><span class="t">${hms(u.t0)}</span> ${esc(u.text)}${u.text ? `<button class="gold" data-g="${u.id}" title="הוסף לסט הזהב: מדידת איכות התמלול">⭐ זהב</button>` : ""}<div class="feel">${feel(u)}</div></div></div>`;
 }

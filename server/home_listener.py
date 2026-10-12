@@ -87,6 +87,7 @@ CREATE TABLE IF NOT EXISTS sounds (id INTEGER PRIMARY KEY, chunk_id INTEGER, con
     t0 TEXT, t1 TEXT, tag TEXT, score REAL);
 CREATE TABLE IF NOT EXISTS voice_bank (id INTEGER PRIMARY KEY, speaker TEXT, utt_id INTEGER, vec BLOB, created TEXT);
 CREATE TABLE IF NOT EXISTS home_people (id TEXT PRIMARY KEY, name TEXT, created TEXT);
+CREATE TABLE IF NOT EXISTS call_contacts (contact TEXT PRIMARY KEY, speaker TEXT, created TEXT);
 CREATE TABLE IF NOT EXISTS sound_bank (id INTEGER PRIMARY KEY, tag TEXT, sound_id INTEGER, vec BLOB, created TEXT);
 CREATE TABLE IF NOT EXISTS daily (day TEXT PRIMARY KEY, summary TEXT, highlights TEXT, mood TEXT,
     conversations INTEGER, updated TEXT, model TEXT);
@@ -243,21 +244,36 @@ def name_of(c, pid):
 
 def bank(c, device=None):
     """speaker -> [centroid of the user-labelled phone utterances] (+ a second centroid made only of
-    this phone's samples: a phone in a pocket does not sound like a phone on the shelf)."""
+    this phone's samples: a phone in a pocket does not sound like a phone on the shelf).
+    Lines taught from phone calls (device CALL_DEVICE) only make the second centroid when device=CALL_DEVICE:
+    a voice through the phone network does not sound like the same voice in the room."""
     out, per_dev = {}, {}
     for r in c.execute("SELECT speaker, vec, device FROM voice_bank"):
         v = np.frombuffer(r["vec"], dtype=np.float32)
-        out.setdefault(r["speaker"], []).append(v)
+        if r["device"] != CALL_DEVICE:
+            out.setdefault(r["speaker"], []).append(v)
         if device and r["device"] == device:
             per_dev.setdefault(r["speaker"], []).append(v)
     res = {}
-    for s, vs in out.items():
-        m = np.mean(vs, axis=0)
-        res[s] = [m / (np.linalg.norm(m) + 1e-9)]
-        if s in per_dev:
-            m = np.mean(per_dev[s], axis=0)
-            res[s].append(m / (np.linalg.norm(m) + 1e-9))
+    for s in list(out) + [k for k in per_dev if k not in out]:
+        res[s] = []
+        for vs in (out.get(s), per_dev.get(s)):
+            if vs:
+                m = np.mean(vs, axis=0)
+                res[s].append(m / (np.linalg.norm(m) + 1e-9))
     return res
+
+
+# ------------------------------------------------------------------ phone calls (the dialer's own recordings)
+CALL_PREFIX = "📞 שיחה עם "     # the phone app titles every imported call recording this way (cal)
+CALL_DEVICE = "call"            # voice_bank rows taught from call lines
+
+
+def call_contact(cal):
+    """The contact name of a call conversation (from the recording's file name), else None."""
+    if cal and cal.startswith(CALL_PREFIX):
+        return cal[len(CALL_PREFIX):].strip() or None
+    return None
 
 
 def owner_id():
@@ -354,6 +370,82 @@ def conv_context_names(c, cid, cands):
     return changed
 
 
+# 2026-10-12: a phone call has two sides: the owner and the contact named in the recording's file name.
+# Measured on 60 home conversations pushed through a call codec (AMR-WB/NB + the dialer's mp3, 589 lines):
+# the bank rule names 4% of call lines. Contact's voice known (after the user marks them once): owner vs contact,
+# 64% named at ~98%. Contact's voice unknown: "clearly the owner" / "clearly not the owner = the contact", 17-34%
+# named at 98-100% (grows as the owner's call voice is taught). how='call', shown "לפי השיחה".
+CALL_SEED, CALL_HI, CALL_LO = 0.55, 0.50, 0.15          # contact's voice unknown
+CALL_PSEED, CALL_MARGIN, CALL_MIN = 0.45, 0.15, 0.25    # contact's voice known
+
+
+def call_names(c, cid, contact, cands=None):
+    """Name the lines of call conversation cid: the owner or the contact. -> lines changed."""
+    O = owner_id()
+    cands = cands if cands is not None else current_cands(c, CALL_DEVICE)
+    m = c.execute("SELECT speaker FROM call_contacts WHERE contact=?", (contact,)).fetchone()
+    P = m["speaker"] if m else None
+    if O not in cands:
+        return 0
+    rows = [dict(r) for r in c.execute("SELECT id, speaker, name, seconds, emb, how FROM utterances WHERE conv_id=? "
+                                       "AND emb IS NOT NULL AND media IS NULL", (cid,))]
+    known = P in cands
+    for r in rows:
+        r["x"] = np.frombuffer(r["emb"], dtype=np.float32)
+        r["bo"] = max(float(r["x"] @ v) for v in cands[O])
+        r["bp"] = max(float(r["x"] @ v) for v in cands[P]) if known else None
+        r["fixed"] = r["how"] in ("user", "voice")
+
+    def long_(r):
+        return (r["seconds"] or 0) >= 1.5
+    seeds = [r for r in rows if (r["fixed"] and r["speaker"] == O) or
+             (not r["fixed"] and long_(r) and r["bo"] >= (CALL_PSEED if known else CALL_SEED)
+              and (not known or r["bo"] - r["bp"] >= CALL_MARGIN))]
+    pseeds = [r for r in rows if (r["fixed"] and P and r["speaker"] == P) or
+              (known and not r["fixed"] and long_(r) and r["bp"] >= CALL_PSEED and r["bp"] - r["bo"] >= CALL_MARGIN)]
+
+    def score(r, b, ss):
+        a = sorted((float(r["x"] @ s["x"]) for s in ss if s["id"] != r["id"]), reverse=True)[:2]
+        return 0.3 * b + 0.7 * (sum(a) / len(a)) if a else b
+    pname = name_of(c, P) if P else contact
+    changed = 0
+    for r in rows:
+        if r["fixed"] or r["how"] not in (None, "call", "conv"):
+            continue
+        so = score(r, r["bo"], seeds)
+        new, sc = "?", None
+        if known:
+            sp = score(r, r["bp"], pseeds)
+            if so - sp >= CALL_MARGIN and so >= CALL_MIN:
+                new, sc = O, so
+            elif sp - so >= CALL_MARGIN and sp >= CALL_MIN:
+                new, sc = P, sp
+        elif so >= CALL_HI:
+            new, sc = O, so
+        elif so <= CALL_LO:
+            new, sc = P, so                              # P None: the contact is not a known person yet
+        if new == "?":
+            if r["how"] in ("call", "conv"):
+                changed += c.execute("UPDATE utterances SET speaker=NULL, name=NULL, how=NULL, score=NULL WHERE id=?",
+                                     (r["id"],)).rowcount
+            continue
+        nm = name_of(c, O) if new == O else pname
+        if (r["speaker"], r["name"], r["how"]) == (new, nm, "call"):
+            continue
+        changed += c.execute("UPDATE utterances SET speaker=?, name=?, how='call', score=? WHERE id=? "
+                             "AND (how IS NULL OR how IN ('call','conv'))", (new, nm, round(sc, 3), r["id"])).rowcount
+    return changed
+
+
+def names_by_context(c, cid, cands=None, call_cands=None):
+    """Context naming for one conversation: a call (two sides) or a conversation in the room."""
+    cv = c.execute("SELECT cal FROM conversations WHERE id=?", (cid,)).fetchone()
+    contact = call_contact(cv["cal"]) if cv else None
+    if contact:
+        return call_names(c, cid, contact, call_cands)
+    return conv_context_names(c, cid, cands if cands is not None else current_cands(c))
+
+
 def label(utt_id, speaker=None, new_name=None):
     """The user says who spoke one utterance -> voice bank -> re-score unnamed utterances.
     speaker "__tv__" = "this is the TV": the words leave the transcript, the voice teaches the TV filter.
@@ -392,9 +484,14 @@ def label(utt_id, speaker=None, new_name=None):
             c.execute("UPDATE utterances SET speaker=?, name=?, how='user', score=NULL, media=NULL, "
                       "text=coalesce(nullif(text,''), media_text, '') WHERE id=?", (speaker, name, utt_id))
             c.execute("DELETE FROM voice_bank WHERE utt_id=?", (utt_id,))
+            cv = c.execute("SELECT cal FROM conversations WHERE id=?", (u["conv_id"],)).fetchone() if u["conv_id"] else None
+            contact = call_contact(cv["cal"]) if cv else None
             if u["emb"] is not None:
                 c.execute("INSERT INTO voice_bank (speaker, utt_id, vec, created, device) VALUES (?,?,?,?,?)",
-                          (speaker, utt_id, u["emb"], iso(datetime.now()), u["device"]))
+                          (speaker, utt_id, u["emb"], iso(datetime.now()), CALL_DEVICE if contact else u["device"]))
+            if contact and speaker != owner_id():          # "אבא" in the phone's contacts is this person
+                c.execute("INSERT OR REPLACE INTO call_contacts (contact, speaker, created) VALUES (?,?,?)",
+                          (contact, speaker, iso(datetime.now())))
         # re-score: everything unnamed (and machine-named) from the last RESCORE_DAYS days
         cands = current_cands(c)
         since = iso(datetime.now() - timedelta(days=RESCORE_DAYS))
@@ -417,8 +514,9 @@ def label(utt_id, speaker=None, new_name=None):
                                   (new, name_of(c, new), round(s1, 3), r["id"]))
                         changed += 1
         convs = [r[0] for r in c.execute("SELECT DISTINCT conv_id FROM utterances WHERE t0>=? AND conv_id IS NOT NULL", (since,))]
-        for cid in convs:                                  # short lines: the conversation's own named lines
-            changed += conv_context_names(c, cid, cands)
+        call_cands = current_cands(c, CALL_DEVICE)
+        for cid in convs:                                  # short lines / calls: the conversation's own named lines
+            changed += names_by_context(c, cid, cands, call_cands)
         taught = {name_of(c, r["speaker"]): r["n"] for r in
                   c.execute("SELECT speaker, count(*) AS n FROM voice_bank GROUP BY speaker")}
     for cid in convs:                                      # names in the conversation cards follow
@@ -475,8 +573,9 @@ def sounds_day(c, day):
     return {"day": day, "events": rows, "tags": tags, "known_tags": known}
 
 
-def current_cands(c):
-    """Optional prepared voiceprints for this year + everything the user taught (phone voice bank)."""
+def current_cands(c, device=None):
+    """Optional prepared voiceprints for this year + everything the user taught (phone voice bank);
+    device=CALL_DEVICE adds the voices taught from phone calls."""
     import voice_speakers as VS
     try:
         meta = json.load(open(VOICE / "voiceprints.json", encoding="utf-8"))["prints"]
@@ -492,7 +591,7 @@ def current_cands(c):
             v = VS.print_for(by[pid], datetime.now().year)
             if v is not None:
                 cands[pid] = [v]
-    for pid, vs in bank(c).items():
+    for pid, vs in bank(c, device).items():
         cands.setdefault(pid, []).extend(vs)
     return cands
 
@@ -868,7 +967,7 @@ class Worker(threading.Thread):
             st = datetime.fromisoformat(row["start"])
             t = time.time()
             with db() as c:
-                bk, names, sb = bank(c, row["device"]), extra_names(c), sound_bank(c)
+                bk, names, sb = bank(c, CALL_DEVICE if call_contact(row["cal"]) else row["device"]), extra_names(c), sound_bank(c)
             kind = row["kind"] or "speech"
             res = home_analyze.analyse(self.B, row["file"], year=st.year, bank=bk, names=names, sound_bank=sb,
                                        kind=kind, when=st.timestamp(),
@@ -1178,7 +1277,7 @@ def describe_media(c, cid, final):
 def finish_conversation(cid, final=True):
     with db() as c:
         try:
-            conv_context_names(c, cid, current_cands(c))
+            names_by_context(c, cid)
         except Exception as exc:  # noqa: BLE001
             log(f"conv names {cid} failed {exc!r}")
         U, S, dyn = conv_stats(c, cid)
