@@ -306,6 +306,54 @@ def people_list(c):
 TV = "__tv__"
 
 
+# 2026-10-12: short lines. Against the voice bank alone a 0.6-1 s line is named 7-8% of the time; scored also
+# against the lines of the SAME conversation already named (same phone, room and day) 23-25% are named at the
+# same ~97% precision (1,437 clips cut from lines of known speakers). Shown as "כנראה" (how='conv'), never taught
+# into the voice bank, never used as an anchor, and re-checked whenever the conversation or the bank changes.
+CONV_W, CONV_MIN, CONV_MARGIN, CONV_BANK_MIN, CONV_ANCHOR_S = 0.7, 0.45, 0.12, 0.35, 1.5
+
+
+def conv_context_names(c, cid, cands):
+    """Name the unnamed lines of conversation cid from its own named lines + the bank. -> lines changed."""
+    rows = c.execute("SELECT id, speaker, seconds, emb, how FROM utterances WHERE conv_id=? AND emb IS NOT NULL "
+                     "AND media IS NULL", (cid,)).fetchall()
+    anchors = {}
+    for r in rows:
+        if r["speaker"] and r["speaker"] != TV and r["how"] in ("user", "voice") and (r["seconds"] or 0) >= CONV_ANCHOR_S:
+            anchors.setdefault(r["speaker"], []).append(np.frombuffer(r["emb"], dtype=np.float32))
+    changed, names = 0, {}
+    for r in rows:
+        if r["how"] not in (None, "conv") or (r["how"] is None and r["speaker"]):
+            continue
+        new, s1 = None, None
+        if anchors and cands:
+            x = np.frombuffer(r["emb"], dtype=np.float32)
+            bank = {p: max(float(x @ v) for v in vs) for p, vs in cands.items()}
+            top = max(bank, key=bank.get)
+            if top != TV:
+                sc = {}
+                for p, b in bank.items():
+                    if p == TV:
+                        continue
+                    a = sorted((float(x @ v) for v in anchors.get(p, ())), reverse=True)[:3]
+                    sc[p] = (1 - CONV_W) * b + CONV_W * (sum(a) / len(a) if a else b - 0.15)
+                o = sorted(sc.items(), key=lambda kv: -kv[1])
+                s1, s2 = o[0][1], (o[1][1] if len(o) > 1 else -1.0)
+                if o[0][0] == top and bank[top] >= CONV_BANK_MIN and s1 >= CONV_MIN and s1 - s2 >= CONV_MARGIN:
+                    new = top
+        if new == r["speaker"]:
+            continue
+        if new:
+            if new not in names:
+                names[new] = name_of(c, new)
+            changed += c.execute("UPDATE utterances SET speaker=?, name=?, how='conv', score=? WHERE id=? "
+                                 "AND (how IS NULL OR how='conv')", (new, names[new], round(s1, 3), r["id"])).rowcount
+        else:
+            changed += c.execute("UPDATE utterances SET speaker=NULL, name=NULL, how=NULL, score=NULL WHERE id=? "
+                                 "AND how='conv'", (r["id"],)).rowcount
+    return changed
+
+
 def label(utt_id, speaker=None, new_name=None):
     """The user says who spoke one utterance -> voice bank -> re-score unnamed utterances.
     speaker "__tv__" = "this is the TV": the words leave the transcript, the voice teaches the TV filter.
@@ -369,6 +417,8 @@ def label(utt_id, speaker=None, new_name=None):
                                   (new, name_of(c, new), round(s1, 3), r["id"]))
                         changed += 1
         convs = [r[0] for r in c.execute("SELECT DISTINCT conv_id FROM utterances WHERE t0>=? AND conv_id IS NOT NULL", (since,))]
+        for cid in convs:                                  # short lines: the conversation's own named lines
+            changed += conv_context_names(c, cid, cands)
         taught = {name_of(c, r["speaker"]): r["n"] for r in
                   c.execute("SELECT speaker, count(*) AS n FROM voice_bank GROUP BY speaker")}
     for cid in convs:                                      # names in the conversation cards follow
@@ -1127,6 +1177,10 @@ def describe_media(c, cid, final):
 
 def finish_conversation(cid, final=True):
     with db() as c:
+        try:
+            conv_context_names(c, cid, current_cands(c))
+        except Exception as exc:  # noqa: BLE001
+            log(f"conv names {cid} failed {exc!r}")
         U, S, dyn = conv_stats(c, cid)
         media_note = describe_media(c, cid, final)
         if media_note:

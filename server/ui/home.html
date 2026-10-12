@@ -181,6 +181,7 @@ svg.tone{width:100%;height:90px;display:block}
 mark{background:rgba(234,164,94,.3);color:inherit;border-radius:3px}
 .toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:var(--surface3);border:1px solid var(--line2);
   border-radius:12px;padding:10px 16px;z-index:10;box-shadow:0 6px 24px rgba(0,0,0,.4)}
+.who.maybe{opacity:.72}
 </style>
 </head>
 <body>
@@ -225,7 +226,7 @@ const SND = {"דלת":"🚪","דלת הזזה":"🚪","טריקה":"💥","דפ�
   "נביחה":"🐶","מיאו":"🐱","ציפורים":"🐦","ציוץ":"🐦","גשם":"🌧","רעם":"⛈","רכב":"🚗","סירנה":"🚨","צליל לא מזוהה":"❔",
   "צחוק":"😂","בכי":"😢","צעקה":"📢","צעקות ילדים":"📢","מוזיקה":"🎵","שירה":"🎤","טלוויזיה":"📺","רדיו":"📻",
   "כלב":"🐶","חתול":"🐱","כלים":"🍽","דלת":"🚪","פעמון":"🔔","שואב אבק":"🧹","טלפון":"📱","מחיאות כפיים":"👏","משחק מחשב":"🎮","מלמול תינוק":"👶"};
-const HOW = {user: "סימנת", voice: "לפי הקול", context: "לפי ההקשר"};
+const HOW = {user: "סימנת", voice: "לפי הקול", context: "לפי ההקשר", conv: "כנראה · לחץ לתקן"};
 const J0 = (s, d) => { try { return JSON.parse(s || "") ?? d; } catch { return d; } };
 let day = null, phoneOnline = false, TL_OPEN = null;
 function toast(t){ const e = document.createElement("div"); e.className = "toast"; e.textContent = t; document.body.appendChild(e); setTimeout(() => e.remove(), 4500); }
@@ -333,7 +334,7 @@ function uttRow(u){
   if (u.media) return `<div class="utt media"><button class="who" data-u="${u.id}" title="לחץ אם זה לא ${esc(u.media)}">${MEDIA_ICON[u.media] || "📺"} ${esc(u.media)}
       <small>${u.how === "user" ? "סימנת" : "ברקע · לא תומלל"}</small></button>
     <div class="body"><span class="t">${hms(u.t0)}</span> ${esc(u.media)} ברקע · ${Math.round(u.seconds)} שנ׳</div></div>`;
-  return `<div class="utt"><button class="who" data-u="${u.id}" style="color:${colorOf(u.name)}" title="לחץ כדי לומר מי זה">${esc(first(u.name))}
+  return `<div class="utt"><button class="who${u.how === "conv" ? " maybe" : ""}" data-u="${u.id}" style="color:${colorOf(u.name)}" title="לחץ כדי לומר מי זה">${esc(first(u.name))}${u.how === "conv" ? "?" : ""}
       <small>${u.name ? (HOW[u.how] || "") : "מי זה? ✎"}</small></button>
     <div class="body"><span class="t">${hms(u.t0)}</span> ${esc(u.text)}${u.text ? `<button class="gold" data-g="${u.id}" title="הוסף לסט הזהב: מדידת איכות התמלול">⭐ זהב</button>` : ""}<div class="feel">${feel(u)}</div></div></div>`;
 }
@@ -661,8 +662,10 @@ async function showPair(){
   let body;
   try {
     const r = await fetch("/home/api/pair");
-    if (!r.ok) throw new Error("remote");
+    if (r.status === 403) throw new Error("remote");
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const P = await r.json();
+    const qr = qrcode(0, "M"); qr.addData(P.uri); qr.make();
     const playStore = "https://play.google.com/store/apps/details?id=app.shema.listener";
     const aq = qrcode(0, "M"); aq.addData(playStore); aq.make();
     body = `<div class="pair">
@@ -677,7 +680,8 @@ async function showPair(){
         <span>קוד גישה</span><code>${esc(P.token)}</code></div>
       <div class="legend">הטלפון והמחשב צריכים להיות באותה רשת Wi-Fi בבית. הקוד הוא הסיסמה של המחשב שלך: אל תשתף את ה-QR.</div>`;
   } catch (e) {
-    body = `<div class="legend">את ה-QR אפשר לראות רק במחשב שבו "שמע" מותקן (הוא מכיל את קוד הגישה). פתח שם את <code>http://localhost:8770/home</code>.</div>`;
+    body = e.message !== "remote" ? `<div class="legend">לא הצלחנו להציג את ה-QR (${esc(e.message)}). סגרו ופתחו שוב את החלון. אם זה חוזר, הריצו שוב את Install.bat.</div>` :
+      `<div class="legend">את ה-QR אפשר לראות רק במחשב שבו "שמע" מותקן (הוא מכיל את קוד הגישה). פתח שם את <code>http://localhost:8770/home</code>.</div>`;
   }
   sh.innerHTML = `<div class="box" style="max-width:760px"><button class="x">×</button><h3>📱 חבר טלפון</h3>${body}</div>`;
   document.body.appendChild(sh);

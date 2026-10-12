@@ -26,6 +26,7 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
+import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
 import kotlin.concurrent.thread
@@ -243,6 +244,22 @@ class MainActivity : Activity(), BillingManager.BillingCallback {
         root.addView(tools)
         root.gap(12)
 
+        // phone calls: Android silences every microphone but the dialer's, so the dialer records and we import
+        val calls = card()
+        calls.addView(text("שיחות טלפון", 13f, c.faint))
+        callStatus = text("", 14f, c.dim)
+        calls.addView(callStatus)
+        callBtn = button("") { toggleCalls() }
+        calls.addView(View(this), LinearLayout.LayoutParams(1, px(8)))
+        calls.addView(callBtn)
+        callMore = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, px(8), 0, 0) }
+        callMore.addView(button("פתח את החייגן") { openDialerSettings() },
+            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = px(8) })
+        callMore.addView(button("בחר תיקייה") { pickCallFolder() }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        calls.addView(callMore)
+        root.addView(calls)
+        root.gap(12)
+
         // Setup checklist (only what is missing)
         checkCard = card()
         checkCard.addView(text("כדי שימשיך להקשיב גם כשהאפליקציה סגורה", 14f, c.accent, bold = true))
@@ -326,7 +343,55 @@ class MainActivity : Activity(), BillingManager.BillingCallback {
     override fun onResume() {
         super.onResume()
         refreshChecklist()
+        refreshCalls()
         billingManager.checkActiveSubscriptions()
+    }
+
+    // ------------------------------------------------------------ phone calls
+    private lateinit var callStatus: TextView
+    private lateinit var callBtn: TextView
+    private lateinit var callMore: LinearLayout
+
+    private fun refreshCalls() {
+        val on = CallImport.enabled(this)
+        callBtn.text = if (on) "כבה ייבוא שיחות" else "ייבא הקלטות שיחה אוטומטית"
+        callMore.visibility = if (on) View.VISIBLE else View.GONE
+        callStatus.text = when {
+            !on -> "אנדרואיד לא נותן לאף אפליקציה לשמוע שיחת טלפון. אפשר להפעיל הקלטת שיחות בחייגן של הטלפון, ושמע ייקח כל הקלטה חדשה לניתוח במחשב (מי דיבר, תמלול, סיכום)."
+            CallImport.tree(this).isEmpty() && !CallImport.permOk(this) -> "חסרה הרשאה לקרוא קבצי שמע. לחץ שוב על הכפתור."
+            CallImport.imported(this) > 0 -> "פעיל · יובאו ${CallImport.imported(this)} שיחות · אחרונה: ${CallImport.last(this)}"
+            else -> "פעיל · עוד לא נמצאה הקלטת שיחה. ודא שבחייגן מופעל \"הקלטת שיחות אוטומטית\" (הגדרות החייגן ← הקלטת שיחות). " +
+                "אם ההקלטות נשמרות בתיקייה אחרת, לחץ \"בחר תיקייה\"."
+        }
+    }
+
+    private fun toggleCalls() {
+        if (CallImport.enabled(this) && (CallImport.permOk(this) || CallImport.tree(this).isNotEmpty())) {
+            CallImport.setEnabled(this, false); refreshCalls(); return
+        }
+        CallImport.setEnabled(this, true)
+        if (!CallImport.permOk(this) && CallImport.tree(this).isEmpty()) requestPermissions(arrayOf(CallImport.permission), 8)
+        else scanCallsNow()
+        refreshCalls()
+    }
+
+    private fun scanCallsNow() = Thread {
+        val n = try { CallImport.scan(this, File(filesDir, "queue").apply { mkdirs() }) } catch (e: Exception) { 0 }
+        runOnUiThread {
+            refreshCalls()
+            if (n > 0) Toast.makeText(this, "נמצאו $n הקלטות שיחה, נשלחות לניתוח", Toast.LENGTH_LONG).show()
+        }
+    }.start()
+
+    private fun openDialerSettings() {
+        // no standard intent for "call recording settings": open the dialer, the user goes to its settings
+        try { startActivity(Intent(Intent.ACTION_DIAL)) } catch (e: Exception) { }
+        Toast.makeText(this, "בחייגן: ⋮ ← הגדרות ← הקלטת שיחות ← הקלט את כל השיחות", Toast.LENGTH_LONG).show()
+    }
+
+    private fun pickCallFolder() {
+        try { startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT_TREE), 9) }
+        catch (e: Exception) { Toast.makeText(this, "לא נפתח בוחר התיקיות", Toast.LENGTH_LONG).show() }
     }
 
     // ------------------------------------------------------------ Google Play Billing Callbacks
@@ -467,6 +532,15 @@ class MainActivity : Activity(), BillingManager.BillingCallback {
 
     @Deprecated("Activity result of the QR scanner")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        if (requestCode == 9) {                              // the call-recordings folder
+            val u = data?.data
+            if (resultCode == RESULT_OK && u != null) {
+                try { contentResolver.takePersistableUriPermission(u, Intent.FLAG_GRANT_READ_URI_PERMISSION) } catch (e: Exception) { }
+                CallImport.setTree(this, u.toString())
+                scanCallsNow()
+            }
+            return
+        }
         val r = com.google.zxing.integration.android.IntentIntegrator.parseActivityResult(requestCode, resultCode, data)
         if (r == null) { super.onActivityResult(requestCode, resultCode, data); return }
         val txt = r.contents ?: return
@@ -592,6 +666,7 @@ class MainActivity : Activity(), BillingManager.BillingCallback {
     }
 
     override fun onRequestPermissionsResult(rc: Int, perms: Array<out String>, res: IntArray) {
+        if (rc == 8) { if (CallImport.permOk(this)) scanCallsNow(); refreshCalls(); return }
         if (rc == 5) {
             if (checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) scanPair()
             else Toast.makeText(this, "בלי מצלמה: הגדרות ← הזן ידנית את הכתובת והקוד מהמסך במחשב", Toast.LENGTH_LONG).show()

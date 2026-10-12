@@ -712,7 +712,7 @@ class ListenService : Service() {
         val order = queueFiles().sortedWith(compareBy({ !it.name.contains("_snd") }, { it.name }))
         for (f in order) {
             if (total <= QUEUE_LIMIT * 0.9) break
-            if (f.name.contains("_enr") || f.name.endsWith("_mark.txt")) continue
+            if (f.name.contains("_enr") || f.name.contains("_imp") || f.name.endsWith("_mark.txt")) continue
             total -= f.length() + File(queueDir, f.name + ".meta").length()
             f.delete(); File(queueDir, f.name + ".meta").delete()
         }
@@ -736,7 +736,10 @@ class ListenService : Service() {
     private fun uploadLoop() {
         var lastTrim = 0L
         while (running) {
-            if (System.currentTimeMillis() - lastTrim > 60_000) { trimQueue(); maybeStaleWarning(); lastTrim = System.currentTimeMillis() }
+            if (System.currentTimeMillis() - lastTrim > 60_000) {
+                trimQueue(); maybeStaleWarning(); lastTrim = System.currentTimeMillis()
+                try { CallImport.scan(this, queueDir) } catch (e: Exception) { }   // the dialer's call recordings
+            }
             refreshQueueStats()
             val files = queueFiles()
             var failed = false

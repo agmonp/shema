@@ -25,6 +25,9 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- phone calls: the dialer's own call recordings are imported (Android lets no app hear a call itself) -->
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
 
     <!-- Optional Privacy Features: Geofenced private zones & private calendar events -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
