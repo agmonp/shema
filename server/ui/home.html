@@ -286,7 +286,7 @@ function phoneChip(p){
   const q = +p.queued || 0, oldest = +p.oldest || 0;
   const warn = [p.vpn === "0" && !p.online ? "Tailscale כבוי?" : "", p.bat && +p.bat > 0 && +p.bat < 15 && p.charging !== "1" ? "סוללה חלשה" : "",
     q && oldest > 48 * 3600 ? `${q} ממתינים` : ""].filter(Boolean).join(" · ");
-  return `<span class="phchip ${speaking ? "on" : ""} ${p.online ? "live" : ""}"><span class="dot"></span><b>${esc(p.device.split(" ").slice(0, 2).join(" "))}</b>
+  return `<span class="phchip ${speaking ? "on" : ""} ${p.online ? "live" : ""}"><span class="dot"></span><b>${esc(p.device)}</b>
     <span>${p.online ? esc((p.state || "").split("·")[0].trim()) : "לא מחובר"}</span>${p.bat && +p.bat > 0 ? `<span>🔋${p.bat}%${p.charging === "1" ? "⚡" : ""}</span>` : ""}
     ${rec != null ? `<span>הוקלט ${rec.toFixed(1)} ש׳</span>` : ""}${warn ? `<span class="w">⚠ ${esc(warn)}</span>` : ""}</span>`;
 }
