@@ -1,4 +1,4 @@
-# Shema (שמע) -- installer for the PC side. Run Install.bat (double click). Safe to run again: it updates, it does not break.
+﻿# Shema (שמע) -- installer for the PC side. Run Install.bat (double click). Safe to run again: it updates, it does not break.
 #
 #   What it does: checks the PC, picks the speech / summary models for this hardware, installs Python 3.11, ffmpeg and
 #   Ollama (winget), a private Python environment, the models, the access code and config.json, a firewall rule for the
