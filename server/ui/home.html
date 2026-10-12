@@ -661,8 +661,10 @@ async function showPair(){
   let body;
   try {
     const r = await fetch("/home/api/pair");
-    if (!r.ok) throw new Error("remote");
+    if (r.status === 403) throw new Error("remote");
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const P = await r.json();
+    const qr = qrcode(0, "M"); qr.addData(P.uri); qr.make();
     const playStore = "https://play.google.com/store/apps/details?id=app.shema.listener";
     const aq = qrcode(0, "M"); aq.addData(playStore); aq.make();
     body = `<div class="pair">
@@ -677,7 +679,8 @@ async function showPair(){
         <span>קוד גישה</span><code>${esc(P.token)}</code></div>
       <div class="legend">הטלפון והמחשב צריכים להיות באותה רשת Wi-Fi בבית. הקוד הוא הסיסמה של המחשב שלך: אל תשתף את ה-QR.</div>`;
   } catch (e) {
-    body = `<div class="legend">את ה-QR אפשר לראות רק במחשב שבו "שמע" מותקן (הוא מכיל את קוד הגישה). פתח שם את <code>http://localhost:8770/home</code>.</div>`;
+    body = e.message !== "remote" ? `<div class="legend">לא הצלחנו להציג את ה-QR (${esc(e.message)}). סגרו ופתחו שוב את החלון. אם זה חוזר, הריצו שוב את Install.bat.</div>` :
+      `<div class="legend">את ה-QR אפשר לראות רק במחשב שבו "שמע" מותקן (הוא מכיל את קוד הגישה). פתח שם את <code>http://localhost:8770/home</code>.</div>`;
   }
   sh.innerHTML = `<div class="box" style="max-width:760px"><button class="x">×</button><h3>📱 חבר טלפון</h3>${body}</div>`;
   document.body.appendChild(sh);
