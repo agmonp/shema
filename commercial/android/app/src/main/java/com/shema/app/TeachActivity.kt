@@ -47,6 +47,7 @@ class TeachActivity : Activity() {
     private var goal = 0
     private var doneToday = 0
     private var player: MediaPlayer? = null
+    private var owner = ""                                // the phone owner's person id ("זה אני")
 
     private fun px(v: Int) = (v * dp).toInt()
     private fun round(color: Int, r: Int) = GradientDrawable().apply { setColor(color); cornerRadius = px(r).toFloat() }
@@ -98,6 +99,8 @@ class TeachActivity : Activity() {
                 if (q == null || p == null) { showError(); return@post }
                 val j = JSONObject(q)
                 items = j.getJSONArray("items"); left = j.optInt("left"); goal = j.optInt("goal"); doneToday = j.optInt("done_today"); people = JSONArray(p); idx = 0
+                owner = j.optString("owner")                   // older PC programs: the first of the household
+                if (owner.isEmpty() && people.length() > 0 && people.getJSONObject(0).optString("group") == "בית") owner = people.getJSONObject(0).optString("id")
                 show()
             }
         }
@@ -138,6 +141,10 @@ class TeachActivity : Activity() {
         val gname = it.optString("guess_name")
         if (guess.isNotEmpty() && gname.isNotEmpty() && guess != "__tv__") {
             body.addView(button("זה ${gname} (ניחוש ${(it.optDouble("guess_sim") * 100).toInt()}%)", primary = true) { label(it, guess, null) })
+            body.addView(View(this), LinearLayout.LayoutParams(1, px(8)))
+        }
+        if (owner.isNotEmpty() && guess != owner) {           // the owner's own lines: this is also how the voice is learnt without reading
+            body.addView(button("🙋 זה אני") { label(it, owner, null) })
             body.addView(View(this), LinearLayout.LayoutParams(1, px(8)))
         }
         body.addView(button("מישהו אחר…") { pick(it) })

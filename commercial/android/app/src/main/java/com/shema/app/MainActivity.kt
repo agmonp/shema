@@ -39,6 +39,13 @@ import kotlin.concurrent.thread
  * - Onboarding desktop app download helper.
  */
 class MainActivity : Activity(), BillingManager.BillingCallback {
+    companion object {
+        /** May another screen (meeting, voice reading) switch the microphone on by itself? Only after the prominent
+         *  disclosure, with the subscription or the trial active and the microphone allowed; else this screen asks first. */
+        fun canRecord(c: Context): Boolean = Prefs.isDisclosureAccepted(c) &&
+            (Prefs.isSubscribed(c) || System.currentTimeMillis() - Prefs.firstInstallTime(c) < BillingManager.TRIAL_MS) &&
+            c.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+    }
     private val ui = Handler(Looper.getMainLooper())
     private val c = object {
         val bg = Color.parseColor("#13100E"); val surface = Color.parseColor("#1C1815")
@@ -75,6 +82,10 @@ class MainActivity : Activity(), BillingManager.BillingCallback {
     private lateinit var teachBtn: TextView
     private lateinit var zonesBtn: TextView
     private lateinit var subPill: TextView
+    private lateinit var voiceTop: LinearLayout
+    private lateinit var meetBtn: TextView
+    private var pendingOpen: Class<*>? = null             // open this screen once listening has started (after start()'s dialogs)
+    private var pendingAt = 0L
     private var pulse: ValueAnimator? = null
     private var pcReachable: Boolean? = null
 
@@ -161,7 +172,22 @@ class MainActivity : Activity(), BillingManager.BillingCallback {
         root.gap(4)
         headNote = text("", 13f, c.faint)
         root.addView(headNote)
-        root.gap(18)
+        root.gap(14)
+
+        // "Let Shema know your voice": first thing on the screen until the voice is known or the user says later
+        voiceTop = card().apply { background = round(c.surface, 18, c.accent) }
+        voiceTop.addView(text("🎙 שמע עוד לא מכיר את הקול שלך", 17f, c.accent, bold = true))
+        voiceTop.addView(text("קרא בקול טקסט קצר (25 שניות), וכל משפט שלך יופיע בשיחות בשם שלך. " +
+            "אפשר גם לדלג: שמע כבר מקליט, וילמד את הקול שלך כשתלחץ \"זה אני\" במסך \"מי זה?\".", 14f, c.dim)
+            .apply { setPadding(0, px(6), 0, px(10)) })
+        val vRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        vRow.addView(button("ללמד עכשיו", primary = true) { openEnroll(true) },
+            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = px(8) })
+        vRow.addView(button("אחר כך") { Prefs.setFlag(this, "enroll_later"); voiceTop.visibility = View.GONE },
+            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        voiceTop.addView(vRow)
+        root.addView(voiceTop)
+        root.gap(14)
 
         // Status orb
         val orbBox = FrameLayout(this)
@@ -196,6 +222,9 @@ class MainActivity : Activity(), BillingManager.BillingCallback {
         root.gap(10)
         root.addView(button("חיפוש ושאלות · מי דיבר", primary = true) { startActivity(Intent(this, SearchActivity::class.java)) })
         root.gap(10)
+        meetBtn = button("📋 הקלט פגישה · סיכום ומשימות") { openWhenListening(MeetingActivity::class.java) }
+        root.addView(meetBtn)
+        root.gap(10)
 
         // Desktop Onboarding & Pairing Card (Shown when not paired or as quick helper)
         val pcHelperCard = card()
@@ -228,7 +257,7 @@ class MainActivity : Activity(), BillingManager.BillingCallback {
         enrollCard.addView(text("הקול שלך", 13f, c.faint))
         enrollStatus = text("", 15f, c.ink)
         enrollCard.addView(enrollStatus)
-        enrollBtn = button("ללמד את הקול שלי (25 שניות)") { startEnroll() }
+        enrollBtn = button("ללמד את הקול שלי (25 שניות)") { openEnroll(false) }
         enrollCard.addView(View(this), LinearLayout.LayoutParams(1, px(8)))
         enrollCard.addView(enrollBtn)
 
@@ -269,8 +298,9 @@ class MainActivity : Activity(), BillingManager.BillingCallback {
         root.gap(12)
 
         // Settings (collapsed)
-        val conn = card()
-        val connHead = text("הגדרות וחיבור ›", 14f, c.dim)
+        // the whole row opens the settings (only the thin text line did, so a tap on the card seemed to do nothing)
+        val conn = card().apply { setPadding(px(16), 0, px(16), px(6)) }
+        val connHead = text("הגדרות וחיבור ›", 15f, c.dim).apply { setPadding(0, px(16), 0, px(16)); isClickable = true }
         val connBody = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; visibility = View.GONE }
         connHead.setOnClickListener {
             connBody.visibility = if (connBody.visibility == View.GONE) View.VISIBLE else View.GONE
@@ -429,7 +459,7 @@ class MainActivity : Activity(), BillingManager.BillingCallback {
 
     private fun showSubscriptionDialog() {
         val msg = "שמע Pro פועל מקומית לחלוטין יחד עם המחשב שלך בבית — ללא ענן ובפרטיות מוחלטת.\n\n" +
-            "⭐ **מה מקבלים במנוי Pro:**\n" +
+            "⭐ מה מקבלים במנוי Pro:\n" +
             "• תמלול עברית מדויק וללא הגבלת דקות\n" +
             "• סיכומי שיחות חכמים, משימות וציר זמן אישי\n" +
             "• זיהוי דוברים חכם ולימוד קולות\n" +
@@ -479,7 +509,7 @@ class MainActivity : Activity(), BillingManager.BillingCallback {
     // ------------------------------------------------------------ Google Play Prominent Disclosure
     private fun showProminentDisclosure(onAccepted: () -> Unit) {
         val msg = "שמע Pro מקליט ברקע קטעי דיבור בלבד כדי לתמלל, לזהות דוברים ולסכם את השיחות שלך.\n\n" +
-            "🔒 **פרטיות מוחלטת בתכנון:**\n" +
+            "🔒 פרטיות מוחלטת בתכנון:\n" +
             "• כל ההקלטות והעיבוד נעשים מקומית במכשיר ובמחשב האישי שלך בלבד.\n" +
             "• שום הקלטה, תמלול או מידע אישי אינם נשלחים לענן של שמע או לצד שלישי.\n" +
             "• תמיד ניתן להשהות, להשתיק לשעה או לכבות את ההקלטה מווילון ההתראות.\n\n" +
@@ -570,10 +600,16 @@ class MainActivity : Activity(), BillingManager.BillingCallback {
         Toast.makeText(this, if (r == "wearer") "טלפון אישי: מקליט גם בחוץ, אחרי שהקול שלך נלמד" else "טלפון בית: מקליט רק בבית", Toast.LENGTH_LONG).show()
     }
 
-    private fun startEnroll() {
-        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) { start(); return }
-        if (!ListenService.on) start()
-        ui.postDelayed({ svc(ListenService.ACTION_ENROLL) }, if (ListenService.on) 0 else 1500)
+    /** The voice reading screen (it was a silent 25 s in the background, so nothing seemed to happen on the tap). */
+    private fun openEnroll(first: Boolean) = openWhenListening(EnrollActivity::class.java, first)
+
+    /** Meeting / voice screens switch the microphone on themselves when allowed; else listening starts here first
+     *  (subscription, disclosure, permissions) and the screen opens once it runs. */
+    private var pendingFirst = false
+    private fun openWhenListening(cls: Class<*>, first: Boolean = false) {
+        if (ListenService.on || canRecord(this)) { startActivity(Intent(this, cls).putExtra("first", first)); return }
+        pendingOpen = cls; pendingFirst = first; pendingAt = System.currentTimeMillis()
+        start()
     }
 
     private fun privacyMenu() {
@@ -649,6 +685,7 @@ class MainActivity : Activity(), BillingManager.BillingCallback {
 
     private fun proceedStart() {
         Prefs.setWanted(this, true)
+        Meeting.setTemp(this, false)                          // listening for good, not just for a meeting / the voice reading
         val need = arrayOf(Manifest.permission.RECORD_AUDIO, Manifest.permission.POST_NOTIFICATIONS)
             .filter { checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }
         if (need.isNotEmpty()) { requestPermissions(need.toTypedArray(), 1); return }
@@ -767,7 +804,26 @@ class MainActivity : Activity(), BillingManager.BillingCallback {
         roleWear.setTextColor(if (Prefs.role(this) == "wearer") c.accentInk else c.ink)
         roleDesc.text = if (Prefs.role(this) == "home") "טלפון בית: מקליט רק ברשת הביתית" else "טלפון אישי: מקליט גם בחוץ"
 
-        enrollStatus.text = if (ListenService.enrolled >= 3) "הקול שלך נלמד בהצלחה ✓" else "דרושות דוגמאות קול"
+        val en = ListenService.enrolled
+        val known = en >= ListenService.minSamples
+        if (known && !Prefs.flag(this, "voice_known")) Prefs.setFlag(this, "voice_known")
+        voiceTop.visibility = if (known || Prefs.flag(this, "voice_known") || Prefs.flag(this, "enroll_later")) View.GONE else View.VISIBLE
+        enrollStatus.text = when {
+            known -> "הקול שלך נלמד ✓ ($en דוגמאות)"
+            en > 0 -> "מתחיל להכיר אותך ($en מתוך ${ListenService.minSamples} דוגמאות). אפשר לקרוא טקסט קצר, או ללחוץ \"זה אני\" במסך \"מי זה?\"."
+            en == 0 -> "עוד לא נלמד. אפשר לקרוא טקסט קצר (25 שניות), או ללחוץ \"זה אני\" במסך \"מי זה?\"."
+            else -> "עוד לא ידוע (המחשב לא ענה עדיין)"
+        }
+        enrollBtn.text = if (known) "ללמד שוב" else "ללמד את הקול שלי (25 שניות)"
+
+        val meeting = Meeting.active(this)
+        meetBtn.text = if (meeting) "📋 פגישה מוקלטת · ${(System.currentTimeMillis() - Meeting.start(this)) / 60_000} דק׳ · פתח"
+                       else "📋 הקלט פגישה · סיכום ומשימות"
+        meetBtn.background = round(if (meeting) c.rec else c.surface2, 16, if (meeting) null else Color.parseColor("#33FFECD6"))
+        pendingOpen?.let { cls ->
+            if (ListenService.on) { pendingOpen = null; startActivity(Intent(this, cls).putExtra("first", pendingFirst)) }
+            else if (System.currentTimeMillis() - pendingAt > 60_000) pendingOpen = null
+        }
 
         ui.postDelayed({ tick() }, 1000)
     }

@@ -61,6 +61,10 @@ class ListenService : Service() {
         const val ACTION_STOP = "stop"
         const val ACTION_MARK = "mark"
         const val ACTION_ENROLL = "enroll"
+        const val ACTION_ENROLL_STOP = "enroll_stop"       // "done reading" before the 25 s are over
+        const val ACTION_PING = "ping"                     // heartbeat now (the voice screen waits for the PC's count)
+        const val ACTION_MEETING_START = "meeting_start"   // extras: id, title
+        const val ACTION_MEETING_END = "meeting_end"
         const val CHANNEL = "listen"
         const val SR = 16000
         const val ENROLL_SECONDS = 25
@@ -86,6 +90,8 @@ class ListenService : Service() {
         @Volatile var enrolled = -1                       // owner voice samples on the PC for this phone (-1 = unknown)
         @Volatile var minSamples = 3
         @Volatile var enrollUntilNow = 0L
+        @Volatile var enrollSpeechMs = 0L                // speech heard during the current voice reading
+        @Volatile var meetingSince = 0L                  // a meeting is being recorded since (0 = none)
         @Volatile var silencedNow = false
         @Volatile var lat = Double.NaN
         @Volatile var lon = Double.NaN
@@ -162,6 +168,14 @@ class ListenService : Service() {
     @Volatile private var reasonDetail = ""
     @Volatile private var lastFrameAt = 0L
     @Volatile private var recRef: AudioRecord? = null
+    // meeting mode (state kept in Meeting so a restarted service goes on with it)
+    @Volatile private var meetId = ""
+    @Volatile private var meetTitle = ""
+    @Volatile private var meetStart = 0L
+    @Volatile private var meetEndReq = false             // "end meeting": the record loop saves the open segment, then ends it
+    @Volatile private var cutReq = false                 // the meeting started: close the open segment so it starts clean
+    @Volatile private var tempRun = false                // started only for a meeting / the voice reading
+    @Volatile private var draining = 0L                  // ... which is over: not recording, stop once the queue is sent
     private var wake: PowerManager.WakeLock? = null
     private val queueDir by lazy { File(filesDir, "queue").apply { mkdirs() } }
     private val ui = Handler(Looper.getMainLooper())
@@ -170,16 +184,23 @@ class ListenService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        when (intent?.action) {
+        val act = intent?.action
+        if (!running && (act == ACTION_MEETING_START || act == ACTION_ENROLL || act == ACTION_MEETING_END))
+            Meeting.setTemp(this, true)                       // the service was off: on only for this, off again once it was sent
+        loadMeeting()
+        when (act) {
             ACTION_MUTE_HOUR -> { mutedUntil = System.currentTimeMillis() + 3600_000; update(); pingSoon() }
             ACTION_UNMUTE -> { mutedUntil = 0; update(); pingSoon() }
             ACTION_TOGGLE -> { paused = !paused; if (!paused) mutedUntil = 0; update(); pingSoon() }
             ACTION_MARK -> mark(intent?.getIntExtra("min", 10) ?: 10)
             ACTION_ENROLL -> { enrollFrom = System.currentTimeMillis(); enrollUntil = enrollFrom + ENROLL_SECONDS * 1000L
-                enrollUntilNow = enrollUntil; update() }
-            ACTION_STOP -> { Timeline.userStop(this); Timeline.end(this, System.currentTimeMillis())
-                running = false; on = false; home = false; hearing = false; blocked = ""
-                stopForeground(STOP_FOREGROUND_REMOVE); stopSelf(); state = "כבוי"; return START_NOT_STICKY }
+                enrollUntilNow = enrollUntil; enrollSpeechMs = 0; draining = 0; update() }
+            ACTION_ENROLL_STOP -> { if (enrolling()) { enrollUntil = System.currentTimeMillis(); enrollUntilNow = enrollUntil }; update() }
+            ACTION_PING -> pingSoon()
+            ACTION_MEETING_START -> startMeeting(intent)
+            ACTION_MEETING_END -> if (meetId.isNotEmpty()) { meetEndReq = true; if (!running) finishMeeting() }
+            ACTION_STOP -> { if (meetId.isNotEmpty()) finishMeeting()          // the end goes to the PC with the next start
+                Timeline.userStop(this); stopAll(); return START_NOT_STICKY }
         }
         // + location type when allowed: lets the service read the Wi-Fi name and the place in the background
         val loc = checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
@@ -212,6 +233,66 @@ class ListenService : Service() {
         super.onDestroy()
     }
 
+    private fun stopAll() {
+        Timeline.end(this, System.currentTimeMillis())
+        running = false; on = false; home = false; hearing = false; blocked = ""; meetingSince = 0L
+        Meeting.setTemp(this, false); draining = 0
+        stopForeground(STOP_FOREGROUND_REMOVE); stopSelf(); state = "כבוי"
+    }
+
+    // ------------------------------------------------------------ meeting mode
+    private fun loadMeeting() {
+        meetId = Meeting.id(this); meetTitle = Meeting.title(this); meetStart = Meeting.start(this)
+        meetingSince = if (meetId.isEmpty()) 0L else meetStart
+        tempRun = Meeting.temp(this)
+        if (!tempRun) draining = 0
+    }
+
+    /** From now on every speech segment belongs to the meeting (tagged meet=<id>), whatever would stop recording otherwise. */
+    private fun startMeeting(i: Intent?) {
+        if (meetId.isEmpty()) {
+            val now = System.currentTimeMillis()
+            Meeting.begin(this, i?.getStringExtra("id")?.ifBlank { null } ?: "m$now", (i?.getStringExtra("title") ?: "").trim().take(80), now)
+            loadMeeting()
+            cutReq = true; draining = 0
+            try { (getSystemService(VIBRATOR_SERVICE) as Vibrator).vibrate(VibrationEffect.createOneShot(120, VibrationEffect.DEFAULT_AMPLITUDE)) } catch (e: Exception) { }
+        }
+        update(); pingSoon()
+    }
+
+    /** The meeting's end goes into the queue after its last segment (the queue is sent in time order), then the PC summarises. */
+    private fun finishMeeting() {
+        meetEndReq = false
+        val id = meetId
+        if (id.isEmpty()) return
+        val end = System.currentTimeMillis()
+        try {
+            File(queueDir, SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS", Locale.US).format(Date(end)) + "_meetend.txt")
+                .writeText("$id,$meetStart,$end," + URLEncoder.encode(meetTitle, "UTF-8"))
+        } catch (e: Exception) { }
+        Meeting.remember(this, id, meetTitle, meetStart, end)
+        Meeting.clear(this)
+        loadMeeting()
+        try { (getSystemService(VIBRATOR_SERVICE) as Vibrator).vibrate(VibrationEffect.createWaveform(longArrayOf(0, 90, 90, 90), -1)) } catch (e: Exception) { }
+        refreshQueueStats(); update()
+    }
+
+    /** The PC finished a meeting of this phone: one "summary ready" notification (not while its screen is open). */
+    private fun meetingReady(id: String) {
+        val m = Meeting.known(this, id) ?: return
+        if (Meeting.notified(this, id)) return
+        Meeting.setNotified(this, id)
+        if (MeetingActivity.showing == id) return
+        val nm = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
+        nm.createNotificationChannel(NotificationChannel("meeting", "סיכומי פגישות", NotificationManager.IMPORTANCE_DEFAULT))
+        val open = PendingIntent.getActivity(this, 100 + (id.hashCode() and 0xffff),
+            Intent(this, MeetingActivity::class.java).putExtra("id", id), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        nm.notify(7, Notification.Builder(this, "meeting").setSmallIcon(R.drawable.ic_stat).setColor(0xFFEAA45E.toInt())
+            .setContentTitle("סיכום הפגישה מוכן")
+            .setContentText(m.optString("title").ifEmpty { "פגישה" } + " · תמלול, סיכום ומשימות")
+            .setContentIntent(open).setAutoCancel(true).build())
+    }
+
     private fun wearer() = Prefs.role(this) == "wearer"
     private fun enrolling() = System.currentTimeMillis() < enrollUntil
 
@@ -219,7 +300,9 @@ class ListenService : Service() {
      *  and [reasonKey]/[reasonDetail] (the same reason for the Timeline the PC reads). */
     private fun listening(): Boolean {
         val now = System.currentTimeMillis()
-        if (now < enrollUntil) { blocked = ""; reasonKey = ""; reasonDetail = ""; return true }   // teaching the owner's voice overrides the rest
+        // teaching the owner's voice and a meeting the user started override the rest
+        if (now < enrollUntil || meetId.isNotEmpty()) { blocked = ""; reasonKey = ""; reasonDetail = ""; return true }
+        if (draining > 0L) { blocked = "שולח למחשב ואז נכבה"; reasonKey = "pause"; reasonDetail = ""; return false }
         var key = ""; var det = ""
         val why = when {
             paused -> { key = "pause"; "מושהה" }
@@ -366,6 +449,7 @@ class ListenService : Service() {
                     if (j.has("owner_min_samples")) minSamples = j.getInt("owner_min_samples")
                     val d = j.optJSONObject("digest")
                     if (d != null) { digestTeach = d.optInt("teach"); digestTasks = d.optInt("tasks_open"); maybeDigest(d) }
+                    j.optJSONArray("meetings_done")?.let { a -> for (i in 0 until a.length()) meetingReady(a.optString(i)) }
                 }
             } catch (e: Exception) { }
         }
@@ -479,6 +563,12 @@ class ListenService : Service() {
         var floorDb = -60.0
         var lastTl = 0L
         while (running) {
+            if (cutReq || meetEndReq) {                        // a meeting starts / ends: the open segment belongs to what came before
+                seg?.let { if (it.size > 30) save(it, segStart) }; seg = null; on = 0
+                if (speaking) { speaking = false; update() }
+                cutReq = false
+                if (meetEndReq) finishMeeting()
+            }
             val ok = listening()
             val nowTl = System.currentTimeMillis()
             if (nowTl - lastTl >= 1000) {                      // what the microphone did, for the PC's coverage strip
@@ -516,6 +606,7 @@ class ListenService : Service() {
             val f = buf.copyOf()
             if (silenced) continue                             // a call / another app has the microphone: a gap, not speech
             val p = vad?.prob(f) ?: energyProb(f)
+            if (p >= 0.5f && System.currentTimeMillis() < enrollUntil) enrollSpeechMs += 32     // for the voice screen
             val db = dbfs(f)
             if (seg == null && snd == null) floorDb = if (db < floorDb) floorDb * 0.9 + db * 0.1 else floorDb * 0.998 + db * 0.002
             if (seg == null && p < 0.35f && atHome) {
@@ -585,7 +676,10 @@ class ListenService : Service() {
             // the context of this segment, sent along with it
             val m = StringBuilder("ms=$start&home=${if (atHome) 1 else 0}&role=${Prefs.role(this)}&bat=$batPct")
             if (!lat.isNaN()) m.append("&lat=${"%.4f".format(Locale.US, lat)}&lon=${"%.4f".format(Locale.US, lon)}")
-            if (calTitle.isNotEmpty()) m.append("&cal=").append(URLEncoder.encode(calTitle.take(80), "UTF-8"))
+            if (!sound && meetId.isNotEmpty() && start >= meetStart - 1000) {        // a segment of the meeting being recorded
+                m.append("&meet=").append(meetId).append("&cal=")
+                    .append(URLEncoder.encode("📋 פגישה" + (if (meetTitle.isNotEmpty()) ": " + meetTitle.take(60) else ""), "UTF-8"))
+            } else if (calTitle.isNotEmpty()) m.append("&cal=").append(URLEncoder.encode(calTitle.take(80), "UTF-8"))
             File(queueDir, "${out.name}.meta").writeText(m.toString())
             if (!sound && !enroll) addSpeech(this, pcm.size.toDouble() / SR)
         } catch (e: Exception) { out?.delete() }
@@ -698,7 +792,7 @@ class ListenService : Service() {
     } catch (e: Exception) { f.lastModified() }
 
     private fun refreshQueueStats() {
-        val files = queueFiles().filter { !it.name.endsWith("_mark.txt") }
+        val files = queueFiles().filter { !it.name.endsWith(".txt") }      // recordings only (not stars / meeting ends)
         queued = files.size
         queuedBytes = (queueDir.listFiles() ?: emptyArray()).sumOf { it.length() }
         oldestMs = files.minOfOrNull { fileTime(it) } ?: 0L
@@ -712,7 +806,7 @@ class ListenService : Service() {
         val order = queueFiles().sortedWith(compareBy({ !it.name.contains("_snd") }, { it.name }))
         for (f in order) {
             if (total <= QUEUE_LIMIT * 0.9) break
-            if (f.name.contains("_enr") || f.name.contains("_imp") || f.name.endsWith("_mark.txt")) continue
+            if (f.name.contains("_enr") || f.name.contains("_imp") || f.name.endsWith(".txt")) continue
             total -= f.length() + File(queueDir, f.name + ".meta").length()
             f.delete(); File(queueDir, f.name + ".meta").delete()
         }
@@ -744,10 +838,16 @@ class ListenService : Service() {
             val files = queueFiles()
             var failed = false
             val now = System.currentTimeMillis()
-            // hold: low battery (not charging), or away from home and the batch is neither old (4 min) nor big (> 20 files)
+            // on only for a meeting / the voice reading, and it is over: stop recording, stop the service once all was sent
+            if (tempRun && meetId.isEmpty() && !enrolling() && !meetEndReq) {
+                if (draining == 0L) { draining = now; update() }
+                else if (!speaking && now - draining > 4000 && files.isEmpty()) { ui.post { if (draining > 0L) stopAll() }; return }
+            }
+            // hold: low battery (not charging), or away from home and the batch is neither old (4 min) nor big (> 20 files);
+            // a finished meeting goes at once (its summary is awaited)
             val lowBatHold = batPct in 1 until SEND_MIN_BAT && !charging
-            val awayHold = !atHome && files.size <= AWAY_BATCH_FILES && files.isNotEmpty() &&
-                now - (files.minOf { fileTime(it) }) < AWAY_BATCH_MS
+            val awayHold = !atHome && files.size <= AWAY_BATCH_FILES && files.isNotEmpty() && draining == 0L &&
+                files.none { it.name.endsWith("_meetend.txt") } && now - (files.minOf { fileTime(it) }) < AWAY_BATCH_MS
             if (files.isEmpty() || lowBatHold || awayHold || !pcOnline) {
                 Thread.sleep(if (awayHold) 10_000 else 15_000); continue
             }
@@ -755,7 +855,7 @@ class ListenService : Service() {
                 if (!pcOnline || !running) { failed = true; break }
                 if (send(f)) {
                     f.delete(); File(queueDir, f.name + ".meta").delete()
-                    if (!f.name.endsWith("_mark.txt")) { sent++; countSent(this) } else lastMarkSent = true
+                    if (f.name.endsWith("_mark.txt")) lastMarkSent = true else if (!f.name.endsWith(".txt")) { sent++; countSent(this) }
                     lastSentAt = System.currentTimeMillis(); refreshQueueStats(); update()
                 } else { failed = true; break }
             }
@@ -767,6 +867,7 @@ class ListenService : Service() {
         val n = f.name
         val start = n.substring(0, 23)                       // yyyy-MM-dd'T'HH:mm:ss.SSS
         val isMark = n.endsWith("_mark.txt")
+        val isMeetEnd = n.endsWith("_meetend.txt")
         val kind = when { n.contains("_snd.") -> "sound"; n.contains("_enr.") -> "enroll"; n.contains("_imp.") -> "import"; else -> "speech" }
         val meta = File(queueDir, "$n.meta").takeIf { it.exists() }?.readText() ?: "role=${Prefs.role(this)}&home=1"
         val common = "device=${device()}&start=$start&skew=$skew"
@@ -775,6 +876,11 @@ class ListenService : Service() {
         if (isMark) {
             val parts = f.readText().trim().split(",")
             c = URL(base + "/home/api/mark?$common&ms=${parts[0]}&min=${parts.getOrNull(1) ?: "10"}").openConnection() as HttpURLConnection
+            c.requestMethod = "POST"; c.doOutput = true; c.setFixedLengthStreamingMode(0)
+        } else if (isMeetEnd) {                              // "id,start ms,end ms,title (url-encoded)"
+            val parts = f.readText().trim().split(",")
+            c = URL(base + "/home/api/meeting_end?$common&id=${parts[0]}&ms0=${parts.getOrElse(1) { "" }}" +
+                "&ms1=${parts.getOrElse(2) { "" }}&title=${parts.getOrElse(3) { "" }}").openConnection() as HttpURLConnection
             c.requestMethod = "POST"; c.doOutput = true; c.setFixedLengthStreamingMode(0)
         } else {
             val ext = f.extension.ifEmpty { "m4a" }
@@ -785,8 +891,9 @@ class ListenService : Service() {
         }
         c.connectTimeout = if (viaTailscale) 8000 else 5000; c.readTimeout = 60000
         c.setRequestProperty("X-Home-Token", Prefs.token(this))
-        if (!isMark) c.outputStream.use { o -> f.inputStream().use { it.copyTo(o) } } else c.outputStream.close()
-        val ok = c.responseCode == 200
+        if (!isMark && !isMeetEnd) c.outputStream.use { o -> f.inputStream().use { it.copyTo(o) } } else c.outputStream.close()
+        val code = c.responseCode
+        val ok = code == 200 || (isMeetEnd && code == 404)  // a PC program older than meetings: never block the queue
         c.disconnect(); ok
     } catch (e: Exception) { false }
 
@@ -811,6 +918,9 @@ class ListenService : Service() {
         listening()                                           // refreshes [blocked]
         state = when {
             enrolling() -> "לומד את הקול שלך · דבר עכשיו"
+            meetId.isNotEmpty() && silenced -> "📋 פגישה · המיקרופון תפוס (שיחה או אפליקציה אחרת)"
+            meetId.isNotEmpty() -> "📋 מקליט פגישה" + (if (meetTitle.isNotEmpty()) ": $meetTitle" else "") + (if (speaking) " · שומע דיבור" else "")
+            draining > 0L -> "שולח למחשב" + (if (queued > 0) " ($queued ממתינים)" else "") + " · ייכבה בסיום"
             silenced -> "המיקרופון תפוס (שיחה או אפליקציה אחרת)"
             blocked.isNotEmpty() -> if (reasonKey == "private" || reasonKey == "cal") "פרטי: ${reasonDetail.ifEmpty { calTitle }} · לא מקליט" else "$blocked — לא מקליט"
             !pcOnline -> "מקשיב · שומר בטלפון ($queued ממתינים)"
@@ -825,6 +935,15 @@ class ListenService : Service() {
         nm.createNotificationChannel(NotificationChannel(CHANNEL, "שמע", NotificationManager.IMPORTANCE_LOW))
         fun act(a: String, code: Int) = PendingIntent.getService(this, code,
             Intent(this, ListenService::class.java).setAction(a), PendingIntent.FLAG_IMMUTABLE)
+        if (meetId.isNotEmpty()) {                            // a meeting: its own screen, a running clock and "end"
+            return Notification.Builder(this, CHANNEL).setSmallIcon(R.drawable.ic_stat).setColor(0xFFE5484D.toInt())
+                .setContentTitle(state).setContentText("הקש כדי לראות · הסיכום יגיע אחרי שתסיים")
+                .setUsesChronometer(true).setWhen(meetStart).setShowWhen(true).setOngoing(true)
+                .setContentIntent(PendingIntent.getActivity(this, 6, Intent(this, MeetingActivity::class.java), PendingIntent.FLAG_IMMUTABLE))
+                .addAction(Notification.Action.Builder(null, "⏹ סיים פגישה", act(ACTION_MEETING_END, 4)).build())
+                .addAction(Notification.Action.Builder(null, "סמן רגע ⭐", act(ACTION_MARK, 2)).build())
+                .build()
+        }
         val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
         return Notification.Builder(this, CHANNEL)
             .setSmallIcon(R.drawable.ic_stat)

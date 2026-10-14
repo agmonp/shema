@@ -102,6 +102,8 @@ CREATE TABLE IF NOT EXISTS phone_timeline (device TEXT, s TEXT, e TEXT, reason T
     PRIMARY KEY (device, s));
 CREATE TABLE IF NOT EXISTS teach_skips (utt_id INTEGER PRIMARY KEY, reason TEXT, at TEXT);
 CREATE TABLE IF NOT EXISTS imports (path TEXT PRIMARY KEY, mtime REAL, chunk_id INTEGER);
+CREATE TABLE IF NOT EXISTS meetings (id TEXT PRIMARY KEY, device TEXT, title TEXT, started TEXT, ended TEXT,
+    conv_id INTEGER, status TEXT, result TEXT, updated TEXT);
 CREATE VIRTUAL TABLE IF NOT EXISTS conv_fts USING fts5(conv_id UNINDEXED, topic, people, body,
     tokenize='porter unicode61 remove_diacritics 2');
 CREATE INDEX IF NOT EXISTS u_conv ON utterances(conv_id);
@@ -126,7 +128,8 @@ MIGRATIONS = [   # columns added after the first version (2026-10-06 afternoon)
     ("utterances", "device", "TEXT"), ("utterances", "alt_db", "REAL"), ("utterances", "alt_device", "TEXT"),
     ("voice_bank", "device", "TEXT"),
     ("utterances", "lang", "TEXT"), ("marks", "minutes", "INTEGER"),
-    ("chunks", "tries", "INTEGER DEFAULT 0"),   # 2026-10-09: requeue_failed() retries environment failures
+    ("chunks", "tries", "INTEGER DEFAULT 0"),
+    ("chunks", "meet", "TEXT"),                 # 2026-10-14: the phone's meeting id (meeting mode)   # 2026-10-09: requeue_failed() retries environment failures
 ]
 
 
@@ -805,8 +808,11 @@ def store_chunk(raw, device, start, ext, kind="speech", meta=None):
     role = meta.get("role") or "home"
     home = 1 if str(meta.get("home", "1")) in ("1", "true") else 0
     away = 0 if (role == "home" or home) else 1
+    meet = meet_id(meta.get("meet")) if kind == "speech" else None
     if kind == "import":
         ctx = f"import:{device}:{st.strftime('%Y%m%dT%H%M%S')}"
+    elif meet:
+        ctx = MEET_PREFIX + meet                          # a meeting the user started on the phone
     else:
         ctx = "home" if not away else f"away:{device}"
     with db() as c:
@@ -819,10 +825,12 @@ def store_chunk(raw, device, start, ext, kind="speech", meta=None):
     fn = day / f"{st.strftime('%H%M%S_%f')[:-3]}_{device[:20]}{'_' + kind if kind != 'speech' else ''}.{ext}"
     fn.write_bytes(raw)
     with db() as c:
-        cur = c.execute("INSERT INTO chunks (device,start,file,status,received,kind,role,lat,lon,away,cal,ctx,skew,bat) "
-                        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        cur = c.execute("INSERT INTO chunks (device,start,file,status,received,kind,role,lat,lon,away,cal,ctx,skew,bat,meet) "
+                        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                         (device, iso(st), str(fn), "new", iso(datetime.now()), kind, role, meta.get("lat"), meta.get("lon"),
-                         away, (meta.get("cal") or "")[:120] or None, ctx, meta.get("skew"), meta.get("bat")))
+                         away, (meta.get("cal") or "")[:120] or None, ctx, meta.get("skew"), meta.get("bat"), meet))
+        if meet:
+            meeting_seen(c, meet, device, st, meta.get("cal"))
         if marked_now(c, iso(st)):                       # a star was pressed around this time: never delete it
             c.execute("UPDATE chunks SET keep=1 WHERE id=?", (cur.lastrowid,))
         return cur.lastrowid
@@ -917,6 +925,7 @@ class Worker(threading.Thread):
                 if time.time() - last_close > 60:          # idle() never runs while chunks keep coming: close conversations anyway
                     last_close = time.time()
                     close_conversations()
+                finish_meetings()                         # cheap when no meeting waits
                 did = self.step()
             except Exception as exc:  # noqa: BLE001
                 log(f"worker error {exc!r}")
@@ -954,7 +963,7 @@ class Worker(threading.Thread):
 
     def step(self):
         with db() as c:
-            row = c.execute("SELECT * FROM chunks WHERE status='new' ORDER BY (kind='enroll') DESC, start LIMIT 1").fetchone()
+            row = c.execute("SELECT * FROM chunks WHERE status='new' ORDER BY (kind='enroll') DESC, (coalesce(ctx,'') LIKE 'meet:%') DESC, start LIMIT 1").fetchone()
         if not row:
             return False
         self.busy = True
@@ -971,8 +980,8 @@ class Worker(threading.Thread):
             kind = row["kind"] or "speech"
             res = home_analyze.analyse(self.B, row["file"], year=st.year, bank=bk, names=names, sound_bank=sb,
                                        kind=kind, when=st.timestamp(),
-                                       songs=config().get("song_lookup", False) and not row["away"],
-                                       away=bool(row["away"]))
+                                       songs=config().get("song_lookup", False) and not row["away"] and not is_meet(row["ctx"]),
+                                       away=bool(row["away"]) or is_meet(row["ctx"]))      # a meeting: English is people, not TV
             if kind == "enroll":
                 enrol_owner(row, res)
             else:
@@ -1029,6 +1038,9 @@ def _dup_of(c, device, t0, t1, text):
 
 def _open_conv(c, ctx, t0, lat, lon):
     """The open conversation of this context that the utterance continues, or None (a new one starts)."""
+    if is_meet(ctx):                                          # a meeting is one conversation, however long the pauses
+        r = c.execute("SELECT id FROM conversations WHERE ctx=? ORDER BY id LIMIT 1", (ctx,)).fetchone()
+        return r["id"] if r else None
     prev = c.execute("SELECT * FROM conversations WHERE status='open' AND coalesce(ctx,'home')=? "
                      "ORDER BY end DESC LIMIT 1", (ctx,)).fetchone()
     # the utterance must fall inside [start - gap, end + gap] of the conversation, so chunks replayed out of order
@@ -1062,7 +1074,9 @@ def save_analysis(row, st, res):
             u["text"], u["media_text"] = redact(u["text"]), redact(u.get("media_text"))
             t0, t1 = at(u["t0"]), at(u["t1"])
             p, e, d = u.get("prosody") or {}, u.get("emotion") or {}, u.get("dims") or {}
-            dup = None if (u.get("media") or ctx.startswith("import:")) else _dup_of(c, device, t0, t1, u["text"])
+            dup = None if (u.get("media") or ctx.startswith(("import:", MEET_PREFIX))) else _dup_of(c, device, t0, t1, u["text"])
+            if dup is not None and dup["conv_id"] and conv_meeting(c, dup["conv_id"]):
+                continue                                      # the meeting phone's copy stays in the meeting
             alt_db, alt_dev = None, None
             if dup is not None:                               # two phones heard it: keep the louder (closer) one
                 n_new, n_old = len(_norm_words(u["text"])), len(_norm_words(dup["text"]))
@@ -1077,6 +1091,8 @@ def save_analysis(row, st, res):
             conv = _open_conv(c, ctx, t0, row["lat"], row["lon"])
             if conv:
                 c.execute("UPDATE conversations SET end=? WHERE id=? AND end<?", (t1, conv, t1))
+                if is_meet(ctx):
+                    c.execute("UPDATE conversations SET start=? WHERE id=? AND start>?", (t0, conv, t0))
             else:
                 conv = c.execute("INSERT INTO conversations (start,end,status,ctx,away,lat,lon,place,cal,device) "
                                  "VALUES (?,?,'open',?,?,?,?,?,?,?)",
@@ -1138,7 +1154,7 @@ def gate_conversation(cid):
     a conversation they are in; see README). -> True when kept."""
     with db() as c:
         conv = c.execute("SELECT * FROM conversations WHERE id=?", (cid,)).fetchone()
-        if not conv or not conv["away"]:
+        if not conv or not conv["away"] or is_meet(conv["ctx"]):
             return True
         cs, ce = datetime.fromisoformat(conv["start"]), datetime.fromisoformat(conv["end"])
         marked = sum(1 for m in c.execute("SELECT t, coalesce(minutes, 2) m FROM marks WHERE t >= ? AND t <= ?",
@@ -1208,7 +1224,7 @@ def close_conversations():
         # only a queued chunk that could still belong to the conversation holds it back (with two phones sending all day
         # and a backlog the queue may never be empty).
         oldest_new = c.execute("SELECT min(start) FROM chunks WHERE status='new'").fetchone()[0]
-        rows = c.execute("SELECT id, end FROM conversations WHERE status IN ('open','ended') ORDER BY start").fetchall()
+        rows = c.execute("SELECT id, end FROM conversations WHERE status IN ('open','ended') AND coalesce(ctx,'') NOT LIKE 'meet:%' ORDER BY start").fetchall()
     for r in rows:
         end = datetime.fromisoformat(r["end"])
         quiet = (now - end).total_seconds()
@@ -1223,7 +1239,7 @@ def provisional_summaries():
     """A running conversation gets a summary every SUMMARY_EVERY new utterances (marked provisional)."""
     with db() as c:
         rows = c.execute("""SELECT k.id, k.summary_n, count(u.id) AS n FROM conversations k JOIN utterances u ON u.conv_id=k.id
-                            WHERE k.status='open' GROUP BY k.id""").fetchall()
+                            WHERE k.status='open' AND coalesce(k.ctx,'') NOT LIKE 'meet:%' GROUP BY k.id""").fetchall()
     for r in rows:
         if r["n"] - (r["summary_n"] or 0) >= SUMMARY_EVERY:
             finish_conversation(r["id"], final=False)
@@ -1298,7 +1314,9 @@ def finish_conversation(cid, final=True):
     people = sorted({u["name"] for u in U if u["name"]})
     val = [u["valence"] for u in U if u["valence"] is not None]
     aro = [u["arousal"] for u in U if u["arousal"] is not None]
-    summ = summarise(U, S, dyn, media_note)
+    with db() as c:
+        meet = conv_meeting(c, cid)
+    summ = summarise_meeting(U, dyn) if meet else summarise(U, S, dyn, media_note)
     with db() as c:
         c.execute("""UPDATE conversations SET seconds=?, people=?, talk_seconds=?, turns=?, overlaps=?, interruptions=?,
                      mood_valence=?, mood_arousal=?, sounds=?, topic=?, summary=?, moments=?, mood_text=?, per_person=?,
@@ -1314,7 +1332,10 @@ def finish_conversation(cid, final=True):
                    "done" if final else "open", cid))
     if final:
         try:
-            extract_tasks(cid, U)
+            if meet:
+                save_meeting(meet, cid, summ)
+            else:
+                extract_tasks(cid, U)
             index_conversation(cid)
         except Exception as exc:  # noqa: BLE001
             log(f"tasks/index for conversation {cid} failed {exc!r}")
@@ -1378,6 +1399,282 @@ def summarise(U, S, dyn, media_note=None):
     pp = out.get("per_person") if isinstance(out.get("per_person"), dict) else {}
     out["per_person"] = {k: v for k, v in pp.items() if k in names and isinstance(v, str)}   # no invented people
     return out
+
+
+# ------------------------------------------------------------------ meetings ("record a meeting" on the phone)
+# 2026-10-14: the user starts a meeting on the phone and ends it there. Every recording in between carries meet=<id>
+# (ctx "meet:<id>"): one conversation however long the pauses, kept away from home too (the user chose to record it),
+# analysed before other recordings, and summarised as a meeting (summary, decisions, tasks, next steps) once the
+# phone's "end" arrived and every recording of it is analysed. The phone reads it at GET /home/api/meeting?id=.
+MEET_PREFIX = "meet:"
+MEETING_CHARS = 9000          # transcript characters per summary call; longer meetings are summarised in parts
+MEETING_STALE_H = 3           # a meeting whose phone never sent "end": ended 3 h after its last recording
+
+
+def is_meet(ctx):
+    return bool(ctx) and str(ctx).startswith(MEET_PREFIX)
+
+
+def meet_id(v):
+    return re.sub(r"[^A-Za-z0-9_-]", "", str(v or ""))[:40] or None
+
+
+def meeting_seen(c, mid, device, st, cal=None):
+    """A recording of meeting mid arrived (store_chunk): create the meeting, or bring a finished one back for a
+    new summary (a late recording)."""
+    title = (cal or "").replace("📋", "").replace("פגישה:", "").strip()[:80] or None
+    now = iso(datetime.now())
+    c.execute("INSERT OR IGNORE INTO meetings (id, device, title, started, status, updated) VALUES (?,?,?,?,'recording',?)",
+              (mid, device, title, iso(st), now))
+    c.execute("UPDATE meetings SET started=min(started, ?), updated=?, title=coalesce(title, ?), "
+              "status=CASE WHEN status IN ('done','empty','summarising') THEN 'ended' ELSE status END WHERE id=?",
+              (iso(st), now, title, mid))
+
+
+def meeting_end(device, mid, t0=None, t1=None, title=None):
+    """The phone's "end meeting" (sent after the meeting's recordings). Sent again = summarise again."""
+    mid = meet_id(mid)
+    if not mid:
+        return {"ok": False, "msg": "no meeting id"}
+    now = datetime.now()
+    title = (title or "").strip()[:80] or None
+    with db() as c:
+        c.execute("INSERT OR IGNORE INTO meetings (id, device, title, started, status, updated) VALUES (?,?,?,?,'ended',?)",
+                  (mid, clean_device(device), title, iso(t0 or now), iso(now)))
+        c.execute("UPDATE meetings SET ended=coalesce(?, ended, ?), title=coalesce(?, title), status='ended', updated=? "
+                  "WHERE id=?", (iso(t1) if t1 else None, iso(now), title, iso(now), mid))
+    log(f"meeting {mid} ended ({device})")
+    return {"ok": True, "id": mid}
+
+
+def conv_meeting(c, cid):
+    r = c.execute("SELECT ctx FROM conversations WHERE id=?", (cid,)).fetchone()
+    return r["ctx"][len(MEET_PREFIX):] if r and is_meet(r["ctx"]) else None
+
+
+def finish_meetings():
+    """Ended meetings whose recordings are all analysed -> the final meeting summary. Called from the worker loop."""
+    now = datetime.now()
+    with db() as c:
+        c.execute("UPDATE meetings SET status='ended', ended=coalesce(ended, updated) WHERE status='recording' AND updated<?",
+                  (iso(now - timedelta(hours=MEETING_STALE_H)),))
+        rows = c.execute("SELECT id FROM meetings WHERE status='ended' ORDER BY updated").fetchall()
+    for m in rows:
+        ctx = MEET_PREFIX + m["id"]
+        with db() as c:
+            if c.execute("SELECT 1 FROM chunks WHERE ctx=? AND status='new' LIMIT 1", (ctx,)).fetchone():
+                continue                                          # still transcribing
+            conv = c.execute("SELECT id FROM conversations WHERE ctx=? ORDER BY id LIMIT 1", (ctx,)).fetchone()
+            if not conv:
+                c.execute("UPDATE meetings SET status='empty', updated=? WHERE id=?", (iso(now), m["id"]))
+                continue
+            c.execute("UPDATE meetings SET status='summarising', conv_id=?, updated=? WHERE id=?", (conv["id"], iso(now), m["id"]))
+        try:
+            finish_conversation(conv["id"])
+        except Exception as exc:  # noqa: BLE001
+            log(f"meeting {m['id']} summary failed {exc!r}")
+        with db() as c:
+            st = (c.execute("SELECT status FROM conversations WHERE id=?", (conv["id"],)).fetchone() or {"status": None})["status"]
+            c.execute("UPDATE meetings SET status=CASE WHEN status='summarising' THEN ? ELSE status END, updated=? WHERE id=?",
+                      ("empty" if st == "empty" else "done", iso(datetime.now()), m["id"]))
+
+
+MEETING_TASK = """אתה מסכם פגישה שהוקלטה. התמלול אוטומטי, בעברית, ויש בו שגיאות. "?" הוא דובר שלא זוהה.
+כתוב בעברית, ענייני ותמציתי, רק לפי מה שנאמר. אל תמציא שמות, מספרים, תאריכים, החלטות או משימות.
+החזר JSON בלבד:
+{"topic": "2-6 מילים",
+ "summary": "3-6 משפטים: על מה דיברו ולמה הגיעו",
+ "decisions": ["רק החלטות שסוכמו במפורש, כל אחת בשורה קצרה"],
+ "tasks": [{"who": "מי אחראי (שם כפי שמופיע בתמלול), או ? אם לא ברור", "what": "מה צריך לעשות, קצר",
+            "when": "מתי, רק אם נאמר, אחרת null", "quote": "ציטוט מילה במילה מהתמלול, עד 12 מילים"}],
+ "next_steps": ["מה נשאר פתוח או הצעד הבא, עד 4"],
+ "per_person": {"שם": "משפט אחד: מה האדם הזה אמר או רצה בפגישה"}}
+אם אין החלטות, משימות או צעדים, החזר רשימה ריקה."""
+
+MEETING_PART_TASK = """אתה מסכם חלק אחד מתוך פגישה ארוכה שהוקלטה. התמלול אוטומטי, בעברית, ויש בו שגיאות. "?" הוא דובר שלא זוהה.
+כתוב בעברית, רק לפי מה שנאמר בחלק הזה. אל תמציא.
+החזר JSON בלבד:
+{"summary": "2-4 משפטים על החלק הזה",
+ "decisions": ["החלטות שסוכמו במפורש"],
+ "tasks": [{"who": "מי אחראי או ?", "what": "מה צריך לעשות", "when": "מתי, רק אם נאמר, אחרת null",
+            "quote": "ציטוט מילה במילה מהתמלול, עד 12 מילים"}],
+ "next_steps": ["מה נשאר פתוח"]}"""
+
+MEETING_JOIN_TASK = """לפניך סיכומים של חלקי פגישה אחת, לפי הסדר. אחד אותם לסיכום אחד של כל הפגישה, בעברית.
+אל תוסיף דבר שלא מופיע בחלקים. החזר JSON בלבד:
+{"topic": "2-6 מילים", "summary": "3-6 משפטים על כל הפגישה",
+ "decisions": ["ההחלטות, בלי כפילויות"], "next_steps": ["מה נשאר פתוח, עד 4"]}"""
+
+
+def _meeting_lines(U):
+    out, last = [], None
+    for u in U:
+        hm = u["t0"][11:16]
+        out.append((f"[{hm}] " if hm != last else "") + f"{u['name'] or '?'}: {u['text']}")
+        last = hm
+    return out
+
+
+def _str_list(v, n):
+    return [s.strip() for s in (v if isinstance(v, list) else []) if isinstance(s, str) and s.strip()][:n]
+
+
+def _meeting_tasks(tasks, text):
+    """Only tasks whose quote was really said (the same rule as extract_tasks, with room for a word the model fixed)."""
+    norm, words = " ".join(text.split()), set(_norm_words(text))
+    out, seen = [], set()
+    for t in tasks if isinstance(tasks, list) else []:
+        if not isinstance(t, dict) or not isinstance(t.get("what"), str) or not t["what"].strip():
+            continue
+        quote = " ".join(str(t.get("quote") or "").split())
+        qw = [w for w in _norm_words(quote) if len(w) > 1]
+        if len(quote) < 8 or not (quote[:14] in norm or (len(qw) >= 3 and sum(w in words for w in qw) / len(qw) >= 0.7)):
+            continue
+        keys = {" ".join(_norm_words(t["what"]))[:60], " ".join(_norm_words(quote))[:40]}
+        if keys & seen:                                       # the same task from two parts of a long meeting
+            continue
+        seen |= keys
+        when = t.get("when")
+        out.append({"who": str(t.get("who") or "?").strip()[:40] or "?", "what": t["what"].strip()[:200],
+                    "when": str(when).strip()[:40] if when not in (None, "", "null") else None, "quote": quote[:200]})
+    return out[:12]
+
+
+def summarise_meeting(U, dyn):
+    """Meeting summary: topic, summary, decisions, tasks, next steps (+ per person when it fits one call)."""
+    empty = {"topic": None, "summary": None, "moments": [], "decisions": [], "tasks": [], "next_steps": []}
+    text = " ".join(u["text"] for u in U)
+    if len(text) < 40:
+        return empty
+    names = {u["name"] for u in U if u["name"]}
+    talk = ("\n\nזמן דיבור (שניות): " + ", ".join(f"{k}={v}" for k, v in dyn["talk_seconds"].items())) if dyn else ""
+    parts, cur, size = [], [], 0
+    for ln in _meeting_lines(U):
+        if cur and size + len(ln) > MEETING_CHARS:
+            parts.append(cur)
+            cur, size = [], 0
+        cur.append(ln)
+        size += len(ln) + 1
+    parts.append(cur)
+    if len(parts) == 1:
+        out = _ollama_json(MEETING_TASK, "\n".join(parts[0]) + talk, num_ctx=12288)
+        if "error" in out:
+            return empty
+        tasks = out.get("tasks")
+    else:
+        notes, tasks = [], []
+        for i, p in enumerate(parts):
+            o = _ollama_json(MEETING_PART_TASK, f"חלק {i + 1} מתוך {len(parts)}:\n" + "\n".join(p), num_ctx=12288)
+            if "error" in o:
+                continue
+            tasks += o.get("tasks") if isinstance(o.get("tasks"), list) else []
+            notes.append(f"חלק {i + 1}: " + json.dumps({k: o.get(k) for k in ("summary", "decisions", "next_steps")},
+                                                       ensure_ascii=False))
+        if not notes:
+            return empty
+        out = _ollama_json(MEETING_JOIN_TASK, "\n".join(notes)[:14000] + talk, num_ctx=12288)
+        if "error" in out:                                    # the parts are still worth showing
+            out = {"topic": None, "summary": " ".join(json.loads(n.split(": ", 1)[1]).get("summary") or "" for n in notes)[:1500],
+                   "decisions": [], "next_steps": []}
+        out["per_person"] = {}
+    pp = out.get("per_person") if isinstance(out.get("per_person"), dict) else {}
+    out.update(tasks=_meeting_tasks(tasks, text), decisions=_str_list(out.get("decisions"), 10),
+               next_steps=_str_list(out.get("next_steps"), 6), moments=[], signals=[], mood=None,
+               per_person={k: v for k, v in pp.items() if k in names and isinstance(v, str)})
+    for k in ("topic", "summary"):
+        if not isinstance(out.get(k), str):
+            out[k] = None
+    return out
+
+
+def save_meeting(mid, cid, summ):
+    """The meeting's own parts -> meetings.result; its tasks also go to the task list (open ones are replaced)."""
+    res = {k: summ.get(k) or [] for k in ("decisions", "next_steps", "tasks")}
+    res["model"] = summ.get("model")
+    now = iso(datetime.now())
+    with db() as c:
+        c.execute("DELETE FROM tasks WHERE conv_id=? AND state='open'", (cid,))
+        for t in res["tasks"]:
+            c.execute("INSERT INTO tasks (conv_id, who, what, due, quote, created) VALUES (?,?,?,?,?,?)",
+                      (cid, t["who"], t["what"], t["when"], t["quote"], now))
+        c.execute("UPDATE meetings SET result=?, conv_id=?, updated=? WHERE id=?",
+                  (json.dumps(res, ensure_ascii=False), cid, now, mid))
+
+
+def meeting_view(c, mid):
+    """Everything the phone shows after a meeting: progress while it is processed, then summary, decisions, tasks,
+    next steps, the transcript and ready-to-send text."""
+    m = c.execute("SELECT * FROM meetings WHERE id=?", (meet_id(mid),)).fetchone()
+    if not m:
+        return {"meeting": None}
+    ctx = MEET_PREFIX + m["id"]
+    n = {r["status"]: r["n"] for r in c.execute("SELECT status, count(*) AS n FROM chunks WHERE ctx=? GROUP BY status", (ctx,))}
+    conv = c.execute("SELECT * FROM conversations WHERE ctx=? ORDER BY id LIMIT 1", (ctx,)).fetchone()
+    U = c.execute("SELECT t0, name, text, how FROM utterances WHERE conv_id=? AND media IS NULL AND text!='' ORDER BY t0",
+                  (conv["id"],)).fetchall() if conv else []
+    res = json.loads(m["result"]) if m["result"] else {}
+    tasks = [dict(r) for r in c.execute("SELECT id, who, what, due, quote, state FROM tasks WHERE conv_id=? "
+                                        "AND state!='dismissed' ORDER BY id", (conv["id"],))] if conv else []
+    secs = None
+    if m["started"] and m["ended"]:
+        secs = max(0, (datetime.fromisoformat(m["ended"]) - datetime.fromisoformat(m["started"])).total_seconds())
+    elif conv:
+        secs = conv["seconds"]
+    v = {"meeting": {k: m[k] for k in ("id", "device", "title", "started", "ended", "status", "conv_id")},
+         "progress": {"chunks": sum(n.values()), "done": n.get("done", 0), "waiting": n.get("new", 0), "failed": n.get("failed", 0)},
+         "seconds": secs, "topic": conv["topic"] if conv else None, "summary": conv["summary"] if conv else None,
+         "people": json.loads(conv["people"] or "[]") if conv else [],
+         "per_person": json.loads(conv["per_person"] or "{}") if conv and conv["per_person"] else {},
+         "decisions": res.get("decisions") or [], "next_steps": res.get("next_steps") or [], "tasks": tasks,
+         "lines": [{"t0": u["t0"], "name": u["name"], "text": u["text"], "how": u["how"]} for u in U]}
+    v["share_text"], v["transcript_text"] = meeting_texts(v)
+    return v
+
+
+def meeting_texts(v):
+    """(summary to send, full transcript) as plain text that reads well in WhatsApp / mail."""
+    m = v["meeting"]
+    title = m.get("title") or v.get("topic") or "פגישה"
+    mins = round((v.get("seconds") or 0) / 60)
+    info = [(m.get("started") or "")[:16].replace("T", " "), f"{mins} דק׳" if mins else "",
+            ("משתתפים: " + ", ".join(v["people"])) if v["people"] else ""]
+    out = [f"📋 *{title}*", " · ".join(x for x in info if x)]
+    if v.get("summary"):
+        out += ["", "*סיכום*", v["summary"]]
+    if v["decisions"]:
+        out += ["", "*החלטות*"] + [f"• {d}" for d in v["decisions"]]
+    if v["tasks"]:
+        out += ["", "*משימות*"] + [f"• {(t['who'] + ': ') if t['who'] and t['who'] != '?' else ''}{t['what']}"
+                                   f"{(' (' + t['due'] + ')') if t['due'] else ''}" for t in v["tasks"]]
+    if v["next_steps"]:
+        out += ["", "*הצעדים הבאים*"] + [f"• {s}" for s in v["next_steps"]]
+    out += ["", "— סוכם בשמע · התמלול נעשה במחשב בבית, בלי ענן"]
+    tr = "\n".join(f"{u['t0'][11:16]} {u['name'] or 'לא מזוהה'}: {u['text']}" for u in v["lines"])
+    return "\n".join(out), tr
+
+
+def meetings_list(c, device=None, limit=30):
+    q = "SELECT m.id, m.device, m.title, m.started, m.ended, m.status, k.topic FROM meetings m " \
+        "LEFT JOIN conversations k ON k.id=m.conv_id" + (" WHERE m.device=?" if device else "") + " ORDER BY m.started DESC LIMIT ?"
+    return [dict(r) for r in c.execute(q, ((clean_device(device), limit) if device else (limit,)))]
+
+
+def meetings_done(c, device):
+    """Meetings of this phone summarised in the last 2 days (the phone notifies once per meeting)."""
+    return [r["id"] for r in c.execute("SELECT id FROM meetings WHERE device=? AND status IN ('done','empty') AND updated>=?",
+                                       (device, iso(datetime.now() - timedelta(days=2))))]
+
+
+def meeting_of_conv(c, cid):
+    mid = conv_meeting(c, cid)
+    if not mid:
+        return None
+    m = c.execute("SELECT title, status, result FROM meetings WHERE id=?", (mid,)).fetchone()
+    res = json.loads(m["result"]) if m and m["result"] else {}
+    return {"id": mid, "title": m["title"] if m else None, "status": m["status"] if m else None,
+            "decisions": res.get("decisions") or [], "next_steps": res.get("next_steps") or [],
+            "tasks": [dict(r) for r in c.execute("SELECT id, who, what, due, state FROM tasks WHERE conv_id=? "
+                                                 "AND state!='dismissed' ORDER BY id", (cid,))]}
 
 
 DAY_TASK = """אתה כותב סיכום יום קצר של מה שנשמע בבית, לפי סיכומי השיחות של היום בלבד.
@@ -2134,7 +2431,8 @@ def api(path, qs):
                     "audio_mb": round(sum(f.stat().st_size for f in AUDIO.rglob("*") if f.is_file()) / 1e6, 1),
                     "now_ms": int(time.time() * 1000), "owner_min_samples": OWNER_MIN_SAMPLES,
                     "owner_enrolled": owner_enrolled(c, clean_device(qs["device"][0])) if "device" in qs else None,
-                    "digest": digest() if "device" in qs else None}
+                    "digest": digest() if "device" in qs else None,
+                    "meetings_done": meetings_done(c, clean_device(qs["device"][0])) if "device" in qs else None}
         if path == "/home/api/coverage":
             return coverage(c, (qs.get("day") or [None])[0])
         if path == "/home/api/health":
@@ -2180,7 +2478,7 @@ def api(path, qs):
         if path == "/home/api/sounds":
             return sounds_day(c, qs.get("d", [datetime.now().strftime("%Y-%m-%d")])[0])
         if path == "/home/api/teach":
-            return teach_queue(c, mode=(qs.get("m") or ["smart"])[0])
+            return dict(teach_queue(c, mode=(qs.get("m") or ["smart"])[0]), owner=owner_id())    # the phone's "זה אני"
         if path == "/home/api/people_stats":
             return people_stats(c)
         if path == "/home/api/days":
@@ -2207,6 +2505,10 @@ def api(path, qs):
                                        "ORDER BY t0", (day,))]
             return {"day": day, "conversations": convs, "sounds": sounds, "talk": talk, "media": media,
                     "segs": segs, "daily": dict(daily) if daily else None}
+        if path == "/home/api/meeting":
+            return meeting_view(c, (qs.get("id") or [""])[0])
+        if path == "/home/api/meetings":
+            return meetings_list(c, (qs.get("device") or [None])[0])
         if path == "/home/api/conversation":
             cid = int(qs.get("id", ["0"])[0])
             conv = c.execute("SELECT * FROM conversations WHERE id=?", (cid,)).fetchone()
@@ -2218,7 +2520,8 @@ def api(path, qs):
                     u["rel"] = {k: (round(u[k] - b[k], 2) if u.get(k) is not None and b.get(k) is not None else None)
                                 for k in ("f0_hz", "intensity_db", "syll_per_s", "arousal", "valence")}
             S = _clean(c.execute("SELECT * FROM sounds WHERE conv_id=? ORDER BY t0", (cid,)).fetchall())
-            return {"conversation": dict(conv) if conv else None, "utterances": U, "sounds": S}
+            return {"conversation": dict(conv) if conv else None, "utterances": U, "sounds": S,
+                    "meeting": meeting_of_conv(c, cid) if conv else None}
     return None
 
 
@@ -2349,11 +2652,16 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, summarize_day(str(b.get("day", datetime.now().strftime("%Y-%m-%d")))))
             except Exception as exc:  # noqa: BLE001
                 return self._send(500, {"ok": False, "msg": repr(exc)})
-        if u.path not in ("/home/api/chunk", "/home/api/mark"):
+        if u.path not in ("/home/api/chunk", "/home/api/mark", "/home/api/meeting_end"):
             return self._send(404, {"error": "not found"})
         if not secrets.compare_digest(self.headers.get("X-Home-Token", ""), config()["token"]):
             return self._send(403, {"error": "bad token"})
         q1 = lambda k, d=None: qs.get(k, [d])[0]  # noqa: E731
+        if u.path == "/home/api/meeting_end":                  # "end meeting" on the phone (after its recordings)
+            skew = int(q1("skew") or 0)
+            at = lambda k: (datetime.fromtimestamp((int(q1(k)) + (skew if abs(skew) > 2000 else 0)) / 1000)  # noqa: E731
+                            if (q1(k) or "").isdigit() else None)
+            return self._send(200, meeting_end(q1("device", "phone"), q1("id"), at("ms0"), at("ms1"), q1("title")))
         if u.path == "/home/api/mark":                         # "mark this moment" from the phone (button / quick tile)
             ms = int(q1("ms") or 0)
             skew = int(q1("skew") or 0)
@@ -2377,7 +2685,7 @@ class Handler(BaseHTTPRequestHandler):
                 return None
         meta = {"ms": num("ms", int), "skew": num("skew", int), "lat": num("lat"), "lon": num("lon"), "bat": num("bat", int),
                 "home": q1("home", "1"), "role": q1("role", "home") if q1("role") in ("home", "wearer") else "home",
-                "cal": q1("cal")}
+                "cal": q1("cal"), "meet": q1("meet")}
         cid = store_chunk(raw, q1("device", "phone"), q1("start", iso(datetime.now())), ext, kind, meta)
         phone_seen(q1("device", "phone"), self.client_address[0], last_chunk=iso(datetime.now()))
         return self._send(200, {"ok": True, "id": cid})
@@ -2432,7 +2740,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             out = api(u.path, qs)
             if u.path == "/home/api/status" and not authed and isinstance(out, dict):
-                out = dict(out, digest=None, owner_enrolled=None, phones=[])        # no codes -> only the clock and counts
+                out = dict(out, digest=None, owner_enrolled=None, phones=[], meetings_done=None)        # no codes -> only the clock and counts
         except Exception as exc:  # noqa: BLE001
             return self._send(500, {"error": repr(exc)})
         return self._send(200, out) if out is not None else self._send(404, {"error": "not found"})

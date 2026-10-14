@@ -65,6 +65,8 @@
 
         <activity android:name=".TeachActivity" android:exported="false" />
         <activity android:name=".SearchActivity" android:exported="false" />
+        <activity android:name=".EnrollActivity" android:exported="false" />
+        <activity android:name=".MeetingActivity" android:exported="false" android:launchMode="singleTop" />
 
         <!-- Receive voice notes / shared audio -->
         <activity

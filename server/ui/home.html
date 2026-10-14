@@ -465,6 +465,15 @@ function feel(u){
   if (u.arousal != null && u.arousal >= .8) out.push(`<span class="hi">נסער/אנרגטי</span>`);
   return out.join("");
 }
+// 2026-10-14: a meeting recorded on the phone: decisions, tasks and next steps under the summary
+function meetBlock(m){
+  const li = a => a.map(x => `<div class="moment">${esc(x)}</div>`).join("");
+  const tasks = (m.tasks || []).map(t => `<div class="moment">${t.who && t.who !== "?" ? `<b>${esc(t.who)}</b>: ` : ""}${esc(t.what)}${t.due ? ` <span class="chip">${esc(t.due)}</span>` : ""}</div>`).join("");
+  return `<div class="chips"><span class="chip prov">📋 פגישה${m.title ? ": " + esc(m.title) : ""}</span></div>`
+    + (m.decisions.length ? `<h3>החלטות</h3>${li(m.decisions)}` : "")
+    + (tasks ? `<h3>משימות</h3>${tasks}` : "")
+    + (m.next_steps.length ? `<h3>הצעדים הבאים</h3>${li(m.next_steps)}` : "");
+}
 // box = #main (own page, address #c<id>) or #tlconv under the day timeline (inline; quiet = no scrolling, after a refresh)
 async function showConv(id, box, quiet){
   const inline = !!box; box ||= $("#main");
@@ -484,7 +493,7 @@ async function showConv(id, box, quiet){
       <h2 style="font-size:20px">${esc(c.topic || "שיחה")} <button class="act" id="resum">סכם מחדש</button></h2>
       ${c.summary ? `<div class="sum">${esc(c.summary)}</div>` : ""}${c.mood_text ? `<div class="mood">${esc(c.mood_text)}</div>` : ""}
       ${pp.length ? `<div class="pp">${pp.map(([n, t]) => `<b style="color:${colorOf(n)}">${esc(first(n))}</b><span>${esc(t)}</span>`).join("")}</div>` : ""}
-      ${moments}<div class="chips">${c.media_note ? `<span class="chip media">📺 ברקע: ${esc(c.media_note)}</span>` : ""}${sig}${sounds}${intr}<span class="chip">${c.turns ?? 0} חילופי דוברים</span></div></div>
+      ${D.meeting ? meetBlock(D.meeting) : ""}${moments}<div class="chips">${c.media_note ? `<span class="chip media">📺 ברקע: ${esc(c.media_note)}</span>` : ""}${sig}${sounds}${intr}<span class="chip">${c.turns ?? 0} חילופי דוברים</span></div></div>
     <div class="card" id="ctxcard" hidden></div>
     <div class="card"><h2>טון השיחה</h2>${toneChart(U) || '<div class="legend">מעט מדי משפטים לגרף.</div>'}</div>
     <div class="card"><h2>מי אמר מה</h2>
