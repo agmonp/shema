@@ -81,6 +81,22 @@ def fleurs_items(folder, limit=None, seed=7):
     return uniq[:limit] if limit else uniq
 
 
+def live_items(n, days=14, seed=21):
+    """N random speech chunks of the last `days` from this PC's database whose audio is still kept. No reference text:
+    they measure how a system BEHAVES on real recordings (flags, re-reads, changed text, time), not accuracy."""
+    import sqlite3
+    from datetime import timedelta
+    from paths import DATA
+    db = sqlite3.connect(f"file:{DATA / 'home.sqlite'}?mode=ro", uri=True)
+    since = (datetime.now() - timedelta(days=days)).isoformat(timespec="seconds")
+    rows = db.execute("SELECT id, file, ctx, away, seconds FROM chunks WHERE status='done' AND file IS NOT NULL "
+                      "AND coalesce(kind,'speech')='speech' AND start>=? AND seconds>=2", (since,)).fetchall()
+    rows = [r for r in rows if os.path.exists(r[1])]
+    random.Random(seed).shuffle(rows)
+    return [{"id": f"live/{r[0]}", "path": r[1], "ref": None, "condition": "live-" + ("away" if r[3] else "home"),
+             "entities": [], "aliases": {}, "speech": None, "silence": False} for r in rows[:n]]
+
+
 def read(path):
     import voice_embed as VE
     a = VE.read_audio(path, max_s=100000)
@@ -400,7 +416,29 @@ def paired_bootstrap(rows, base, other, cond, n=2000, seed=5):
             "hi": round(float(hi), 4), "items": len(ids)}
 
 
-def report(out, meta, summary, rows, probe_rows, sysinfo):
+def live_summary(rows, systems):
+    """Real recordings without references: behaviour per system, compared word by word with the first system."""
+    import asr_quality
+    base = {r["id"]: r for r in rows if r["system"] == systems[0]}
+    out = []
+    for s in systems:
+        rs = [r for r in rows if r["system"] == s]
+        if not rs:
+            continue
+        sims = [asr_quality.similarity(base[r["id"]]["hyp"], r["hyp"]) for r in rs if r["id"] in base]
+        audio = sum(r["audio_s"] for r in rs)
+        out.append({"system": s, "items": len(rs), "audio_s": round(audio, 1),
+                    "words": sum(len(M.DEFAULT.tokens(r["hyp"])) for r in rs),
+                    "windows": sum(r["windows"] for r in rs), "flagged": sum(r["flagged"] for r in rs),
+                    "uncertain": sum(r["uncertain"] for r in rs), "secondary_runs": sum(r["secondary_runs"] for r in rs),
+                    "secondary_used": sum(r["secondary_used"] for r in rs),
+                    "items_changed": sum(1 for x in sims if x < 0.999),
+                    "mean_similarity": round(float(np.mean(sims)), 4) if sims else None,
+                    "rtf": round(sum(r["took_s"] for r in rs) / max(audio, 1e-6), 4)})
+    return out
+
+
+def report(out, meta, summary, rows, probe_rows, sysinfo, live=None):
     base = meta["systems"][0]
     L = [f"# ASR benchmark {meta['started']}", "",
          f"Systems: {', '.join(meta['systems'])} (baseline = **{base}**). Device: {sysinfo.get(base, {}).get('device')}.",
@@ -427,6 +465,14 @@ def report(out, meta, summary, rows, probe_rows, sysinfo):
         pr = [r for r in probe_rows if r["system"] == sname]
         L.append(f"| {sname} | " + " | ".join(f"{len(r['hyp'].split())} words" + (f": {r['hyp'][:40]}" if r["hyp"] else "")
                                              for r in pr) + " |")
+    if live:
+        L += ["", "## Real recordings, no reference (behaviour only, NOT accuracy)", "",
+              f"Compared word by word with {meta['systems'][0]}.", "",
+              "| system | items | audio s | words | windows | flagged | 2nd runs | 2nd kept | items changed | similarity | RTF |",
+              "|" + "---|" * 11]
+        for x in live:
+            L.append(f"| {x['system']} | {x['items']} | {x['audio_s']} | {x['words']} | {x['windows']} | {x['flagged']} | "
+                     f"{x['secondary_runs']} | {x['secondary_used']} | {x['items_changed']} | {x['mean_similarity']} | {x['rtf']} |")
     L += ["", "## Cost", "", "| system | where | load s | peak RAM MB | GPU card delta MB (approx.) | events |", "|---|---|---|---|---|---|"]
     for sname in meta["systems"]:
         si = sysinfo.get(sname, {})
@@ -441,6 +487,7 @@ def main():
     ap.add_argument("--gold", action="store_true", help="the data folder's gold set")
     ap.add_argument("--gold-dir")
     ap.add_argument("--fleurs")
+    ap.add_argument("--live", type=int, help="also N real recent chunks without reference (behaviour, not accuracy)")
     ap.add_argument("--limit", type=int)
     ap.add_argument("--concat", type=float, default=0, help="join FLEURS sentences into recordings of about N s")
     ap.add_argument("--conditions", default="clean")
@@ -461,6 +508,8 @@ def main():
         items += gold_items(DATA / "gold")
     if a.gold_dir:
         items += gold_items(a.gold_dir)
+    if a.live:
+        items += live_items(a.live)
     if a.fleurs:
         fl = fleurs_items(a.fleurs, a.limit)
         fl = concat(fl, a.concat) if a.concat else fl
@@ -497,7 +546,7 @@ def main():
             manifest.append({"id": p["id"], "condition": "probe", "npy": str(npy)})
     json.dump(manifest, open(out / "manifest.json", "w", encoding="utf-8"), ensure_ascii=False)
     print(f"{len(items)} items x {len(conditions)} conditions -> {out}", flush=True)
-    sysinfo, scored, probe_rows = {}, [], []
+    sysinfo, scored, probe_rows, live_rows = {}, [], [], []
     for s in systems:
         wo = out / ("system_" + re.sub(r"[^\w.-]", "_", s) + ".json")
         t = time.time()
@@ -514,6 +563,9 @@ def main():
             if row["condition"] == "probe":
                 probe_rows.append(dict(row, system=s))
                 continue
+            if by_key[f"{row['condition']}|{row['id']}"]["ref"] is None:
+                live_rows.append(dict(row, system=s))
+                continue
             sc = score(by_key[f"{row['condition']}|{row['id']}"], row)
             sc["system"] = s
             scored.append(sc)
@@ -522,15 +574,17 @@ def main():
     meta = {"started": started, "systems": systems, "conditions": conditions,
             "inputs": {"gold": a.gold, "gold_dir": a.gold_dir, "fleurs": a.fleurs, "limit": a.limit, "concat": a.concat,
                        "items": len(items)}}
-    json.dump({"meta": meta, "systems": sysinfo, "summary": summary, "items": scored, "probes": probe_rows},
-              open(out / "results.json", "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+    live = live_summary(live_rows, systems)
+    with open(out / "results.json", "w", encoding="utf-8") as f:
+        json.dump({"meta": meta, "systems": sysinfo, "summary": summary, "items": scored, "probes": probe_rows,
+                   "live": live}, f, ensure_ascii=False, indent=1)
     for name, rows in (("items.csv", scored), ("summary.csv", summary)):
         if rows:
             with open(out / name, "w", encoding="utf-8-sig", newline="") as f:
                 w = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
                 w.writeheader()
                 w.writerows(rows)
-    report(out, meta, summary, scored, probe_rows, sysinfo)
+    report(out, meta, summary, scored, probe_rows, sysinfo, live)
     print((out / "report.md").read_text(encoding="utf-8"))
     return 0
 
