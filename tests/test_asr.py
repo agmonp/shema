@@ -445,6 +445,26 @@ class UpdateTests(unittest.TestCase):
         self.assertEqual(r["not_installed"], [])                 # seen once: not re-proposed every time
         self.assertIn("new-ct2", cfg["asr_check"]["seen"])
 
+    def test_settings_switch_only_when_better_on_gold_and_undo(self):
+        items = [{"ref": "מילה " * 6}] * 40
+        with patch.object(self.U, "gold_items", return_value=items):
+            better = lambda seg, it: self.res(0.20 if seg == "legacy" else 0.17)        # noqa: E731
+            r = self.U.settings_check(evaluate_fn=better)
+            self.assertEqual(r["switched"], "overlap+vadnorm")
+            self.assertIsNone(self.U.settings_check(evaluate_fn=better))                # same gold set: not again
+            cfg = json.loads(self.cfg.read_text(encoding="utf-8"))
+            self.assertEqual(cfg["asr"]["segmentation"], "overlap+vadnorm")
+            self.assertTrue(self.U.rollback()["ok"])
+            self.assertNotIn("segmentation", json.loads(self.cfg.read_text(encoding="utf-8"))["asr"])
+        with patch.object(self.U, "gold_items", return_value=items[:39]):
+            self.assertIsNone(self.U.settings_check(evaluate_fn=better))                # 39 sentences: wait
+        cfg = json.loads(self.cfg.read_text(encoding="utf-8"))
+        cfg["asr_check"]["settings_checked_n"] = 0
+        self.cfg.write_text(json.dumps(cfg), encoding="utf-8")
+        with patch.object(self.U, "gold_items", return_value=items):
+            worse = lambda seg, it: self.res(0.20 if seg == "legacy" else 0.21)         # noqa: E731
+            self.assertNotIn("switched", self.U.settings_check(evaluate_fn=worse))
+
     def test_newer_is_not_enough(self):
         found = ([{"id": "newer", "modified": "2027", "license": "apache-2.0"}], "")
         wers = {"cur": self.res(0.30), "newer": self.res(0.29)}

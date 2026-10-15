@@ -85,8 +85,9 @@ def gold_items():
     return [it for it in asr_bench.gold_items(GOLD) if not it["silence"]]
 
 
-def evaluate(model, items, cfg=None):
-    """Production-equivalent scoring of one INSTALLED model -> {"wer", "words", "by_condition", "took_s"}."""
+def evaluate(model, items, cfg=None, segmentation=None):
+    """Production-equivalent scoring of one INSTALLED model -> {"wer", "words", "by_condition", "took_s"}.
+    segmentation: a preset to score instead of the configured one (the settings candidates)."""
     import torch  # noqa: F401  (cublas for CTranslate2)
     import asr_engine, asr_metrics, asr_models
     import home_analyze as HA
@@ -95,6 +96,8 @@ def evaluate(model, items, cfg=None):
         raise FileNotFoundError(f"{model} is not installed")
     cfg["whisper_model"] = model
     cfg["asr"] = dict(cfg.get("asr") or {}, mode="legacy")      # the model alone, production segmentation
+    if segmentation:
+        cfg["asr"]["segmentation"] = segmentation
     dev = _device()
     eng = asr_engine.Engine(cfg, dev, cfg.get("asr_compute") or ("float16" if dev == "cuda" else "int8"))
     prompt = HA.asr_prompt(cfg)
@@ -181,6 +184,14 @@ def switch(cfg, to, why, wer_from=None, wer_to=None):
 def rollback():
     """Back to the previous model (it is still installed: switching never deletes a model)."""
     cfg = cfg_read()
+    st = state(cfg)
+    last = st["switches"][-1] if st["switches"] else None
+    if last and last.get("kind") == "settings" and not last.get("undone"):
+        cfg["asr"] = last.get("prev_asr") or {}
+        last["undone"] = datetime.now().isoformat(timespec="seconds")
+        st["note"] = "חזרנו לחיתוך הקודם."
+        cfg_write(cfg)
+        return {"ok": True, "msg": st["note"]}
     prev = cfg.get("whisper_model_prev")
     if not prev or prev == current_model(cfg):
         return {"ok": False, "msg": "אין מודל קודם לחזור אליו"}
@@ -270,9 +281,72 @@ def run(force=False, apply=True, evaluate_fn=None, installed_fn=None):
     return res
 
 
+# Settings that won on the public benchmark (docs/ASR_2.md section 6). They become the default here only after they
+# are at least as good on THIS household's gold set; the user never has to pick them.
+SETTINGS_CANDIDATES = ["overlap+vadnorm"]
+GOLD_TARGET = 40                     # sentences the screen asks for
+
+
+def settings_check(evaluate_fn=None, apply=True):
+    """Gold set ready and grown since the last check -> score the current segmentation and each candidate on it;
+    switch to the best candidate when the gate passes. -> result dict or None (nothing to do)."""
+    evaluate_fn = evaluate_fn or (lambda seg, items: evaluate(current_model(), items, segmentation=seg))
+    cfg = cfg_read()
+    st = state(cfg)
+    items = gold_items()
+    words = sum(len(it["ref"].split()) for it in items)
+    if len(items) < GOLD_TARGET or words < MIN_GOLD_WORDS or st.get("settings_checked_n") == len(items):
+        return None
+    cur_seg = (cfg.get("asr") or {}).get("segmentation") or "legacy"
+    cur = evaluate_fn(cur_seg, items)
+    res = {"at": datetime.now().isoformat(timespec="seconds"), "gold_items": len(items), "current": cur_seg,
+           "results": {cur_seg: cur}}
+    best = None
+    for seg in SETTINGS_CANDIDATES:
+        if seg == cur_seg:
+            continue
+        r = evaluate_fn(seg, items)
+        res["results"][seg] = r
+        ok, why = gate(cur, r, min_words=MIN_GOLD_WORDS)
+        # a free change (same model, no extra time) only has to be clearly better: the 10 % rule is for new models
+        ok = ok or (r["wer"] is not None and cur["wer"] is not None and r["wer"] < cur["wer"] - 0.005
+                    and not _regresses(cur, r))
+        if ok and (best is None or r["wer"] < best[1]["wer"]):
+            best = (seg, r)
+    if best and apply:
+        frm = dict(cfg.get("asr") or {})
+        cfg["asr"] = dict(frm, segmentation=best[0])
+        st["switches"].append({"at": res["at"], "kind": "settings", "from": cur_seg, "to": best[0], "prev_asr": frm,
+                               "why": f"WER {best[1]['wer']:.1%} vs {cur['wer']:.1%} on {len(items)} gold sentences",
+                               "wer_from": cur["wer"], "wer_to": best[1]["wer"]})
+        st["note"] = (f"התמלול עבר לחיתוך משופר: {best[1]['wer']:.0%} שגיאות מילים במקום {cur['wer']:.0%} "
+                      f"על {len(items)} המשפטים שבדקת. אפשר לחזור מהמסך.")
+        res["switched"] = best[0]
+    elif apply:
+        st["note"] = f"נבדק על {len(items)} המשפטים שלך: החיתוך הנוכחי נשאר, השיפור לא הוכח על ההקלטות שלך."
+    st["settings_checked_n"] = len(items)
+    st["settings_eval"] = {k: {"wer": v["wer"], "words": v["words"]} for k, v in res["results"].items()}
+    st["settings_eval_at"] = res["at"]
+    if apply:
+        cfg_write(cfg)
+    log(json.dumps({k: v for k, v in res.items() if k != "results"}, ensure_ascii=False))
+    return res
+
+
+def _regresses(cur, cand):
+    for k, v in cur["by_condition"].items():
+        c = cand["by_condition"].get(k)
+        if v["words"] >= 50 and c and c["wer"] is not None and v["wer"] is not None and c["wer"] > v["wer"] * REGRESS + 1e-9:
+            return True
+    return False
+
+
 def maybe_run():
-    """idle() hook: at most once a day, and only when EVERY_DAYS passed (or a model was nominated)."""
+    """idle() hook: the settings check as soon as the gold set is ready; the model check at most once a day, and only
+    when EVERY_DAYS passed (or a model was nominated)."""
     try:
+        if settings_check():
+            return None
         cfg = cfg_read()
         st = state(cfg)
         today = datetime.now().strftime("%Y-%m-%d")
@@ -306,6 +380,10 @@ def status():
             "note": st.get("note"), "gold_items": len(gold_items()), "every_days": EVERY_DAYS,
             "evaluations": st["evaluations"], "switches": st["switches"][-5:], "nominated": st["nominated"],
             "seen": st["seen"][-10:], "auto_promote": st.get("auto_promote", True), "min_gold_words": MIN_GOLD_WORDS,
+            "gold_target": GOLD_TARGET, "settings_eval": st.get("settings_eval"), "settings_eval_at": st.get("settings_eval_at"),
+            "segmentation": (cfg.get("asr") or {}).get("segmentation") or "legacy",
+            "can_undo": bool(cfg.get("whisper_model_prev") or any(s.get("kind") == "settings" and not s.get("undone")
+                                                                  for s in st["switches"][-1:])),
             "next": (datetime.fromisoformat(st["last"]) + timedelta(days=EVERY_DAYS)).strftime("%Y-%m-%d") if st.get("last") else "בקרוב"}
 
 

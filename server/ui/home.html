@@ -765,104 +765,71 @@ const shortModel = m => (m || "").replace("ivrit-ai/whisper-", "").replace("-ct2
 async function showAsr(){
   $("#days").innerHTML = "";
   const [A, L] = await Promise.all([J("/home/api/asr"), J("/home/api/asr_quality")]);
-  const S = A.settings, inst = A.models.installed, sec = S.secondary, secOk = !!inst[sec];
-  const ev = Object.entries(A.evaluations || {});
-  const B = A.bench;
-  const flags = a => (a && a.flags || []).map(f => `<span class="tag h" title="סימן אזהרה (היוריסטיקה), לא מדידת דיוק">${esc(FLAG_HE[f] || f)}</span>`).join(" ");
-  const line = (u, mode) => `<div class="line" data-id="${u.id}">
+  const goal = A.gold_target || 40, have = L.gold_items, left = Math.max(0, goal - have);
+  const segNow = A.segmentation === "legacy" ? "החיתוך הרגיל" : "החיתוך המשופר (אחרי שהוכח על ההקלטות שלך)";
+  const SE = A.settings_eval;
+  const line = u => `<div class="line" data-id="${u.id}">
       <div class="meta"><span class="num">${esc(u.t0.slice(5, 16).replace("T", " "))}</span><b>${esc(u.name || "לא מזוהה")}</b>
-        <span class="tag">${esc(COND_HE[u.condition] || u.condition)}</span>${flags(u.asr)}
-        ${u.asr && u.asr.models ? `<span class="tag">${u.asr.models.map(shortModel).map(esc).join(" + ")}</span>` : ""}
-        ${u.in_gold ? '<span class="tag m">בסט הזהב</span>' : ""}<a href="#c${u.conv_id}" style="color:var(--accent);margin-inline-start:auto">לשיחה</a></div>
-      ${mode === "corr" ? `<div><span class="raw">${esc(u.text_raw)}</span><br>${esc(u.text)}</div>
-        <div class="meta">${(u.asr && u.asr.changes || []).filter(c => c.from).map(c => `${esc(c.from)} ← ${esc(c.to)}`).join(" · ")}</div>`
-      : `${u.audio ? `<audio controls preload="none" src="/home/audio/utt/${u.id}"></audio>` : '<div class="meta">השמע כבר נמחק</div>'}
-        ${u.audio && !u.in_gold ? `<textarea rows="2">${esc(u.text)}</textarea>
-          <div class="row"><button class="ok" data-gold="${u.id}" data-cond="${esc(u.condition)}">נכון, שמור בסט הזהב</button>
-          ${mode === "rev" ? `<button class="btn" data-skip="${u.id}">דלג</button>` : ""}
-          <span class="legend" style="margin:0">תקן את הטקסט למה שבאמת נאמר, מילה במילה</span></div>` : `<div>${esc(u.text)}</div>`}`}</div>`;
-  const benchRows = B && B.summary ? B.summary : [];
+        <span class="tag">${esc(COND_HE[u.condition] || u.condition)}</span>
+        <a href="#c${u.conv_id}" style="color:var(--accent);margin-inline-start:auto">לשיחה</a></div>
+      <audio controls preload="none" src="/home/audio/utt/${u.id}"></audio>
+      <textarea rows="2">${esc(u.text)}</textarea>
+      <div class="row"><button class="ok" data-gold="${u.id}" data-cond="${esc(u.condition)}">שמור</button>
+        <button class="btn" data-skip="${u.id}">דלג</button></div></div>`;
   $("#main").innerHTML = `<div class="asr">
-    <div class="card"><h2>איכות התמלול</h2>
-      <div class="kv"><span>מודל ראשי</span><b><span class="num">${esc(shortModel(A.model))}</span></b>
-        <span>מודל משני</span><span><span class="num">${esc(shortModel(sec))}</span> · ${secOk ? "מותקן" : "לא מותקן"}
-          ${secOk ? "" : `<button class="btn" id="asrinst">התקן (${A.models.known[sec] ? A.models.known[sec].gb : "?"} GB)</button>`}
-          ${A.models.install && A.models.install.state && A.models.install.state !== "idle" ? `<span class="legend">${esc(A.models.install.msg || A.models.install.state)}</span>` : ""}</span>
-        <span>מצב</span><span><select id="asrmode">${S.modes.map(m => `<option value="${m}" ${m === S.mode ? "selected" : ""} ${m !== "legacy" && !secOk ? "disabled" : ""}>${esc(MODE_HE[m] || m)}</option>`).join("")}</select></span>
-        <span>מהירות במחשב הזה</span><span>${A.speed && A.speed.rtf != null ? `<span class="num">${A.speed.rtf}</span> שניות עבודה לכל שנייה של הקלטה (כל שלבי הניתוח, ${A.speed.chunks} קטעים ב-24 שעות)` : "אין קטעים ב-24 השעות האחרונות"}</span>
-        <span>מודל קודם</span><span>${A.previous ? `<span class="num">${esc(shortModel(A.previous))}</span> <button class="btn" id="asrback">חזור אליו</button>` : "—"}</span>
-        <span>בדיקת מודלים אחרונה</span><span>${A.last_eval ? esc(A.last_eval.slice(0, 10)) : "עוד לא נמדד"} · סריקה: ${A.last ? esc(A.last.slice(0, 10)) : "—"}, הבאה ${esc(A.next)}</span>
-        <span>החלפה אוטומטית</span><label><input type="checkbox" id="asrauto" ${A.auto_promote ? "checked" : ""}> רק אחרי מדידה על הסט שלך (לפחות ${A.min_gold_words} מילים, 10% טוב יותר, בלי הרעה)</label></div>
-      ${A.note ? `<div class="legend" style="color:var(--accent)">${esc(A.note)}</div>` : ""}
-      <details style="margin-top:6px"><summary class="legend" style="cursor:pointer">מתקדם</summary>
-        <div class="row"><label>חיתוך הקלטה <select id="asrseg">${[...new Set([...S.segmentations, S.segmentation])].map(s => `<option value="${s}" ${s === S.segmentation ? "selected" : ""}>${esc(SEG_HE[s] || s)}</option>`).join("")}</select></label></div>
-        <div class="row"><label><input type="checkbox" id="asrmark" ${S.mark_uncertain ? "checked" : ""}> סמן קטעים חשודים (לא משנה את הטקסט)</label></div>
-        <div class="row"><label><input type="checkbox" id="asrcorr" ${S.correct ? "checked" : ""}> תיקון לפי המילון (הטקסט המקורי נשמר)</label>
-          <label><input type="checkbox" id="asrllm" ${S.llm ? "checked" : ""} ${S.correct ? "" : "disabled"}> בדיקת הקשר במודל שפה מקומי (Ollama)</label></div>
-        ${A.seen && A.seen.length ? `<div class="row legend">מודלים שנמצאו: ${A.seen.map(m => `<span class="num">${esc(shortModel(m))}</span> <button class="btn" data-nom="${esc(m)}">למדוד</button>`).join(" ")}</div>` : ""}
-      </details></div>
+    <div class="card"><h2>מה צריך ממך</h2>
+      ${left ? `<div>להקשיב ל-<b>${left}</b> משפטים נוספים ולתקן את הטקסט למה שבאמת נאמר, מילה במילה. זה בערך ${Math.max(5, Math.round(left * 0.7))} דקות.</div>
+        <div class="meter" title="${have} מתוך ${goal}"><i style="width:${Math.min(100, have / goal * 100)}%"></i></div>
+        <div class="legend">${have} מתוך ${goal}. כשהמשפט לא ברור או כמה אנשים מדברים יחד: דלג.</div>`
+      : `<div>סיימת. ${have} משפטים בסט. אין צורך בעוד, אלא אם תרצה לשפר את המדידה.</div>`}</div>
 
-    <div class="card"><h2>מדידה <span class="tag m">נמדד</span></h2>
-      ${ev.length ? `<div class="tbl"><table><tr><th>מודל</th><th>שגיאות מילים (WER)</th><th>מילים בסט</th><th>תאריך</th></tr>
-        ${ev.map(([m, r]) => `<tr><td class="num">${esc(shortModel(m))}</td><td class="num">${pct(r.wer)}</td><td class="num">${r.words}</td><td class="num">${esc((r.at || "").slice(0, 10))}</td></tr>`).join("")}</table></div>`
-        : `<div class="legend">עוד אין מדידה על ההקלטות שלך. בסט הזהב ${L.gold_items} משפטים; צריך לפחות ${A.min_gold_words} מילים (בערך 40 משפטים) כדי שמדידה תיחשב.</div>`}
-      ${benchRows.length ? `<div class="legend">בדיקת ביצועים אחרונה (${esc(B.run)}):</div><div class="tbl"><table>
-        <tr><th>מערכת</th><th>תנאי</th><th>פריטים</th><th>WER</th><th>חסרות</th><th>מיותרות</th><th>זמן לשנייה</th></tr>
-        ${benchRows.map(r => `<tr><td class="num">${esc(r.system)}</td><td class="num">${esc(r.condition)}</td><td class="num">${r.items}</td><td class="num">${pct(r.wer)}</td>
-          <td class="num">${pct(r.del_rate)}</td><td class="num">${pct(r.ins_rate)}</td><td class="num">${r.rtf}</td></tr>`).join("")}</table></div>` : ""}
-      ${(A.switches || []).length ? `<div class="legend">החלפות: ${A.switches.map(s => `${esc(s.at.slice(0, 10))} ${esc(shortModel(s.from))} ← ${esc(shortModel(s.to))} (${esc(s.why)})`).join(" · ")}</div>` : ""}
-      <div class="legend">"נמדד" = השוואה לטקסט שבדקת באוזן. סימני האזהרה בהמשך הם ניחוש של המערכת, לא מדידה.</div></div>
+    <div class="card"><h2>מה קורה עם זה</h2>
+      <div>${left ? `כשיהיו ${goal} משפטים, המחשב יבדוק לבד אם השיפור שמצאתי בבדיקות (חיתוך הקלטה שמזהה גם דיבור שקט) מתמלל את ההקלטות <b>שלך</b> טוב יותר. אם כן, הוא יעבור אליו. אם לא, הכל נשאר כמו שהוא.`
+        : SE ? `נבדק: ${Object.entries(SE).map(([k, v]) => `${k === "legacy" ? "חיתוך רגיל" : "חיתוך משופר"} ${pct(v.wer)} שגיאות`).join(" · ")}`
+        : "הבדיקה תרוץ בדקות הקרובות, כשהמחשב פנוי."}</div>
+      ${A.note && !left ? `<div class="legend" style="color:var(--accent)">${esc(A.note)}</div>` : ""}
+      <div class="legend">עכשיו: ${esc(segNow)}, מודל ${esc(shortModel(A.model))}. לא צריך לבחור כלום.</div>
+      ${A.can_undo ? `<div class="row"><button class="btn" id="asrback">חזור למה שהיה לפני</button></div>` : ""}</div>
 
-    <div class="card"><h2>בדיקה באוזן לסט הזהב <span class="tag">${L.gold_items} בסט</span></h2>
-      <div class="legend">משפטים אחרונים מכל סוגי ההקלטה. מקשיבים, מתקנים את הטקסט למה שנאמר ושומרים. 40–60 משפטים מספיקים למדידה ראשונה.</div>
-      <div id="asrrev">${L.review.length ? L.review.map(u => line(u, "rev")).join("") : '<div class="empty">אין משפטים עם שמע לבדיקה.</div>'}</div></div>
+    <div class="card"><h2>משפטים לבדיקה</h2>
+      <div id="asrrev">${L.review.length ? L.review.map(line).join("") : '<div class="empty">אין כרגע משפטים עם שמע לבדיקה.</div>'}</div></div>
 
-    <div class="card"><h2>קטעים לא בטוחים <span class="tag h">אזהרה, לא מדידה</span></h2>
-      ${L.uncertain.length ? L.uncertain.map(u => line(u, "unc")).join("") : '<div class="legend">אין קטעים מסומנים. (הסימון מתחיל בהקלטות חדשות.)</div>'}</div>
-
-    <div class="card"><h2>מילון מונחים</h2>
-      <div class="legend">שמות, מקומות ומונחים שחוזרים. המונח נשלח למודל כרמז לאיות. "טעויות שראיתי" מוחלפות במונח רק כשהתיקון לפי המילון פעיל, ורק בדיוק כפי שנכתבו. מילות שלילה ומספרים לא מוחלפים לעולם.</div>
-      <div class="gl" style="margin-top:8px;color:var(--faint);font-size:12px"><span>מונח</span><span>טעויות שראיתי (מופרד בפסיקים)</span><span>סוג</span><span>רמז</span><span></span></div>
+    <details class="card"><summary style="cursor:pointer;font-weight:700">שמות ומילים שהתמלול טועה בהם (לא חובה)</summary>
+      <div class="legend">כשאתה רואה שהתמלול כותב שם או מונח לא נכון באופן קבוע: כתוב את הנכון, ובטור השני את הטעויות שראית (מופרד בפסיקים).
+        המחשב יחליף רק את הטעויות האלה בדיוק. מילות שלילה ומספרים לא מוחלפים לעולם.</div>
+      <div class="gl" style="margin-top:8px;color:var(--faint);font-size:12px"><span>נכון</span><span>טעויות שראיתי</span><span>סוג</span><span></span><span></span></div>
       <div id="glrows"></div>
-      <div class="row"><button class="btn" id="gladd">+ מונח</button><button class="ok" id="glsave">שמור מילון</button><span id="glwarn" class="legend" style="margin:0"></span></div></div>
-
-    ${L.corrected.length ? `<div class="card"><h2>תוקנו לפי המילון</h2>${L.corrected.map(u => line(u, "corr")).join("")}</div>` : ""}
+      <div class="row"><button class="btn" id="gladd">+ שורה</button><button class="ok" id="glsave">שמור</button><span id="glwarn" class="legend" style="margin:0"></span></div>
+    </details>
   </div>`;
   const glRow = e => `<div class="gl"><input value="${esc(e.term)}" data-f="term"><input value="${esc((e.variants || []).join(", "))}" data-f="variants">
     <select data-f="kind">${Object.entries(KIND_HE).map(([k, v]) => `<option value="${k}" ${k === (e.kind || "") ? "selected" : ""}>${v}</option>`).join("")}</select>
-    <label title="שלח למודל כרמז"><input type="checkbox" data-f="prompt" ${e.prompt !== false ? "checked" : ""}></label><button class="btn x2" data-del>מחק</button></div>`;
-  $("#glrows").innerHTML = A.glossary.map(glRow).join("");
+    <span></span><button class="btn x2" data-del>מחק</button></div>`;
+  $("#glrows").innerHTML = A.glossary.filter(e => e.variants && e.variants.length || e.kind).map(glRow).join("");
   const wireDel = () => document.querySelectorAll("#glrows [data-del]").forEach(b => b.onclick = () => b.parentElement.remove());
   wireDel();
   $("#gladd").onclick = () => { $("#glrows").insertAdjacentHTML("beforeend", glRow({term: "", variants: []})); wireDel(); };
   $("#glsave").onclick = async () => {
+    // only corrections: names are NOT sent to Whisper as a hint (measured 2026-10-15: it invented names on silence)
     const g = [...document.querySelectorAll("#glrows .gl")].map(r => ({term: r.querySelector('[data-f="term"]').value.trim(),
       variants: r.querySelector('[data-f="variants"]').value.split(",").map(x => x.trim()).filter(Boolean),
-      kind: r.querySelector('[data-f="kind"]').value, prompt: r.querySelector('[data-f="prompt"]').checked})).filter(e => e.term);
-    const r = await POST("/home/api/asr_glossary", {glossary: g, asr_terms: []});
-    $("#glwarn").textContent = r.ok ? `נשמר: ${r.count} מונחים` + (r.warnings.length ? " · " + r.warnings.join(" · ") : "") : (r.msg || "לא נשמר");
+      kind: r.querySelector('[data-f="kind"]').value, prompt: false})).filter(e => e.term && e.variants.length);
+    const r = await POST("/home/api/asr_glossary", {glossary: g});
+    if (r.ok && g.length) await POST("/home/api/asr_settings", {correct: true});
+    $("#glwarn").textContent = r.ok ? `נשמר: ${r.count} שורות` + (r.warnings.length ? " · " + r.warnings.join(" · ") : "") : (r.msg || "לא נשמר");
   };
-  const set = async b => { const r = await POST("/home/api/asr_settings", b); toast(r.ok ? "נשמר. חל מהקטע הבא." : (r.msg || "לא נשמר")); showAsr(); };
-  $("#asrmode").onchange = e => set({mode: e.target.value});
-  $("#asrseg").onchange = e => set({segmentation: e.target.value});
-  $("#asrmark").onchange = e => set({mark_uncertain: e.target.checked});
-  $("#asrcorr").onchange = e => set({correct: e.target.checked});
-  $("#asrllm").onchange = e => set({llm: e.target.checked});
-  $("#asrauto").onchange = async e => { await POST("/home/api/asr_check", {auto_promote: e.target.checked}); toast("נשמר"); };
-  const inb = $("#asrinst");
-  if (inb) inb.onclick = async () => { inb.disabled = true; const r = await POST("/home/api/asr_install", {model: sec});
-    toast(r.ok ? "ההתקנה התחילה. זה לוקח כמה דקות." : (r.msg || "לא התחיל")); setTimeout(showAsr, 4000); };
   const back = $("#asrback");
   if (back) back.onclick = async () => { const r = await POST("/home/api/asr_rollback", {}); toast(r.msg || (r.ok ? "חזרנו" : "לא הצליח")); showAsr(); };
-  document.querySelectorAll("[data-nom]").forEach(b => b.onclick = async () => { await POST("/home/api/asr_nominate", {model: b.dataset.nom}); toast("יימדד בבדיקה הבאה (אם הוא מותקן)"); });
   document.querySelectorAll("[data-gold]").forEach(b => b.onclick = async () => {
     const box = b.closest(".line"), txt = box.querySelector("textarea").value.trim();
     if (!txt) return toast("אין טקסט");
     const r = await POST("/home/api/gold", {utt_id: +b.dataset.gold, text: txt, condition: b.dataset.cond});
-    toast(r.ok ? `נשמר. בסט הזהב ${r.gold_items} משפטים` : (r.msg || "לא הצליח"));
-    if (r.ok) box.remove();
+    if (!r.ok) return toast(r.msg || "לא הצליח");
+    box.remove();
+    toast(`נשמר. ${r.gold_items} מתוך ${goal}`);
+    if (r.gold_items >= goal || !document.querySelector("#asrrev .line")) showAsr();
   });
-  document.querySelectorAll("[data-skip]").forEach(b => b.onclick = () => b.closest(".line").remove());
+  document.querySelectorAll("[data-skip]").forEach(b => b.onclick = () => { b.closest(".line").remove(); if (!document.querySelector("#asrrev .line")) showAsr(); });
 }
 // ---------------------------------------------------------------- people
 async function showPeople(){
