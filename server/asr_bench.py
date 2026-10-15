@@ -283,6 +283,8 @@ def parse_system(name):
             s["seg"] = part[4:]
         elif part == "demucs":
             s["demucs"] = True             # production rule: Demucs only when the sound tagger hears music
+        elif part.startswith("lp="):
+            s["logprob"] = float(part[3:])     # adaptive calibration: flag windows below this mean log-probability
         elif part == "demucsall":
             s["demucs"] = "all"            # experiment: Demucs vocals on every recording
         elif part:
@@ -299,6 +301,8 @@ def run_system(system, manifest, out_path, device=None):
     cfg = HA.home_config()
     cfg["asr"] = dict(cfg.get("asr") or {}, mode=sysd["mode"], segmentation=sysd["seg"])
     cfg["asr"].pop("seg", None)
+    if "logprob" in sysd:
+        cfg["asr"]["quality"] = dict(cfg["asr"].get("quality") or {}, logprob=sysd["logprob"])
     dev = device or _device()
     gpu = GpuWatch()
     t_load = time.time()
