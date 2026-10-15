@@ -17,22 +17,39 @@ import numpy as np
 
 SR = 16000
 
+_BASE = {"pad": 0.2, "merge_gap": 0.4, "max_merge": 15.0, "min_len": 0.25, "split": 0.0, "overlap": 0.0, "own": False,
+         "vad_norm": False}
 PRESETS = {
-    "legacy":  {"pad": 0.2, "merge_gap": 0.4, "max_merge": 15.0, "min_len": 0.25, "split": 0.0, "overlap": 0.0, "own": False},
-    "pad05":   {"pad": 0.5, "merge_gap": 0.4, "max_merge": 15.0, "min_len": 0.25, "split": 0.0, "overlap": 0.0, "own": True},
-    "pad08":   {"pad": 0.8, "merge_gap": 0.4, "max_merge": 15.0, "min_len": 0.25, "split": 0.0, "overlap": 0.0, "own": True},
-    "merge":   {"pad": 0.2, "merge_gap": 0.8, "max_merge": 25.0, "min_len": 0.25, "split": 0.0, "overlap": 0.0, "own": True},
-    "overlap": {"pad": 0.5, "merge_gap": 0.8, "max_merge": 28.0, "min_len": 0.25, "split": 20.0, "overlap": 2.0, "own": True},
-    "short":   {"pad": 0.5, "merge_gap": 0.4, "max_merge": 15.0, "min_len": 0.10, "split": 0.0, "overlap": 0.0, "own": True},
+    "legacy":  dict(_BASE),
+    "pad05":   dict(_BASE, pad=0.5, own=True),
+    "pad08":   dict(_BASE, pad=0.8, own=True),
+    "merge":   dict(_BASE, merge_gap=0.8, max_merge=25.0, own=True),
+    "overlap": dict(_BASE, pad=0.5, merge_gap=0.8, max_merge=28.0, split=20.0, overlap=2.0, own=True),
+    "short":   dict(_BASE, pad=0.5, min_len=0.10, own=True),
+    # the VAD hears a copy raised to a fixed peak (quiet speakers / a phone in a pocket); Whisper still gets the original
+    "vadnorm": dict(_BASE, vad_norm=True),
 }
 
 
 def settings(name=None, override=None):
-    s = dict(PRESETS.get(name or "legacy", PRESETS["legacy"]))
+    """A preset; "pad05+vadnorm" combines presets left to right (later non-default values win)."""
+    s = dict(_BASE)
+    for part in (name or "legacy").split("+"):
+        p = PRESETS.get(part, PRESETS["legacy"])
+        s.update({k: v for k, v in p.items() if v != _BASE[k]})
     for k, v in (override or {}).items():
         if k in s:
-            s[k] = type(s[k])(v)
+            s[k] = (str(v).lower() in ("1", "true", "yes")) if isinstance(s[k], bool) else type(s[k])(v)
     return s
+
+
+def vad_view(audio, peak=0.5):
+    """What the VAD listens to when vad_norm is on: the same audio scaled so its loudest sample is `peak`
+    (never more than 30 dB of gain, so pure hiss stays hiss)."""
+    m = float(np.max(np.abs(audio))) if len(audio) else 0.0
+    if m <= 0:
+        return audio
+    return (audio * min(peak / m, 10 ** (30 / 20))).astype(np.float32)
 
 
 def regions_from_mask(mask, merge_gap=0.4, max_merge=15.0):

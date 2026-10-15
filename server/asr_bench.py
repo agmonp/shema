@@ -95,7 +95,7 @@ def concat(items, target_s, seed=11):
         a = read(it["path"])
         if not len(a):
             continue
-        a = _trim(a)
+        a = set_level(_trim(a), -31.0)          # sentences at one level first, so the -60 dB pause floor stays quiet
         if cur and t + len(a) / SR > target_s:
             out.append(_join(cur, parts, len(out)))
             cur, parts, t = [], [], 0.0
@@ -151,14 +151,19 @@ def _colored(white, alpha):
 def apply_condition(audio, cond, rng):
     """'opus12+brown5' -> encode / decode at 12 kbps, then brown noise at 5 dB SNR (noise is added before the codec,
     as in a car: the phone hears noise + voice and encodes both)."""
-    codec, noise, snr = "clean", None, None
+    codec, noise, snr, level = "clean", None, None, None
     for part in cond.split("+"):
         m = re.fullmatch(r"(pink|brown|white)(-?\d+)", part)
+        lv = re.fullmatch(r"lvl(-\d+)", part)
         if m:
             noise, snr = m.group(1), float(m.group(2))
+        elif lv:
+            level = float(lv.group(1))
         elif part:
             codec = part
     a = audio.astype(np.float32)
+    if level is not None:                 # "lvl-50": a quiet speaker (speech RMS at -50 dBFS)
+        a = set_level(a, level)
     if noise and len(a):
         n = rng.normal(0, 1, len(a))
         n = _colored(n, {"white": 0.0, "pink": 1.0, "brown": 2.0}[noise])
@@ -171,6 +176,18 @@ def apply_condition(audio, cond, rng):
     if codec.startswith("opus") and len(a):
         a = opus_roundtrip(a, int(codec[4:]))
     return a
+
+
+def set_level(a, db):
+    """Scale so the RMS of the louder half of 20 ms frames (the speech, not the pauses) sits at db dBFS."""
+    if not len(a):
+        return a
+    fr = a[:len(a) // 320 * 320].reshape(-1, 320) if len(a) >= 320 else a.reshape(1, -1)
+    e = np.sqrt(np.mean(fr ** 2, axis=1))
+    act = np.sqrt(np.mean(np.sort(e)[len(e) // 2:] ** 2)) + 1e-12
+    out = a * (10 ** (db / 20) / act)
+    peak = float(np.max(np.abs(out)))
+    return (out / peak * 0.99 if peak > 0.99 else out).astype(np.float32)
 
 
 def opus_roundtrip(a, kbps):
@@ -200,7 +217,10 @@ def peak_ram_mb():
                     ("PeakPagefileUsage", ctypes.c_size_t)]
     c = PMC()
     c.cb = ctypes.sizeof(PMC)
-    ctypes.windll.psapi.GetProcessMemoryInfo(ctypes.windll.kernel32.GetCurrentProcess(), ctypes.byref(c), c.cb)
+    k32 = ctypes.WinDLL("kernel32")
+    k32.GetCurrentProcess.restype = ctypes.c_void_p
+    k32.K32GetProcessMemoryInfo.argtypes = [ctypes.c_void_p, ctypes.POINTER(PMC), ctypes.c_ulong]
+    k32.K32GetProcessMemoryInfo(k32.GetCurrentProcess(), ctypes.byref(c), c.cb)
     return round(c.PeakWorkingSetSize / 2 ** 20, 1)
 
 
@@ -246,7 +266,9 @@ def parse_system(name):
         elif part.startswith("seg="):
             s["seg"] = part[4:]
         elif part == "demucs":
-            s["demucs"] = True
+            s["demucs"] = True             # production rule: Demucs only when the sound tagger hears music
+        elif part == "demucsall":
+            s["demucs"] = "all"            # experiment: Demucs vocals on every recording
         elif part:
             raise SystemExit(f"unknown system part {part!r}")
     return s
@@ -281,9 +303,12 @@ def run_system(system, manifest, out_path, device=None):
         t = time.time()
         raw = None
         if pre is not None and len(audio):
-            events, _, _ = pre.sounds(audio)
-            if any(e["tag"] in HA.MUSIC_HE for e in events):
+            if sysd["demucs"] == "all":
                 raw, audio = audio, pre.unmusic(audio)
+            else:
+                events, _, _ = pre.sounds(audio)
+                if any(e["tag"] in HA.MUSIC_HE for e in events):
+                    raw, audio = audio, pre.unmusic(audio)
         words, trace = eng.transcribe(audio, prompt=prompt, raw=raw) if len(audio) else ([], {"windows": []})
         took = time.time() - t
         rows.append({"id": it["id"], "condition": it["condition"], "hyp": "".join(w[2] for w in words).strip(),
@@ -419,6 +444,8 @@ def main():
     ap.add_argument("--limit", type=int)
     ap.add_argument("--concat", type=float, default=0, help="join FLEURS sentences into recordings of about N s")
     ap.add_argument("--conditions", default="clean")
+    ap.add_argument("--level", type=float, help="speech level (dBFS) every FLEURS item is set to first; default -31, the "
+                    "median of the phone recordings measured 2026-10-15 (FLEURS files are ~-60 dBFS, below any phone)")
     ap.add_argument("--systems", default="legacy,adaptive")
     ap.add_argument("--no-probes", action="store_true")
     ap.add_argument("--out")
@@ -436,7 +463,11 @@ def main():
         items += gold_items(a.gold_dir)
     if a.fleurs:
         fl = fleurs_items(a.fleurs, a.limit)
-        items += concat(fl, a.concat) if a.concat else fl
+        fl = concat(fl, a.concat) if a.concat else fl
+        lvl = -31.0 if a.level is None else a.level
+        for it in fl:
+            it["audio"] = set_level(it["audio"] if "audio" in it else read(it["path"]), lvl)
+        items += fl
     if not items:
         print(json.dumps({"ok": False, "msg": "no benchmark items: the gold set is empty and no other input was given. "
                           "Add sentences from the /home screen ('add to gold set') or pass --fleurs / --gold-dir."},

@@ -103,7 +103,8 @@ class Engine:
     def transcribe(self, audio, prompt=None, raw=None, mask=None):
         """-> (words, trace). raw = the recording before music removal (used for the adaptive second reading)."""
         st, mode = self.st, self.st["mode"]
-        mask = self.mask(audio) if mask is None else mask
+        if mask is None:
+            mask = self.mask(S.vad_view(audio) if st["seg"]["vad_norm"] else audio)
         regions = S.regions_from_mask(mask, st["seg"]["merge_gap"], st["seg"]["max_merge"])
         wins = S.windows(regions, len(audio), st["seg"])
         first = self.model_name
