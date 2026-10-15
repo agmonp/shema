@@ -391,6 +391,69 @@ class PipelineTests(unittest.TestCase):
                     self.assertEqual(db.execute("SELECT count(*) FROM utterances").fetchone()[0], 0)
 
 
+class UpdateTests(unittest.TestCase):
+    def setUp(self):
+        import asr_update as U
+        self.U = U
+        self.dir = tempfile.TemporaryDirectory()
+        self.cfg = Path(self.dir.name) / "config.json"
+        self.cfg.write_text(json.dumps({"whisper_model": "cur"}), encoding="utf-8")
+        self.p = patch.multiple(U, CONFIG=self.cfg, gold_items=lambda: [{"x": 1}] * 50)
+        self.p.start()
+
+    def tearDown(self):
+        self.p.stop()
+        self.dir.cleanup()
+
+    @staticmethod
+    def res(wer, words=400, by=None):
+        return {"wer": wer, "words": words, "by_condition": by or {"home": {"wer": wer, "words": words}}, "at": "2026-10-15"}
+
+    def test_gate(self):
+        g = self.U.gate
+        self.assertFalse(g(self.res(0.30, 100), self.res(0.10, 100))[0])               # too few words
+        self.assertFalse(g(self.res(0.30), self.res(0.28))[0])                         # < 10 % better
+        self.assertTrue(g(self.res(0.30), self.res(0.25))[0])
+        cur = self.res(0.30, by={"home": {"wer": 0.30, "words": 300}, "car": {"wer": 0.20, "words": 100}})
+        cand = self.res(0.25, by={"home": {"wer": 0.22, "words": 300}, "car": {"wer": 0.25, "words": 100}})
+        ok, why = g(cur, cand)
+        self.assertFalse(ok)
+        self.assertIn("car", why)
+
+    def test_nominated_old_model_evaluated_switch_and_rollback(self):
+        self.U.nominate("old-but-good")
+        wers = {"cur": self.res(0.30), "old-but-good": self.res(0.24)}
+        with patch.object(self.U, "candidates", return_value=([], "")):
+            r = self.U.run(force=True, evaluate_fn=lambda m, items: wers[m], installed_fn=lambda m: True)
+        self.assertTrue(r.get("switched"))
+        cfg = json.loads(self.cfg.read_text(encoding="utf-8"))
+        self.assertEqual((cfg["whisper_model"], cfg["whisper_model_prev"]), ("old-but-good", "cur"))
+        self.assertEqual(cfg["asr_check"]["nominated"], [])
+        rb = self.U.rollback()
+        self.assertTrue(rb["ok"])
+        cfg = json.loads(self.cfg.read_text(encoding="utf-8"))
+        self.assertEqual(cfg["whisper_model"], "cur")
+        self.assertEqual([s["why"] for s in cfg["asr_check"]["switches"]][-1], "rollback")
+
+    def test_misses_never_switch_checks_off_and_nothing_is_downloaded(self):
+        found = ([{"id": "new-ct2", "modified": "2027", "license": "apache-2.0"}], "")
+        with patch.object(self.U, "candidates", return_value=found):
+            for _ in range(5):
+                r = self.U.run(force=True, evaluate_fn=lambda m, i: self.fail("must not evaluate"), installed_fn=lambda m: False)
+        cfg = json.loads(self.cfg.read_text(encoding="utf-8"))
+        self.assertTrue(cfg["asr_check"]["enabled"])
+        self.assertEqual(r["not_installed"], [])                 # seen once: not re-proposed every time
+        self.assertIn("new-ct2", cfg["asr_check"]["seen"])
+
+    def test_newer_is_not_enough(self):
+        found = ([{"id": "newer", "modified": "2027", "license": "apache-2.0"}], "")
+        wers = {"cur": self.res(0.30), "newer": self.res(0.29)}
+        with patch.object(self.U, "candidates", return_value=found):
+            r = self.U.run(force=True, evaluate_fn=lambda m, i: wers[m], installed_fn=lambda m: True)
+        self.assertFalse(r.get("switched"))
+        self.assertEqual(json.loads(self.cfg.read_text(encoding="utf-8"))["whisper_model"], "cur")
+
+
 class BenchTests(unittest.TestCase):
     def test_missing_gold_is_reported_not_crashing(self):
         import asr_bench as B
