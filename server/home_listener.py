@@ -130,6 +130,9 @@ MIGRATIONS = [   # columns added after the first version (2026-10-06 afternoon)
     ("utterances", "lang", "TEXT"), ("marks", "minutes", "INTEGER"),
     ("chunks", "tries", "INTEGER DEFAULT 0"),
     ("chunks", "meet", "TEXT"),                 # 2026-10-14: the phone's meeting id (meeting mode)   # 2026-10-09: requeue_failed() retries environment failures
+    # ASR 2.0: the transcript before glossary corrections (only when one changed it) and which model read it,
+    # with its suspicion flags (JSON). Old rows stay NULL; nothing historical is rewritten.
+    ("utterances", "text_raw", "TEXT"), ("utterances", "asr", "TEXT"),
 ]
 
 
@@ -1072,6 +1075,8 @@ def save_analysis(row, st, res):
                 skipped += 1
                 continue
             u["text"], u["media_text"] = redact(u["text"]), redact(u.get("media_text"))
+            if u.get("text_raw"):
+                u["text_raw"] = redact(u["text_raw"])
             t0, t1 = at(u["t0"]), at(u["t1"])
             p, e, d = u.get("prosody") or {}, u.get("emotion") or {}, u.get("dims") or {}
             dup = None if (u.get("media") or ctx.startswith(("import:", MEET_PREFIX))) else _dup_of(c, device, t0, t1, u["text"])
@@ -1102,14 +1107,15 @@ def save_analysis(row, st, res):
             emb = u.get("emb")
             c.execute("""INSERT INTO utterances (chunk_id,conv_id,t0,t1,seconds,speaker,name,text,f0_hz,f0_range_st,
                          intensity_db,syll_per_s,voiced_share,emotion,emotion_p,emotion_scores,arousal,dominance,valence,
-                         emb,how,media,media_text,device,alt_db,alt_device,lang)
-                         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                         emb,how,media,media_text,device,alt_db,alt_device,lang,text_raw,asr)
+                         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                       (chunk_id, conv, t0, t1, round(u["t1"] - u["t0"], 2), u["speaker"], u["name"],
                        u["text"].strip(), p.get("f0_hz"), p.get("f0_range_st"), p.get("intensity_db"),
                        p.get("syll_per_s"), p.get("voiced_share"), e.get("label"), e.get("p"),
                        json.dumps(e.get("scores")) if e else None, d.get("arousal"), d.get("dominance"), d.get("valence"),
                        emb.astype(np.float32).tobytes() if emb is not None else None, u.get("how"),
-                       u.get("media"), u.get("media_text"), device, alt_db, alt_dev, u.get("lang")))
+                       u.get("media"), u.get("media_text"), device, alt_db, alt_dev, u.get("lang"),
+                       u.get("text_raw"), json.dumps(u["asr"], ensure_ascii=False) if u.get("asr") else None))
         for s in res["sounds"]:
             if away:
                 break                                         # away from home: only the speech of the owner's conversations
