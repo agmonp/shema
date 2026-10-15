@@ -96,7 +96,133 @@ Benchmark output goes to `<data>/bench/<time>/`: `results.json`, `items.csv`, `s
 newest run appears on the איכות התמלול tab. Real recordings and references stay in the data folder and never go
 into git.
 
-## 5. Rollback
+## 5. Phone: recording was blind after every segment (fixed in code, not yet installed)
+
+Measured 2026-10-15 from 17,468 live segments on both phones. The time between the end of a segment and the start
+of the next one grows with the previous segment's length:
+
+| Previous segment | OPPO: 2nd-percentile gap | Redmi: 10th-percentile gap |
+|---|---|---|
+| 5–10 s | 2.2 s | 2.9 s |
+| 15–20 s | 6.8 s | 8.5 s |
+| 25–30 s | 11.4 s | 14.2 s |
+| 30 s cap | median gap 15.5 s | |
+
+**Cause:** `save()` encoded the Opus file on the recording thread. MediaCodec waits up to 10 ms per 20 ms packet,
+while `AudioRecord`'s ~256 ms buffer overflows. Whatever was said in that window was never recorded, roughly half
+the length of every segment. Encoding now runs on its own thread. Both apps compile; the fix reaches a phone only
+with a new APK/AAB. **Expected effect:** far fewer lost words in conversations. It is not measured yet; after
+install, the same gap query must show gaps no longer growing with segment length.
+
+## 6. Results
+
+All numbers below are measured. Data:
+
+* **FLEURS Hebrew** test set (CC-BY-4.0): 347 distinct read sentences, 6,082 reference words, raised to the phones'
+  median level (−31 dBFS).
+* **Recordings:** the same sentences joined into 126 phone-like recordings of about 30 s with pauses.
+* **Conditions:** synthetic.
+
+Scoring uses lenient normalisation; 95 % intervals come from a paired bootstrap over items. RTX 5070 Ti, CUDA
+float16, with the live server running on the same card. Read speech is **not** home conversation: these results
+show direction, and §7 explains why they are not enough for a default change.
+
+**Models (sentences, WER):**
+
+| Condition | turbo (legacy) | large-v3 (large_only) | Δ (95 % CI) | Adaptive, default limits | Adaptive, lp −0.35 |
+|---|---|---|---|---|---|
+| clean | 18.0 % | 17.7 % | −0.3 [−1.0, +0.4] | 18.0 % | — |
+| Opus 12k (phone) | 19.7 % | 19.1 % | −0.5 [−1.4, +0.2] | 19.7 % | 19.7 % |
+| Opus 12k + brown noise 5 dB | 19.8 % | 18.7 % | **−1.1 [−1.8, −0.4]** | 19.7 % | 19.7 % |
+| Opus 12k, quiet speaker −50 dB | 37.8 % | 37.6 % | −0.2 [−1.0, +0.6] | 37.5 % | **37.3 %** (−0.6) |
+| Opus 24k | 18.7 % | 18.1 % | −0.5 | 18.7 % | — |
+| Opus 32k | 18.6 % | 17.8 % | **−0.8 [−1.5, −0.1]** | 18.6 % | — |
+
+* Speed (seconds of work per second of audio, ASR only): turbo 0.031, large-v3 0.09 (≈3×), adaptive 0.04–0.12
+  depending on the limit.
+* Peak RAM: turbo 2.2 GB, adaptive 5.7–6.7 GB.
+* No system wrote any word on 20 s of digital silence, pink, brown or white noise.
+
+**Bitrate** (same lossless source, turbo): 12k 19.7 % → 24k 18.7 % → 32k 18.6 %. The step from 12 to 24 kbps is
+about 1 point (5 % relative); 32k adds nothing more. It would cost double the phone storage and upload (≈5 → 10 MB
+per hour of speech). This is only a first comparison, on read speech.
+
+**Segmentation and Demucs (recordings, Δ WER vs legacy; first run, before the benchmark trim fix):**
+
+| System | Opus 12k | + noise | quiet −50 dB |
+|---|---|---|---|
+| seg=vadnorm | +0.1 | −0.1 | **−5.4 [−7.1, −3.8]** |
+| seg=pad08 | −0.1 | −0.1 | **−2.8** |
+| seg=overlap | −0.5 | −0.4 | **−2.4** |
+| seg=merge | −0.3 | **−0.4** | **−0.9** |
+| seg=pad05 / short | −0.2 | +0.2 | **−1.6** |
+| Demucs on every recording | −0.3 | 0.0 | +0.4 |
+| adaptive (default limits) | 0.0 | 0.0 | 0.0 |
+
+**Segmentation, clean run** (benchmark trim fixed; WER, Δ points vs legacy [95 % CI]):
+
+| System | Opus 12k | + brown noise 5 dB | quiet −50 dB | deletions (12k) | Seconds per second |
+|---|---|---|---|---|---|
+| legacy | 19.8 % | 20.1 % | 28.2 % | 2.8 % | 0.032 |
+| seg=vadnorm | 19.9 % (+0.1 [−0.1, +0.4]) | 20.0 % (−0.1) | **20.9 % (−7.2 [−9.3, −5.3])** | 2.7 % | 0.031 |
+| seg=pad08 | 19.6 % (−0.2) | 19.5 % (−0.6) | 26.0 % (−2.1) | 3.0 % | 0.032 |
+| seg=overlap | **18.9 % (−0.8 [−1.4, −0.3])** | **18.9 % (−1.1)** | 25.9 % (−2.2) | 2.8 % | 0.028 |
+| seg=merge | 19.1 % (−0.7 [−1.0, −0.4]) | 19.4 % (−0.7) | 27.1 % (−1.1) | 2.8 % | 0.028 |
+| seg=pad08+vadnorm | 19.5 % (−0.2) | 19.7 % (−0.4) | 21.0 % (−7.2) | 3.3 % | 0.034 |
+| **seg=overlap+vadnorm** | **19.2 % (−0.6 [−1.2, −0.0])** | **19.0 % (−1.0 [−1.8, −0.4])** | **20.5 % (−7.7 [−9.8, −5.7])** | 2.7 % | 0.027 |
+
+`overlap+vadnorm` is better or equal in all three conditions. Relative to legacy: −3 % on normal phone audio, −5 %
+with noise, **−27 % for quiet speakers**. It costs no extra time. No preset invented words on silence or noise.
+
+**Real recordings, behaviour only** (80 random chunks from the last 14 days, 544 s, no reference text):
+
+| System | Windows flagged | Chunks whose text changed vs legacy | Mean word similarity | Seconds per second |
+|---|---|---|---|---|
+| legacy | 25 of 131 (19 %) | — | 1.00 | 0.062 |
+| adaptive | 24 re-read, 16 replaced | 19 | 0.84 | 0.19 |
+| seg=vadnorm | — | 50 | 0.56 | 0.094 |
+| seg=pad05 | — | 50 | 0.62 | 0.26 |
+| large_only | — | 61 | 0.43 | 0.45 |
+
+On real home audio (children, TV, people talking over each other) the options produce *different* readings, often
+equally wrong. `vadnorm` gives more words in 19 chunks and fewer in 21. Large-v3 transcribes English TV as English,
+but also invented a sentence the turbo model did not ("תודה רבה, חבר הכנסת ..."). Flags fire on 19 % of real
+windows, against ≈0 % on FLEURS: they find the hard audio, but on FLEURS re-reading did not fix it.
+
+## 7. Conclusions
+
+1. **What was measured:** FLEURS sentences and recordings under phone-like conditions; behaviour on 80 real chunks;
+   phone recording gaps on 17,468 real segments. **Not measured:** accuracy on your own conversations (gold set
+   empty), the phone fix on a phone, the LLM correction stage (no glossary yet), Hebrew forced alignment (not
+   adopted: no verified Hebrew alignment model).
+2. **Did accuracy improve?** On FLEURS, the 10 % relative target is reached only for quiet speakers:
+   `overlap+vadnorm` gives −27 % relative on that condition, and −3 % to −5 % on normal and noisy phone audio. The
+   largest real-world gain is probably the phone fix, which recovers speech that was never recorded; it is not
+   measurable on FLEURS.
+3. **Default:** stays `legacy`. The FLEURS gains are real but come from read speech, and on 80 real chunks the
+   presets changed most transcripts in ways that cannot be scored without references. **First candidate** for
+   promotion once the gold set has ~40 sentences: `segmentation: overlap+vadnorm`. Command:
+   `asr_bench.py --gold --systems legacy,legacy+seg=overlap+vadnorm,legacy+seg=vadnorm`. Promote it only if it is
+   not worse on the gold set.
+4. **Keep disabled:** `large_only`, because it is 3× slower for −0.5 points on phone audio. `adaptive`: no
+   measurable gain at default limits, and only −0.6 points on quiet speech at 3.5× cost. Demucs on everything. Opus
+   24k on the phone until real-speech data supports it. LLM correction until there is a glossary and a measured test.
+5. **Cost of options:** the segmentation presets are free (same model, RTF 0.028–0.044); large-v3 or adaptive
+   need about 3.5 GB more GPU memory (approximate) and 2–4 GB more RAM.
+
+## 8. Not tested / hardware-specific
+
+* CPU-only installs: the CPU int8 path and the CUDA→CPU fallback are covered by unit tests with a fake model;
+  there was no real CPU benchmark run.
+* OOM recovery is unit-tested with a simulated error, not with a real full GPU.
+* `asr_models.install` was not run through the UI against the network (the model was downloaded with
+  `snapshot_download` and verified there).
+* The Android encoder-thread fix compiles (`compileDebugKotlin`, both apps) but is not installed or measured on a
+  phone.
+* Bitrate on the real phone encoder (MediaCodec) differs from ffmpeg libopus. Battery and upload effects were not
+  measured.
+
+## 9. Rollback
 
 * **Model:** the "חזור אליו" button on איכות התמלול, or `asr_update.py --rollback`. It switches back to
   `whisper_model_prev`, which stays installed.
