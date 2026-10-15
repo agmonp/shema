@@ -22,7 +22,8 @@ def check(name):
 
 def main():
     out = {"python": sys.version.split()[0], "errors": {}}
-    for m in ("torch", "faster_whisper", "sherpa_onnx", "ctranslate2", "numpy", "librosa", "demucs"):
+    for m in ("torch", "faster_whisper", "sherpa_onnx", "ctranslate2", "numpy", "librosa", "demucs",
+              "asr_engine", "asr_correct", "asr_metrics"):
         e = check(m)
         if e:
             out["errors"][m] = e
