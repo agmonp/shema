@@ -292,6 +292,8 @@ def parse_system(name):
             s["seg"] += "+" + part             # "seg=pad08+vadnorm": combined presets
         elif part == "demucs":
             s["demucs"] = True             # production rule: Demucs only when the sound tagger hears music
+        elif part.startswith("terms="):
+            s["terms"] = [t for t in part[6:].split("|") if t]     # Whisper hint words (asr_terms) for this system
         elif part.startswith("lp="):
             s["logprob"] = float(part[3:])     # adaptive calibration: flag windows below this mean log-probability
         elif part == "demucsall":
@@ -310,6 +312,8 @@ def run_system(system, manifest, out_path, device=None):
     cfg = HA.home_config()
     cfg["asr"] = dict(cfg.get("asr") or {}, mode=sysd["mode"], segmentation=sysd["seg"])
     cfg["asr"].pop("seg", None)
+    if "terms" in sysd:
+        cfg["asr_terms"] = sysd["terms"]
     if "logprob" in sysd:
         cfg["asr"]["quality"] = dict(cfg["asr"].get("quality") or {}, logprob=sysd["logprob"])
     dev = device or _device()

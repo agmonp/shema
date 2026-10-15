@@ -189,6 +189,12 @@ equally wrong. `vadnorm` gives more words in 19 chunks and fewer in 21. Large-v3
 but also invented a sentence the turbo model did not ("תודה רבה, חבר הכנסת ..."). Flags fire on 19 % of real
 windows, against ≈0 % on FLEURS: they find the hard audio, but on FLEURS re-reading did not fix it.
 
+**Household names as Whisper's hint (`asr_terms`): rejected.** Measured 2026-10-15 on 150 real chunks, same
+pipeline with and without "אגמון, תמר, אדם, תאיה, דריה, פורת, שיבא". The names appeared 24 times instead of 3, most
+of them invented ("תמר, תמר", "שיבא שיבא" on silence or noise, "תודה רבה, אדם" where legacy wrote nothing). Text
+changed in 103 of 150 chunks. Names should go only into the glossary's *correction* list with explicit variants,
+never into the hint.
+
 ## 7. Conclusions
 
 1. **What was measured:** FLEURS sentences and recordings under phone-like conditions; behaviour on 80 real chunks;
