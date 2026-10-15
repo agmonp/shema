@@ -125,11 +125,13 @@ def concat(items, target_s, seed=11):
     return out
 
 
-def _trim(a, db=-45):
-    """FLEURS files carry up to a second of silence on each side; keep 0.15 s of it."""
+def _trim(a, below=30):
+    """FLEURS files carry up to a second of silence on each side; keep 0.15 s of it. The threshold is relative to the
+    file's own speech level (louder half of the frames) -- an absolute one cut real speech in quiet files."""
     frame = 320
     e = np.array([np.sqrt(np.mean(a[i:i + frame] ** 2) + 1e-12) for i in range(0, len(a), frame)])
-    on = np.flatnonzero(20 * np.log10(e) > db)
+    act = np.sqrt(np.mean(np.sort(e)[len(e) // 2:] ** 2)) + 1e-12
+    on = np.flatnonzero(20 * np.log10(e) > 20 * np.log10(act) - below)
     if not len(on):
         return a
     return a[max(0, on[0] * frame - 2400):min(len(a), (on[-1] + 1) * frame + 2400)]
