@@ -480,6 +480,7 @@ class BenchTests(unittest.TestCase):
         import asr_bench as B
         self.assertEqual(B.parse_system("adaptive+seg=pad05+demucs"),
                          {"name": "adaptive+seg=pad05+demucs", "mode": "adaptive", "seg": "pad05", "demucs": True})
+        self.assertEqual(B.parse_system("legacy+seg=pad08+vadnorm")["seg"], "pad08+vadnorm")
         with self.assertRaises(SystemExit):
             B.parse_system("turbo-x")
 

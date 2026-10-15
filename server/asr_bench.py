@@ -276,6 +276,11 @@ class GpuWatch:
 
 
 # ------------------------------------------------------------------ one system (child process)
+def _seg_presets():
+    import asr_segment
+    return asr_segment.PRESETS
+
+
 def parse_system(name):
     s = {"name": name, "mode": "legacy", "seg": "legacy", "demucs": False}
     for part in name.split("+"):
@@ -283,6 +288,8 @@ def parse_system(name):
             s["mode"] = part
         elif part.startswith("seg="):
             s["seg"] = part[4:]
+        elif part in _seg_presets() and s["seg"] != "legacy":
+            s["seg"] += "+" + part             # "seg=pad08+vadnorm": combined presets
         elif part == "demucs":
             s["demucs"] = True             # production rule: Demucs only when the sound tagger hears music
         elif part.startswith("lp="):
