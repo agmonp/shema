@@ -80,6 +80,12 @@ class SpeakerTests(unittest.TestCase):
         with H.db() as c:
             self.assertEqual(H.who_cands(c, rand)["cands"], [])  # named in the conversation, but the voice disagrees
 
+    def test_no_voice_no_candidates(self):
+        self.add("אני פה", unit(VOICE["p_c"]), speaker="p_c", how="user", t=20)
+        bare = self.add("נו", None, t=30)                     # a line without a voice vector
+        with H.db() as c:
+            self.assertEqual(H.who_cands(c, bare)["cands"], [])
+
     def test_at_most_three(self):
         mix = unit(VOICE["p_a"] + VOICE["p_b"] + VOICE["p_c"])
         with H.db() as c:

@@ -226,7 +226,8 @@ class MainActivity : Activity(), BillingManager.BillingCallback {
             gap(14)
             todayLine = text("", 14f, c.dim).apply {
                 background = round(c.surface, 14); setPadding(px(14), px(12), px(14), px(12))
-                isClickable = true; setOnClickListener { startActivity(Intent(this@MainActivity, SearchActivity::class.java)) }
+                isClickable = true; setOnClickListener { startActivity(Intent(this@MainActivity, DayActivity::class.java)) }
+                contentDescription = "ציר הזמן של היום"
             }
             addView(todayLine)
         }
@@ -1003,7 +1004,7 @@ class MainActivity : Activity(), BillingManager.BillingCallback {
         val mins = ListenService.speechToday(this)
         val tasks = ListenService.digestTasks
         todayLine.text = "היום: " + (if (mins >= 60) "${mins / 60} שע׳ ${mins % 60} דק׳" else "$mins דק׳") + " דיבור נשלחו למחשב" +
-            (if (tasks > 0) " · $tasks משימות פתוחות" else "")
+            (if (tasks > 0) " · $tasks משימות פתוחות" else "") + "\n🕒 ציר הזמן של היום ›"
 
         val meeting = Meeting.active(this)
         meetBtn.text = if (meeting) "🔴 פגישה מוקלטת · ${(System.currentTimeMillis() - Meeting.start(this)) / 60_000} דק׳" else "📋 פגישות"

@@ -201,26 +201,8 @@ class SearchActivity : Activity() {
         }
     }
 
-    /** the conversation's lines, in a dialog: fetched on tap, dropped when it closes */
-    private fun openConv(id: Int) {
-        thread {
-            val r = fetch("/home/api/conversation?id=$id")
-            ui.post {
-                if (isDestroyed) return@post
-                if (r == null) { resultBox.addView(text("המחשב לא זמין", 14f, col.rose)); return@post }
-                val j = JSONObject(r); val u = j.getJSONArray("utterances"); val sb = StringBuilder()
-                for (i in 0 until minOf(u.length(), 120)) {
-                    val x = u.getJSONObject(i)
-                    if (x.optString("media").let { it.isNotBlank() && it != "null" }) continue
-                    val nm = x.optString("name").let { if (it.isBlank() || it == "null") "?" else it.split(" ")[0] }
-                    sb.append(nm).append(": ").append(x.optString("text")).append("\n\n")
-                }
-                val conv = j.optJSONObject("conversation")
-                AlertDialog.Builder(this).setTitle(conv?.optString("topic")?.takeIf { it != "null" } ?: "שיחה")
-                    .setMessage(sb.toString().ifBlank { "אין תמלול" }).setPositiveButton("סגור", null).show()
-            }
-        }
-    }
+    /** a conversation: its own screen with the speaker timeline (ConvActivity) */
+    private fun openConv(id: Int) = startActivity(Intent(this, ConvActivity::class.java).putExtra("id", id))
 
     // ------------------------------------------------------------ who talked
     private fun loadStats() {

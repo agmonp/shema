@@ -858,9 +858,9 @@ def who_cands(c, utt_id):
         if pid in {o["id"] for o in out}:
             continue
         s = sims.get(pid)
-        if s is None and u["emb"] is not None:          # a voice nobody taught: a conversation alone is not enough
-            continue
-        if s is None or s >= WHO_CONV_MIN:
+        if s is None:                                    # no voice to compare (very short line / untaught voice):
+            continue                                     # being in the conversation alone is not a reason
+        if s >= WHO_CONV_MIN:
             out.append({"id": pid, "why": "conv", "strong": False, "rank": (s or 0) - 0.05 + min(n, 10) * 0.002})
     out.sort(key=lambda o: -o["rank"])
     out = out[:WHO_MAX]
