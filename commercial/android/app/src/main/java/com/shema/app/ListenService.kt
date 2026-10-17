@@ -1,4 +1,4 @@
-﻿package com.shema.app
+package com.shema.app
 
 import android.app.Notification
 import android.app.NotificationChannel
@@ -189,9 +189,11 @@ class ListenService : Service() {
             Meeting.setTemp(this, true)                       // the service was off: on only for this, off again once it was sent
         loadMeeting()
         when (act) {
-            ACTION_MUTE_HOUR -> { mutedUntil = System.currentTimeMillis() + 3600_000; update(); pingSoon() }
-            ACTION_UNMUTE -> { mutedUntil = 0; update(); pingSoon() }
-            ACTION_TOGGLE -> { paused = !paused; if (!paused) mutedUntil = 0; update(); pingSoon() }
+            // one pause: "private for an hour" and "pause" were the same thing to the user. It stays until the user
+            // resumes, also across a restart (Prefs), so a killed app never starts recording a private moment again.
+            ACTION_MUTE_HOUR -> { setPaused(true) }                         // old notification / tile intents
+            ACTION_UNMUTE -> { setPaused(false) }
+            ACTION_TOGGLE -> { setPaused(!paused) }
             ACTION_MARK -> mark(intent?.getIntExtra("min", 10) ?: 10)
             ACTION_ENROLL -> { enrollFrom = System.currentTimeMillis(); enrollUntil = enrollFrom + ENROLL_SECONDS * 1000L
                 enrollUntilNow = enrollUntil; enrollSpeechMs = 0; draining = 0; update() }
@@ -204,12 +206,15 @@ class ListenService : Service() {
         }
         // + location type when allowed: lets the service read the Wi-Fi name and the place in the background
         val loc = checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
-        startForeground(1, notification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE or
-            (if (loc) ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION else 0))
+        // microphone only: the manifest declares just "microphone", and asking for location too crashed the app on start
+        // as soon as the user allowed location (Android 14+: the type must be a subset of the manifest's). The place is
+        // still read while the service runs in the foreground.
+        startForeground(1, notification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
         if (loc) startLocation()
         if (!running) {
             running = true
             on = true
+            paused = Prefs.paused(this)                       // a pause the user set survives the app being killed
             Timeline.begin(this, System.currentTimeMillis())      // the time since the last tick is a gap (killed / stopped)
             lastFrameAt = System.currentTimeMillis()
             wake = (getSystemService(Context.POWER_SERVICE) as PowerManager)
@@ -291,6 +296,10 @@ class ListenService : Service() {
             .setContentTitle("סיכום הפגישה מוכן")
             .setContentText(m.optString("title").ifEmpty { "פגישה" } + " · תמלול, סיכום ומשימות")
             .setContentIntent(open).setAutoCancel(true).build())
+    }
+
+    private fun setPaused(v: Boolean) {
+        paused = v; mutedUntil = 0; Prefs.setPaused(this, v); update(); pingSoon()
     }
 
     private fun wearer() = Prefs.role(this) == "wearer"
@@ -663,6 +672,13 @@ class ListenService : Service() {
         return if (speechy) 1f else 0f
     }
 
+    /** Segments are encoded on their own thread so the microphone loop never stops reading. Encoding inline took about
+     *  0.5 s per second of audio while AudioRecord's small buffer overflowed: after every segment the phone was deaf for
+     *  half its length (measured 2026-10-15 from the gaps between segment starts: ~15 s lost after each 30 s segment). */
+    private val encoder = java.util.concurrent.ThreadPoolExecutor(1, 1, 30, java.util.concurrent.TimeUnit.SECONDS,
+        java.util.concurrent.LinkedBlockingQueue<Runnable>()) { r -> Thread(r, "encode").apply { isDaemon = true } }
+        .apply { allowCoreThreadTimeOut(true) }           // no shutdown needed: the thread ends after 30 s idle
+
     private fun save(frames: List<ShortArray>, start: Long, sound: Boolean = false) {
         val pcm = ShortArray(frames.sumOf { it.size })
         var i = 0
@@ -670,21 +686,26 @@ class ListenService : Service() {
         val stamp = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS", Locale.US).format(Date(start))
         val enroll = !sound && start >= enrollFrom - 600 && start < enrollUntil && enrollUntil > 0
         val base = File(queueDir, when { sound -> "${stamp}_snd"; enroll -> "${stamp}_enr"; else -> stamp })
-        var out: File? = null
+        // the context of this segment (as it is now, when the segment ends), sent along with it
+        val m = StringBuilder("ms=$start&home=${if (atHome) 1 else 0}&role=${Prefs.role(this)}&bat=$batPct")
+        if (!lat.isNaN()) m.append("&lat=${"%.4f".format(Locale.US, lat)}&lon=${"%.4f".format(Locale.US, lon)}")
+        if (!sound && meetId.isNotEmpty() && start >= meetStart - 1000) {        // a segment of the meeting being recorded
+            m.append("&meet=").append(meetId).append("&cal=")
+                .append(URLEncoder.encode("📋 פגישה" + (if (meetTitle.isNotEmpty()) ": " + meetTitle.take(60) else ""), "UTF-8"))
+        } else if (calTitle.isNotEmpty()) m.append("&cal=").append(URLEncoder.encode(calTitle.take(80), "UTF-8"))
+        val meta = m.toString()
         try {
-            out = encodeAudio(pcm, base)
-            // the context of this segment, sent along with it
-            val m = StringBuilder("ms=$start&home=${if (atHome) 1 else 0}&role=${Prefs.role(this)}&bat=$batPct")
-            if (!lat.isNaN()) m.append("&lat=${"%.4f".format(Locale.US, lat)}&lon=${"%.4f".format(Locale.US, lon)}")
-            if (!sound && meetId.isNotEmpty() && start >= meetStart - 1000) {        // a segment of the meeting being recorded
-                m.append("&meet=").append(meetId).append("&cal=")
-                    .append(URLEncoder.encode("📋 פגישה" + (if (meetTitle.isNotEmpty()) ": " + meetTitle.take(60) else ""), "UTF-8"))
-            } else if (calTitle.isNotEmpty()) m.append("&cal=").append(URLEncoder.encode(calTitle.take(80), "UTF-8"))
-            File(queueDir, "${out.name}.meta").writeText(m.toString())
-            if (!sound && !enroll) addSpeech(this, pcm.size.toDouble() / SR)
-        } catch (e: Exception) { out?.delete() }
-        refreshQueueStats()
-        update()
+            encoder.execute {
+                var out: File? = null
+                try {
+                    out = encodeAudio(pcm, base)
+                    File(queueDir, "${out.name}.meta").writeText(meta)
+                    if (!sound && !enroll) addSpeech(this, pcm.size.toDouble() / SR)
+                } catch (e: Exception) { out?.delete() }
+                refreshQueueStats()
+                update()
+            }
+        } catch (e: java.util.concurrent.RejectedExecutionException) { }
     }
 
     /** Opus 12 kbps in an Ogg (about 5 MB per hour of speech); AAC-LC 24 kbps .m4a if this phone has no Opus encoder. */
@@ -955,11 +976,9 @@ class ListenService : Service() {
             else if (queued > 0 && !pcOnline) queueText() else "היום נשלחו למחשב ${sentToday(this)} קטעי דיבור" + if (queued > 0) " · $queued ממתינים" else "")
             .setOngoing(true)
             .setContentIntent(open)
-            .addAction(Notification.Action.Builder(null, if (mutedUntil > System.currentTimeMillis()) "בטל השתקה" else "פרטי לשעה",
-                act(if (mutedUntil > System.currentTimeMillis()) ACTION_UNMUTE else ACTION_MUTE_HOUR, 1)).build())
+            .addAction(Notification.Action.Builder(null, if (paused) "▶ המשך להקשיב" else "⏸ השהה", act(ACTION_TOGGLE, 1)).build())
             .addAction(Notification.Action.Builder(null, "סמן רגע ⭐", act(ACTION_MARK, 2)).build())
-            .addAction(Notification.Action.Builder(null, "כבה", act(ACTION_STOP, 3)).build())
-            .build()
+            .build()                                          // turning Shema off is in the app's settings only
     }
 }
 

@@ -18,7 +18,7 @@ import com.android.billingclient.api.*
 class BillingManager(private val context: Context, private val listener: BillingCallback) {
 
     interface BillingCallback {
-        fun onSubscriptionStatusChanged(isSubscribed: Boolean, isTrial: Boolean, daysRemaining: Int)
+        fun onSubscriptionStatusChanged(isSubscribed: Boolean, isGift: Boolean, isTrial: Boolean, daysRemaining: Int)
         fun onProductPriceLoaded(priceFormatted: String, billingPeriod: String)
         fun onBillingError(message: String)
     }
@@ -28,6 +28,10 @@ class BillingManager(private val context: Context, private val listener: Billing
         const val SUBSCRIPTION_ID = "shema_pro_yearly"
         const val TRIAL_DAYS = 14
         const val TRIAL_MS = TRIAL_DAYS * 24 * 60 * 60 * 1000L
+
+        fun trialActive(c: Context) = System.currentTimeMillis() - Prefs.firstInstallTime(c) < TRIAL_MS
+        /** Pro from Google Play, a gift code for this phone, or the trial */
+        fun hasAccess(c: Context) = Prefs.isSubscribed(c) || Gift.active(c) || trialActive(c)
     }
 
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -188,10 +192,11 @@ class BillingManager(private val context: Context, private val listener: Billing
 
     /**
      * Evaluates whether the user currently has access:
-     * Either active Google Play subscription OR within the 14-day free trial.
+     * an active Google Play subscription, a gift code for this phone, or the 14-day free trial.
      */
     fun evaluateEntitlement(): Boolean {
         val isSubscribed = Prefs.isSubscribed(context)
+        val isGift = !isSubscribed && Gift.active(context)
         val installTime = Prefs.firstInstallTime(context)
         val now = System.currentTimeMillis()
         val trialElapsed = now - installTime
@@ -200,12 +205,13 @@ class BillingManager(private val context: Context, private val listener: Billing
             (((TRIAL_MS - trialElapsed) / (1000 * 60 * 60 * 24)) + 1).toInt()
         } else 0
 
-        val hasAccess = isSubscribed || trialActive
+        val hasAccess = isSubscribed || isGift || trialActive
 
         mainHandler.post {
             listener.onSubscriptionStatusChanged(
                 isSubscribed = isSubscribed,
-                isTrial = !isSubscribed && trialActive,
+                isGift = isGift,
+                isTrial = !isSubscribed && !isGift && trialActive,
                 daysRemaining = daysRemaining
             )
         }

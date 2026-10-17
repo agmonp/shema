@@ -1,0 +1,410 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>שמע Pro · ניהול</title>
+<style>
+  :root { --bg:#13100E; --surface:#1C1815; --surface2:#25201C; --line:#3a322b; --ink:#F4EDE5; --dim:#B1A597; --faint:#8a7f72;
+          --accent:#EAA45E; --accentInk:#1B130B; --sage:#86BBA8; --rose:#E48A7F; --gold:#FFD24A; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.5 system-ui, "Segoe UI", Arial, sans-serif; }
+  header { display:flex; align-items:center; gap:14px; padding:14px 20px; border-bottom:1px solid var(--line); position:sticky; top:0; background:var(--bg); z-index:5; flex-wrap:wrap; }
+  header h1 { font-size:20px; margin:0; }
+  .tabs { display:flex; gap:6px; }
+  .tab { padding:8px 16px; border-radius:20px; background:var(--surface2); color:var(--dim); cursor:pointer; border:1px solid var(--line); font-weight:600; }
+  .tab.on { background:var(--accent); color:var(--accentInk); border-color:var(--accent); }
+  .tab .n { background:var(--rose); color:#1b0f0d; border-radius:10px; padding:0 7px; font-size:12px; margin-inline-start:6px; }
+  main { max-width:1100px; margin:0 auto; padding:18px 16px 60px; }
+  .card { background:var(--surface); border:1px solid var(--line); border-radius:16px; padding:16px 18px; margin-bottom:16px; }
+  .card h2 { font-size:16px; margin:0 0 10px; color:var(--accent); }
+  .muted { color:var(--dim); } .faint { color:var(--faint); font-size:13px; }
+  .stats { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-bottom:16px; }
+  .stat { background:var(--surface); border:1px solid var(--line); border-radius:14px; padding:12px; cursor:pointer; }
+  .stat b { display:block; font-size:26px; } .stat span { color:var(--dim); font-size:13px; }
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  label { display:block; font-size:13px; color:var(--dim); margin-bottom:4px; }
+  input, select, textarea { width:100%; background:var(--surface2); color:var(--ink); border:1px solid var(--line); border-radius:10px; padding:10px 12px; font:inherit; }
+  input:focus, textarea:focus { outline:2px solid var(--accent); border-color:transparent; }
+  .ltr { direction:ltr; text-align:left; font-family:Consolas, monospace; letter-spacing:1px; }
+  .chips { display:flex; gap:6px; flex-wrap:wrap; }
+  .chip { padding:7px 12px; border-radius:18px; background:var(--surface2); border:1px solid var(--line); cursor:pointer; color:var(--dim); font-size:14px; user-select:none; }
+  .chip.on { border-color:var(--accent); color:var(--accent); }
+  button, .btn { background:var(--surface2); color:var(--ink); border:1px solid var(--line); border-radius:12px; padding:9px 14px; font:inherit; font-weight:600; cursor:pointer; }
+  button.primary { background:var(--accent); color:var(--accentInk); border-color:var(--accent); }
+  button.small { padding:5px 10px; font-size:13px; border-radius:9px; }
+  button.danger { color:var(--rose); }
+  button:disabled { opacity:.45; cursor:default; }
+  .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .result { margin-top:14px; background:var(--surface2); border:1px solid var(--sage); border-radius:12px; padding:12px; display:none; }
+  .result pre { white-space:pre-wrap; word-break:break-all; margin:0 0 10px; font:13px/1.5 system-ui; }
+  .err { color:var(--rose); margin-top:8px; min-height:1em; }
+  .warn { color:var(--gold); font-size:13px; margin-top:6px; }
+  table { width:100%; border-collapse:collapse; }
+  th { text-align:right; color:var(--faint); font-weight:500; font-size:13px; padding:6px 8px; border-bottom:1px solid var(--line); }
+  td { padding:9px 8px; border-bottom:1px solid #2a241f; vertical-align:middle; }
+  tr.dead td { opacity:.5; }
+  .badge { display:inline-block; padding:2px 9px; border-radius:10px; font-size:12px; font-weight:700; white-space:nowrap; }
+  .b-ok { background:#1f3a31; color:var(--sage); } .b-soon { background:#3d3415; color:var(--gold); }
+  .b-exp { background:#3b2420; color:var(--rose); } .b-rev { background:#333; color:#bbb; } .b-rep { background:#2a2a2a; color:#999; }
+  .acts { display:flex; gap:4px; flex-wrap:wrap; }
+  .step { display:flex; gap:12px; padding:10px 0; border-top:1px solid #2a241f; }
+  .step:first-of-type { border-top:none; }
+  .num { flex:none; width:26px; height:26px; border-radius:50%; background:var(--surface2); display:grid; place-items:center; font-weight:700; font-size:13px; }
+  .num.done { background:var(--sage); color:#10201a; } .num.todo { background:var(--accent); color:var(--accentInk); }
+  .cmd { direction:ltr; text-align:left; background:#0d0b0a; border:1px solid var(--line); border-radius:10px; padding:10px; font:12.5px/1.5 Consolas, monospace; white-space:pre-wrap; word-break:break-all; margin:6px 0; }
+  .files { font:12.5px/1.6 Consolas, monospace; direction:ltr; text-align:left; max-height:180px; overflow:auto; background:#0d0b0a; border-radius:10px; padding:8px 10px; }
+  .pill { display:inline-block; padding:3px 10px; border-radius:12px; font-size:13px; font-weight:700; }
+  .p-need { background:var(--accent); color:var(--accentInk); } .p-ok { background:#1f3a31; color:var(--sage); }
+  .hidden { display:none !important; }
+  .toast { position:fixed; bottom:20px; left:50%; transform:translateX(-50%); background:var(--ink); color:var(--bg); padding:10px 18px; border-radius:20px; font-weight:600; opacity:0; transition:opacity .2s; pointer-events:none; z-index:9; }
+  .toast.show { opacity:1; }
+  @media (max-width:720px) {
+    .stats { grid-template-columns:repeat(2,1fr); } .grid { grid-template-columns:1fr; }
+    thead { display:none; } table, tbody, tr, td { display:block; width:100%; }
+    tr { border:1px solid var(--line); border-radius:12px; margin-bottom:10px; padding:6px 8px; }
+    td { border:none; padding:3px 4px; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>🎁 שמע Pro · ניהול</h1>
+  <div class="tabs">
+    <div class="tab on" data-tab="gifts">מתנות</div>
+    <div class="tab" data-tab="release">גרסאות <span class="n hidden" id="relN"></span></div>
+  </div>
+  <span class="faint" style="margin-inline-start:auto">פועל רק במחשב הזה</span>
+</header>
+
+<main>
+<!-- ============================== gifts -->
+<section id="gifts">
+  <div id="nokey" class="card hidden" style="border-color:var(--rose)">
+    <b style="color:var(--rose)">המפתח הסודי לא נמצא</b> ב־C:\Users\agmon\keys\shema-gift-key.json. בלעדיו אי אפשר ליצור קודים. שחזר אותו מהגיבוי.
+  </div>
+
+  <div class="stats">
+    <div class="stat" data-f="active"><b id="sActive">0</b><span>עם Pro במתנה עכשיו</span></div>
+    <div class="stat" data-f="soon"><b id="sSoon">0</b><span>יפוג תוך 30 יום</span></div>
+    <div class="stat" data-f="expired"><b id="sExp">0</b><span>פג תוקף</span></div>
+    <div class="stat" data-f="revoked"><b id="sRev">0</b><span>בוטלו</span></div>
+  </div>
+
+  <div class="card">
+    <h2>מתנה חדשה</h2>
+    <p class="faint" style="margin-top:-4px">החבר פותח בטלפון: התג למעלה ← "🎁 יש לי קוד מתנה" ← "שלח את קוד הטלפון", ושולח לך 8 תווים.</p>
+    <div class="grid">
+      <div><label>קוד הטלפון</label><input id="fPhone" class="ltr" placeholder="SG8P-B0XR" maxlength="12" autocomplete="off"></div>
+      <div><label>שם</label><input id="fName" placeholder="דנה כהן" maxlength="30"></div>
+      <div><label>קבוצה</label>
+        <input id="fGroup" list="groups" placeholder="בודק Play / משפחה / חבר">
+        <datalist id="groups"><option>בודק Play</option><option>משפחה</option><option>חבר</option><option>עבודה</option><option>לקוח</option></datalist>
+      </div>
+      <div><label>הערה (רק אצלך)</label><input id="fNote" placeholder="למשל: עזר בבדיקות"></div>
+    </div>
+    <div style="margin-top:12px"><label>לכמה זמן</label>
+      <div class="chips" id="dur">
+        <span class="chip on" data-d="0">לתמיד</span><span class="chip" data-d="30">חודש</span>
+        <span class="chip" data-d="90">3 חודשים</span><span class="chip" data-d="182">חצי שנה</span>
+        <span class="chip" data-d="365">שנה</span><span class="chip" data-d="date">עד תאריך…</span>
+        <input id="fDate" type="date" class="hidden" style="width:auto">
+      </div>
+    </div>
+    <div id="dupWarn" class="warn"></div>
+    <div class="row" style="margin-top:14px"><button class="primary" id="create">צור קוד מתנה</button><span class="faint" id="untilTxt"></span></div>
+    <div class="err" id="fErr"></div>
+    <div class="result" id="result">
+      <pre id="msg"></pre>
+      <div class="row">
+        <button class="primary" id="copyMsg">📋 העתק הודעה</button>
+        <a class="btn" id="wa" target="_blank" rel="noopener">שלח בוואטסאפ</a>
+        <button id="copyCode">העתק רק את הקוד</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="row" style="justify-content:space-between;margin-bottom:10px">
+      <h2 style="margin:0">מי קיבל</h2>
+      <div class="row">
+        <input id="q" placeholder="חיפוש שם / טלפון / קבוצה" style="width:220px">
+        <div class="chips" id="filt">
+          <span class="chip on" data-f="current">נוכחיים</span><span class="chip" data-f="active">פעילים</span>
+          <span class="chip" data-f="soon">יפוג בקרוב</span><span class="chip" data-f="expired">פג</span>
+          <span class="chip" data-f="revoked">בוטלו</span><span class="chip" data-f="all">הכל כולל היסטוריה</span>
+        </div>
+        <a class="btn" href="/api/gifts.csv" download="shema-gifts.csv">ייצוא לאקסל</a>
+      </div>
+    </div>
+    <table>
+      <thead><tr><th>שם</th><th>קבוצה</th><th>טלפון</th><th>ניתן</th><th>עד</th><th>מצב</th><th></th></tr></thead>
+      <tbody id="list"></tbody>
+    </table>
+    <p class="faint" id="empty">עוד לא נתת מתנות.</p>
+    <p class="faint">ביטול: הקוד מפסיק לעבוד באפליקציה <b>אחרי שתעלה את הגרסה הבאה ל־Play</b> (אין שרת שבודק קודים, הכל מקומי). אפשר גם לתת מתנה לזמן מוגבל, ואז אין צורך לבטל.</p>
+  </div>
+</section>
+
+<!-- ============================== release -->
+<section id="release" class="hidden">
+  <div class="card">
+    <div class="row" style="justify-content:space-between"><h2 style="margin:0">📱 אפליקציה ← Google Play</h2><span id="appPill"></span></div>
+    <p class="muted" id="appSummary"></p>
+    <div id="appSteps"></div>
+  </div>
+
+  <div class="card">
+    <div class="row" style="justify-content:space-between"><h2 style="margin:0">💻 תוכנת המחשב ← GitHub Release</h2><span id="pcPill"></span></div>
+    <p class="muted" id="pcSummary"></p>
+    <div id="pcSteps"></div>
+  </div>
+
+  <div class="card">
+    <div class="row" style="justify-content:space-between"><h2 style="margin:0">🗂 קוד ← GitHub (commit + push)</h2><span id="gitPill"></span></div>
+    <p class="muted" id="gitSummary"></p>
+    <div id="gitFiles"></div>
+    <label style="margin-top:10px">תיאור השינוי (באנגלית או עברית)</label>
+    <input id="commitMsg" placeholder="Gift codes dashboard; reviewer back doors removed">
+    <div class="cmd" id="gitCmd"></div>
+    <button id="copyGit">📋 העתק פקודה</button>
+    <span class="faint">המאגר ציבורי. השמות והמפתח לא נכנסים אליו: הם שמורים ב־C:\Users\agmon\keys.</span>
+  </div>
+
+  <div class="card hidden" id="buildCard">
+    <h2 id="buildTitle">בנייה</h2>
+    <div class="cmd" id="buildLog" style="max-height:260px;overflow:auto"></div>
+  </div>
+  <p class="faint" style="text-align:center"><button class="small" id="refresh">רענן</button></p>
+</section>
+</main>
+<div class="toast" id="toast"></div>
+
+<script>
+// opened as a file (double-click / bookmark): codes are signed by the local server, so go there
+if (location.protocol === "file:") location.replace("http://127.0.0.1:8795/");
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+let gifts = [], today = "", filter = "current", dur = "0", rel = null;
+
+function toast(t) { const e = $("#toast"); e.textContent = t; e.classList.add("show"); setTimeout(() => e.classList.remove("show"), 1800); }
+async function api(path, body) {
+  const r = await fetch(path, body === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const j = await r.json(); if (!r.ok) throw new Error(j.error || r.status); return j;
+}
+async function copy(t, what) { try { await navigator.clipboard.writeText(t); toast(what || "הועתק"); } catch (e) { prompt("העתק:", t); } }
+const fmt = iso => iso ? iso.slice(8, 10) + "/" + iso.slice(5, 7) + "/" + iso.slice(0, 4) : "";
+const daysTo = iso => Math.round((new Date(iso) - new Date(today)) / 864e5);
+function addDays(n) { const d = new Date(today); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); }
+
+function status(g) {
+  if (g.revoked) return "revoked";
+  if (g.replaced_by) return "replaced";
+  if (g.until && g.until < today) return "expired";
+  if (g.until && daysTo(g.until) <= 30) return "soon";
+  return "active";
+}
+const BADGE = { active: ["פעיל", "b-ok"], soon: ["יפוג בקרוב", "b-soon"], expired: ["פג", "b-exp"], revoked: ["בוטל", "b-rev"], replaced: ["הוחלף בקוד חדש", "b-rep"] };
+
+function message(g) {
+  const when = g.until ? "עד " + fmt(g.until) : "ללא הגבלת זמן";
+  return `🎁 שמע Pro במתנה (${when})\n1. העתק את כל ההודעה הזו (לחיצה ארוכה ← העתק).\n2. בשמע Pro: התג למעלה ← יש לי קוד מתנה ← הפעל.\nהקוד עובד רק בטלפון שלך.\n\n${g.code}`;
+}
+
+// ------------------------------------------------ gifts
+async function loadGifts() {
+  const j = await api("/api/gifts"); gifts = j.gifts; today = j.today;
+  $("#nokey").classList.toggle("hidden", j.key);
+  $("#create").disabled = !j.key;
+  render();
+}
+function render() {
+  const cur = gifts.filter(g => !g.replaced_by);
+  const n = s => cur.filter(g => status(g) === s).length;
+  $("#sActive").textContent = n("active") + n("soon"); $("#sSoon").textContent = n("soon");
+  $("#sExp").textContent = n("expired"); $("#sRev").textContent = n("revoked");
+  const q = $("#q").value.trim().toLowerCase();
+  const rows = gifts.filter(g => {
+    const s = status(g);
+    if (filter === "current" && s === "replaced") return false;
+    if (filter === "active" && !(s === "active" || s === "soon")) return false;
+    if (["soon", "expired", "revoked"].includes(filter) && s !== filter) return false;
+    return !q || [g.name, g.phone, g.group, g.note].join(" ").toLowerCase().includes(q);
+  }).sort((a, b) => b.created.localeCompare(a.created));
+  $("#empty").classList.toggle("hidden", gifts.length > 0);
+  $("#list").innerHTML = rows.map(g => {
+    const s = status(g), [bt, bc] = BADGE[s];
+    const left = g.until && s !== "expired" && s !== "revoked" ? ` <span class="faint">(${daysTo(g.until)} ימים)</span>` : "";
+    return `<tr class="${s === "replaced" || s === "revoked" ? "dead" : ""}">
+      <td><b>${esc(g.name)}</b>${g.note ? `<div class="faint">${esc(g.note)}</div>` : ""}</td>
+      <td>${esc(g.group) || '<span class="faint">—</span>'}</td>
+      <td class="ltr">${esc(g.phone)}</td>
+      <td>${fmt(g.created.slice(0, 10))}</td>
+      <td>${g.until ? fmt(g.until) + left : "לתמיד"}</td>
+      <td><span class="badge ${bc}">${bt}</span></td>
+      <td><div class="acts">
+        ${s !== "revoked" && s !== "replaced" ? `<button class="small" data-a="copy" data-id="${g.id}">העתק הודעה</button>` : ""}
+        <button class="small" data-a="renew" data-id="${g.id}">${s === "expired" || s === "soon" ? "הארך" : "קוד חדש"}</button>
+        <button class="small" data-a="edit" data-id="${g.id}">הערה</button>
+        ${s === "revoked" ? `<button class="small" data-a="unrevoke" data-id="${g.id}">החזר</button>`
+          : s !== "replaced" ? `<button class="small danger" data-a="revoke" data-id="${g.id}">בטל</button>` : ""}
+        ${s === "replaced" || s === "revoked" || s === "expired" ? `<button class="small danger" data-a="delete" data-id="${g.id}">מחק</button>` : ""}
+      </div></td></tr>`;
+  }).join("");
+}
+
+$("#list").addEventListener("click", async e => {
+  const b = e.target.closest("button[data-a]"); if (!b) return;
+  const g = gifts.find(x => x.id === b.dataset.id); const a = b.dataset.a;
+  try {
+    if (a === "copy") return copy(message(g), "ההודעה הועתקה");
+    if (a === "renew") {
+      $("#fPhone").value = g.phone; $("#fName").value = g.name; $("#fGroup").value = g.group || ""; $("#fNote").value = g.note || "";
+      checkDup(); window.scrollTo({ top: 0, behavior: "smooth" }); $("#fName").focus(); return;
+    }
+    if (a === "edit") {
+      const note = prompt("הערה ל" + g.name, g.note || ""); if (note === null) return;
+      const group = prompt("קבוצה", g.group || ""); if (group === null) return;
+      await api("/api/gifts/" + g.id, { action: "note", note, group });
+    }
+    if (a === "revoke" && !confirm(`לבטל את המתנה של ${g.name}?\n\nהקוד יפסיק לעבוד אחרי שתעלה את הגרסה הבאה של האפליקציה ל־Play.`)) return;
+    if (a === "delete" && !confirm(`למחוק את ${g.name} מהרשימה? (רק מהרשימה שלך)`)) return;
+    if (["revoke", "unrevoke", "delete"].includes(a)) await api("/api/gifts/" + g.id, { action: a });
+    if (a === "revoke") toast("בוטל. ייכנס לתוקף בגרסה הבאה ל־Play");
+    await loadGifts(); loadRelease();
+  } catch (err) { alert(err.message); }
+});
+
+$("#dur").addEventListener("click", e => {
+  const c = e.target.closest(".chip"); if (!c) return;
+  $("#dur").querySelectorAll(".chip").forEach(x => x.classList.toggle("on", x === c));
+  dur = c.dataset.d; $("#fDate").classList.toggle("hidden", dur !== "date");
+  if (dur === "date" && !$("#fDate").value) $("#fDate").value = addDays(365);
+  untilTxt();
+});
+$("#fDate").addEventListener("change", untilTxt);
+function untilValue() { return dur === "0" ? "" : dur === "date" ? $("#fDate").value : addDays(+dur); }
+function untilTxt() { const u = untilValue(); $("#untilTxt").textContent = u ? "עובד עד " + fmt(u) : "עובד ללא הגבלת זמן"; }
+
+function normPhone(v) {
+  let s = v.toUpperCase().replace(/[^0-9A-Z]/g, "").replace(/O/g, "0").replace(/[IL]/g, "1");
+  return s.length > 4 ? s.slice(0, 4) + "-" + s.slice(4, 8) : s;
+}
+$("#fPhone").addEventListener("input", e => { e.target.value = normPhone(e.target.value); checkDup(); });
+function checkDup() {
+  const p = $("#fPhone").value, old = gifts.find(g => g.phone === p && !g.replaced_by);
+  $("#dupWarn").textContent = old ? `לטלפון הזה כבר יש מתנה (${old.name}, ${BADGE[status(old)][0]}). קוד חדש יחליף אותה.` : "";
+}
+$("#q").addEventListener("input", render);
+$("#filt").addEventListener("click", e => { const c = e.target.closest(".chip"); if (!c) return; setFilter(c.dataset.f); });
+document.querySelectorAll(".stat").forEach(s => s.addEventListener("click", () => setFilter(s.dataset.f)));
+function setFilter(f) { filter = f; $("#filt").querySelectorAll(".chip").forEach(x => x.classList.toggle("on", x.dataset.f === f)); render(); }
+
+let lastGift = null;
+$("#create").addEventListener("click", async () => {
+  $("#fErr").textContent = "";
+  const btn = $("#create"); btn.disabled = true; btn.textContent = "חותם…";
+  try {
+    const g = await api("/api/gifts", { phone: $("#fPhone").value, name: $("#fName").value, group: $("#fGroup").value, note: $("#fNote").value, until: untilValue() });
+    lastGift = g;
+    $("#msg").textContent = message(g);
+    $("#wa").href = "https://wa.me/?text=" + encodeURIComponent(message(g));
+    $("#result").style.display = "block";
+    ["#fPhone", "#fName", "#fNote"].forEach(s => $(s).value = ""); $("#dupWarn").textContent = "";
+    await loadGifts(); loadRelease();
+    copy(message(g), "נוצר והועתק. הדבק בוואטסאפ");
+  } catch (err) { $("#fErr").textContent = err.message; }
+  btn.disabled = false; btn.textContent = "צור קוד מתנה";
+});
+$("#copyMsg").addEventListener("click", () => lastGift && copy(message(lastGift), "ההודעה הועתקה"));
+$("#copyCode").addEventListener("click", () => lastGift && copy(lastGift.code, "הקוד הועתק"));
+
+// ------------------------------------------------ release
+const AREA = { app: "📱 אפליקציה", pc: "💻 תוכנת מחשב", other: "אחר" };
+function step(n, state, html) { return `<div class="step"><div class="num ${state}">${state === "done" ? "✓" : n}</div><div style="flex:1">${html}</div></div>`; }
+
+async function loadRelease() {
+  try { rel = await api("/api/release"); } catch (e) { return; }
+  const a = rel.app, p = rel.pc;
+  const appDirty = rel.files.filter(f => f.area === "app").length;
+  const newer = a.code > a.play.code;
+  const needApp = newer || appDirty > 0 || a.commits_since_play.length > 0 || a.revoked_wanted.join() !== (a.revoked_in_app || []).join();
+  $("#appPill").innerHTML = needApp ? '<span class="pill p-need">יש מה להעלות</span>' : '<span class="pill p-ok">מעודכן</span>';
+  $("#appSummary").innerHTML = `ב־Play עכשיו: <b>${esc(a.play.name)}</b> (${a.play.code}), הועלה ${fmt(a.play.date)}. במחשב: <b>${esc(a.name)}</b> (${a.code}).` +
+    (appDirty ? ` ${appDirty} קבצי אפליקציה שונו.` : "") +
+    (a.revoked_in_app.length ? ` ${a.revoked_in_app.length} ביטולי מתנות ייכנסו לתוקף בגרסה הבאה.` : "");
+  const aabName = `shema-pro-v${a.name}.aab`;
+  $("#appSteps").innerHTML =
+    step(1, newer ? "done" : "todo", newer ? `מספר הגרסה כבר גבוה מזה שב־Play (${a.name} > ${a.play.name}).`
+      : `להעלות את מספר הגרסה (Play לא מקבל אותו מספר פעמיים). <button class="small" id="bump">העלה ל־${nextName(a.name)}</button>`) +
+    step(2, a.aab_ready && !rel.build.running ? "done" : "", `לבנות את הקובץ ל־Play: <b>${aabName}</b> ${a.aab_ready ? '<span class="faint">(מוכן)</span>' : a.aab_exists ? '<span class="warn">(ישן: הקוד השתנה אחרי הבנייה)</span>' : ""}
+      <button class="small" id="buildAab" ${rel.build.running || !newer ? "disabled" : ""}>${a.aab_exists ? "בנה מחדש" : "בנה"}</button>
+      <span class="faint">כ־3 דקות</span>`) +
+    step(3, "", `להעלות ב־Play Console: Testing ← Closed testing ← Create new release ← לגרור את הקובץ.
+      <div class="row" style="margin-top:6px"><button class="small" data-open="play">פתח Play Console</button><button class="small" data-open="dist">פתח את תיקיית הקבצים</button></div>`) +
+    step(4, newer ? "" : "done", `אחרי שהעלית: <button class="small" id="uploaded" ${newer ? "" : "disabled"}>העליתי את ${esc(a.name)} ✓</button>
+      <span class="faint">כך הדף יודע מה כבר ב־Play.</span>`);
+
+  const pcDirty = rel.files.filter(f => f.area === "pc").length;
+  const needPc = p.commits_since.length > 0;
+  $("#pcPill").innerHTML = needPc ? '<span class="pill p-need">יש שינויים לשחרר</span>' : (pcDirty ? '<span class="pill p-need">שינויים לא שמורים</span>' : '<span class="pill p-ok">מעודכן</span>');
+  $("#pcSummary").innerHTML = `גרסה אחרונה ב־GitHub: <b>${esc(p.last_tag) || "—"}</b>. ` +
+    (needPc ? `${p.commits_since.length} שינויים בתוכנת המחשב מאז.` : "אין שינויים בתוכנת המחשב מאז.") +
+    (pcDirty ? ` ${pcDirty} קבצים שונו ועוד לא נשמרו (קודם commit).` : "");
+  const v = p.next, zip = `shema-windows-v${v}.zip`;
+  const notes = (p.commits_since.map(l => "- " + l.replace(/^\w+ /, "")).join("\n") || "- ");
+  const ghCmd = `gh release create v${v} "commercial\\dist\\${zip}" -R agmonp/shema -t "שמע Pro v${v} — תוכנת שרת למחשב (Windows)" -n "${notes.replace(/"/g, "'")}"`;
+  $("#pcSteps").innerHTML = (needPc || pcDirty) ?
+    step(1, pcDirty ? "todo" : "done", pcDirty ? "קודם לשמור את השינויים ב־GitHub (בכרטיס למטה)." : "השינויים שמורים ב־GitHub.") +
+    step(2, p.zips.includes(zip) ? "done" : "", `לבנות את ה־ZIP: <b>${zip}</b> <button class="small" id="buildZip" data-v="${v}" ${rel.build.running ? "disabled" : ""}>בנה</button>`) +
+    step(3, "", `לפרסם (מעתיקים ומריצים בחלון פקודה, בתיקייה ${esc(rel.root)}):<div class="cmd">${esc(ghCmd)}</div>
+      <div class="row"><button class="small" id="copyGh">📋 העתק</button><button class="small" data-open="github">פתח את דף הגרסאות</button></div>`)
+    : '<p class="faint">אין מה לשחרר.</p>';
+  $("#copyGh") && ($("#copyGh").onclick = () => copy(`cd "${rel.root}"\n` + ghCmd));
+
+  const nFiles = rel.files.length, nPush = rel.unpushed.length;
+  $("#gitPill").innerHTML = nFiles || nPush ? `<span class="pill p-need">${nFiles} קבצים${nPush ? ` · ${nPush} commits לדחוף` : ""}</span>` : '<span class="pill p-ok">הכל ב־GitHub</span>';
+  $("#gitSummary").textContent = nFiles ? "קבצים ששונו ועוד לא נשמרו:" : nPush ? "יש commits שעוד לא נדחפו." : "אין שינויים.";
+  $("#gitFiles").innerHTML = nFiles ? `<div class="files">${rel.files.map(f => `${esc(f.state.padEnd(2))} ${esc(f.path)}  <span style="color:var(--faint)">${AREA[f.area]}</span>`).join("<br>")}</div>` : "";
+  gitCmd();
+  const relCount = (needApp ? 1 : 0) + (needPc ? 1 : 0) + (nFiles || nPush ? 1 : 0);
+  $("#relN").textContent = relCount; $("#relN").classList.toggle("hidden", !relCount);
+
+  $("#buildCard").classList.toggle("hidden", !rel.build.log && !rel.build.running);
+  $("#buildTitle").textContent = rel.build.running ? `בונה ${rel.build.what}…` : `בנייה אחרונה: ${rel.build.what || ""} ${rel.build.exit === 0 ? "✓ הצליחה" : rel.build.exit != null ? "✗ נכשלה" : ""}`;
+  $("#buildLog").textContent = rel.build.log;
+  if (rel.build.running) setTimeout(loadRelease, 4000);
+}
+function nextName(n) { const a = n.split("."); a[2] = +a[2] + 1; return a.join("."); }
+function gitCmd() {
+  if (!rel) return;
+  const m = ($("#commitMsg").value.trim() || "Update").replace(/"/g, "'");
+  $("#gitCmd").textContent = rel.files.length
+    ? `cd "${rel.root}"\ngit add -A\ngit commit -m "${m}"\ngit push`
+    : `cd "${rel.root}"\ngit push`;
+}
+$("#commitMsg").addEventListener("input", gitCmd);
+$("#copyGit").addEventListener("click", () => copy($("#gitCmd").textContent, "הועתק. הדבק בחלון PowerShell"));
+$("#refresh").addEventListener("click", loadRelease);
+$("#release").addEventListener("click", async e => {
+  const t = e.target;
+  try {
+    if (t.dataset.open) return api("/api/open", { what: t.dataset.open });
+    if (t.id === "bump") { await api("/api/release/bump", {}); toast("מספר הגרסה עלה"); }
+    if (t.id === "buildAab") { await api("/api/release/build", { what: "aab" }); toast("הבנייה התחילה"); }
+    if (t.id === "buildZip") { await api("/api/release/build", { what: "zip", version: t.dataset.v }); toast("הבנייה התחילה"); }
+    if (t.id === "uploaded") { if (!confirm("לסמן שהגרסה " + rel.app.name + " הועלתה ל־Play?")) return; await api("/api/release/uploaded", {}); toast("נרשם"); }
+    if (["bump", "buildAab", "buildZip", "uploaded"].includes(t.id)) loadRelease();
+  } catch (err) { alert(err.message); }
+});
+
+document.querySelectorAll(".tab").forEach(t => t.addEventListener("click", () => {
+  document.querySelectorAll(".tab").forEach(x => x.classList.toggle("on", x === t));
+  $("#gifts").classList.toggle("hidden", t.dataset.tab !== "gifts");
+  $("#release").classList.toggle("hidden", t.dataset.tab !== "release");
+  if (t.dataset.tab === "release") loadRelease();
+}));
+loadGifts().then(untilTxt); loadRelease();
+</script>
+</body>
+</html>

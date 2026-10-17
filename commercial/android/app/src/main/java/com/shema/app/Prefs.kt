@@ -47,9 +47,21 @@ object Prefs {
 
     fun paired(c: Context) = server(c).isNotEmpty() && token(c).isNotEmpty()
 
+    /** "השהה": nothing is recorded until the user resumes (kept across restarts) */
+    fun paused(c: Context) = p(c).getBoolean("paused", false)
+    fun setPaused(c: Context, v: Boolean) = p(c).edit().putBoolean("paused", v).apply()
+    fun clearFlag(c: Context, k: String) = p(c).edit().putBoolean(k, false).apply()
+
     /** Commercial & Google Play Compliance preferences */
     fun isSubscribed(c: Context) = p(c).getBoolean("is_subscribed", false)
     fun setSubscribed(c: Context, v: Boolean) = p(c).edit().putBoolean("is_subscribed", v).apply()
+
+    /** the gift code this phone got (Gift.kt checks it every time) */
+    fun gift(c: Context) = p(c).getString("gift_code", "")!!
+    fun setGift(c: Context, v: String) = p(c).edit().putString("gift_code", v).apply()
+    /** only for a phone without ANDROID_ID */
+    fun fallbackId(c: Context): String = p(c).getString("fallback_id", null)
+        ?: java.util.UUID.randomUUID().toString().also { p(c).edit().putString("fallback_id", it).apply() }
 
     fun firstInstallTime(c: Context): Long {
         val t = p(c).getLong("first_install_time", 0L)

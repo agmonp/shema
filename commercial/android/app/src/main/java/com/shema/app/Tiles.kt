@@ -22,22 +22,24 @@ class MarkTile : TileService() {
     }
 }
 
-/** Quick-settings tile: "private now" = mute for an hour; tap again to listen again. */
+/** Quick-settings tile: "pause" -- nothing is recorded until tapped again (the app's one pause). */
 class PrivateTile : TileService() {
-    private fun muted() = ListenService.mutedUntilNow > System.currentTimeMillis()
-
     override fun onStartListening() {
         qsTile?.apply {
-            label = "פרטי עכשיו"
-            state = when { !ListenService.on -> Tile.STATE_UNAVAILABLE; muted() -> Tile.STATE_ACTIVE; else -> Tile.STATE_INACTIVE }
+            label = if (ListenService.pausedNow) "שמע מושהה" else "השהה את שמע"
+            state = when { !ListenService.on -> Tile.STATE_UNAVAILABLE; ListenService.pausedNow -> Tile.STATE_ACTIVE; else -> Tile.STATE_INACTIVE }
             updateTile()
         }
     }
 
     override fun onClick() {
         if (!ListenService.on) return
-        startService(Intent(this, ListenService::class.java)
-            .setAction(if (muted()) ListenService.ACTION_UNMUTE else ListenService.ACTION_MUTE_HOUR))
-        qsTile?.apply { state = if (muted()) Tile.STATE_INACTIVE else Tile.STATE_ACTIVE; updateTile() }
+        val nowPaused = !ListenService.pausedNow
+        startService(Intent(this, ListenService::class.java).setAction(ListenService.ACTION_TOGGLE))
+        qsTile?.apply {
+            state = if (nowPaused) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE
+            label = if (nowPaused) "שמע מושהה" else "השהה את שמע"
+            updateTile()
+        }
     }
 }
