@@ -64,12 +64,12 @@ def voiced_mask(cfg, audio):
     return mask
 
 
-def load_extractors(names=None):
+def load_extractors(names=None, threads=4):
     ex = {}
     for k, fn in MODELS.items():
         if names and k not in names:
             continue
-        c = sherpa_onnx.SpeakerEmbeddingExtractorConfig(model=str(MODELS_DIR / fn), num_threads=4, provider="cpu")
+        c = sherpa_onnx.SpeakerEmbeddingExtractorConfig(model=str(MODELS_DIR / fn), num_threads=threads, provider="cpu")
         ex[k] = sherpa_onnx.SpeakerEmbeddingExtractor(c)
     return ex
 

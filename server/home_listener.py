@@ -110,6 +110,11 @@ CREATE INDEX IF NOT EXISTS u_conv ON utterances(conv_id);
 CREATE INDEX IF NOT EXISTS u_t0 ON utterances(t0);
 CREATE INDEX IF NOT EXISTS s_t0 ON sounds(t0);
 CREATE INDEX IF NOT EXISTS c_status ON chunks(status);
+-- 2026-10-17: needs_teaching() (archive_pass every ~2 min, ~180 sound files) did 2 full scans per file = ~19 CPU-s a pass
+CREATE INDEX IF NOT EXISTS u_chunk ON utterances(chunk_id);
+CREATE INDEX IF NOT EXISTS s_chunk ON sounds(chunk_id);
+-- _dup_of(): "t0<=?" on u_t0 walked all history (~41 ms an utterance); "t1>=?" on u_t1 reads only the last seconds
+CREATE INDEX IF NOT EXISTS u_t1 ON utterances(t1);
 """
 MIGRATIONS = [   # columns added after the first version (2026-10-06 afternoon)
     ("utterances", "emb", "BLOB"), ("utterances", "how", "TEXT"), ("utterances", "score", "REAL"),

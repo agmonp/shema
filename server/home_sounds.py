@@ -96,6 +96,9 @@ DEFAULT_CUSTOM = {   # CLAP prompts for sounds AudioSet lacks (editable: sound_l
 }
 CLAP_MIN_SIM, CLAP_MARGIN = 0.30, -0.02   # ESC-50 test 2026-10-06: real washing machine 0.32-0.37 (AudioSet "pump"/"engine" tie it), every wrong custom label <= 0.245
 BANK_MIN_SIM = 0.80
+CLAP_BATCH = 32     # windows per CLAP call. CLAP repeat-pads every 2 s window to 10 s: ~35 MB of VRAM per window, so
+                    # one call for a whole 6-13 min import asked 12-26 GB of the 16 GB card -> spilled into system RAM
+                    # (28-30 GB private), CLAP took 77-96 s and Whisper ran 4-6x slower after it (profile 2026-10-15)
 
 
 def custom_labels():
@@ -158,10 +161,13 @@ class Ears:
 
     def audio_vecs(self, waves):
         import librosa
-        w48 = [librosa.resample(w, orig_sr=SR, target_sr=48000) for w in waves]
-        a = self.clap_proc(audio=w48, sampling_rate=48000, return_tensors="pt").to(self.device)
-        with self.torch.no_grad():
-            return _emb(self.clap.get_audio_features(**a))
+        out = []
+        for i in range(0, len(waves), CLAP_BATCH):
+            w48 = [librosa.resample(w, orig_sr=SR, target_sr=48000) for w in waves[i:i + CLAP_BATCH]]
+            a = self.clap_proc(audio=w48, sampling_rate=48000, return_tensors="pt").to(self.device)
+            with self.torch.no_grad():
+                out.append(_emb(self.clap.get_audio_features(**a)))
+        return self.torch.cat(out)
 
     def listen(self, audio, bank=None):
         """-> (events, window vectors). bank: [(tag, vec)] taught by the user."""

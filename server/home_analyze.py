@@ -79,7 +79,9 @@ class Brain:
         self.asr.models.get(self.model_name)                      # load now, as before: a broken install fails here
         import voice_embed as VE
         self.VE = VE
-        self.ex = VE.load_extractors(["eres2netv2", "titanet"])
+        # ORT threads for the speaker embedders. 4 threads spin-wait and burn ~3x the CPU of 1 thread for the same
+        # vector (2026-10-15: 291 vs 97 CPU-ms per voice_vec, cos 1.0); 2 = 186 CPU-ms for +3% chunk wall. config.json "spk_threads" tunes it.
+        self.ex = VE.load_extractors(["eres2netv2", "titanet"], threads=int(cfg.get("spk_threads") or 2))
         self.prints = defaultdict(list)
         try:                                   # optional: voiceprints prepared outside the app
             meta = json.load(open(VOICE / "voiceprints.json", encoding="utf-8"))["prints"]
@@ -250,12 +252,19 @@ def utterances(B, audio, words, cands, names=None, raw=None, away=False):
     raw = audio if raw is None else raw
     import voice_speakers as VS
     ch = VS.chunks_of(words)
+    vecs = {}       # (a0, a1) -> voice vector: an utterance made of one chunk reads the chunk's window again (CPU, 2026-10-15)
+
+    def vec_at(a0, a1):
+        if (a0, a1) not in vecs:
+            vecs[(a0, a1)] = B.voice_vec(audio[a0:a1])
+        return vecs[(a0, a1)]
+
     for c in ch:
         mid, half = (c["t0"] + c["t1"]) / 2, max(c["t1"] - c["t0"], 1.0) / 2
         a0, a1 = int(max(0, mid - half) * SR), int(min(len(audio) / SR, mid + half) * SR)
         c["speaker"] = None
         if cands and a1 - a0 >= 0.5 * SR:
-            x = B.voice_vec(audio[a0:a1])
+            x = vec_at(a0, a1)
             c["best"], c["s1"], c["s2"] = best_two(x, cands)
             if c["s1"] >= SIM_MIN and c["s1"] - c["s2"] >= MARGIN:
                 c["speaker"] = c["best"]
@@ -295,7 +304,7 @@ def utterances(B, audio, words, cands, names=None, raw=None, away=False):
         # the utterance's own voice vector: lets the user's later "this is X" re-score without the audio
         mid, half = (u["t0"] + u["t1"]) / 2, max(u["t1"] - u["t0"], 1.0) / 2
         a0, a1 = int(max(0, mid - half) * SR), int(min(len(audio) / SR, mid + half) * SR)
-        u["emb"] = B.voice_vec(audio[a0:a1]).astype("float32") if a1 - a0 >= 0.5 * SR else None
+        u["emb"] = vec_at(a0, a1).astype("float32") if a1 - a0 >= 0.5 * SR else None
         dur = max(u["t1"] - u["t0"], 0.01)
         u["prosody"] = prosody(wave) if len(wave) >= 0.3 * SR else {}
         u["prosody"]["syll_per_s"] = round(syllables_he(u["text"]) / dur, 2)
