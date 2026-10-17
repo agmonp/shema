@@ -145,6 +145,9 @@ MIGRATIONS = [   # columns added after the first version (2026-10-06 afternoon)
     # 2026-10-17: word times [[s0, s1, word], ...] (seconds from the line's start; new lines only), and lines made by
     # "split between speakers": split_of = the original line's id, overlap = 1 when they spoke at the same time
     ("utterances", "words", "TEXT"), ("utterances", "split_of", "INTEGER"), ("utterances", "overlap", "INTEGER"),
+    # 2026-10-17 (home v2): the day summary's parts, each tied to a conversation: decisions, open questions, topics,
+    # highlights (JSON). Old days keep only summary/highlights and are drawn as before.
+    ("daily", "detail", "TEXT"),
 ]
 
 
@@ -1952,27 +1955,105 @@ def meeting_of_conv(c, cid):
                                                  "AND state!='dismissed' ORDER BY id", (cid,))]}
 
 
-DAY_TASK = """אתה כותב סיכום יום קצר של מה שנשמע בבית, לפי סיכומי השיחות של היום בלבד.
-עברית, חם ועובדתי, בלי להמציא. החזר JSON: {"summary": "3-5 משפטים על היום", "mood": "חצי משפט על האווירה",
-"highlights": ["עד 4 רגעים או נושאים שכדאי לזכור, כל אחד בשורה קצרה"]}"""
+DAY_TASK = """אתה כותב סיכום יום של מה שנשמע, לפי סיכומי השיחות של היום בלבד. כל שיחה מתחילה במספר בסוגריים, למשל [3].
+עברית, עובדתי, בלי להמציא. התמלול אוטומטי ויש בו שגיאות: אל תהפוך משפט עמום, בדיחה או אפשרות לעובדה או להחלטה.
+החזר JSON:
+{"summary": "משפט אחד או שניים, קצרים: על מה דיברו היום",
+ "mood": "חצי משפט על האווירה, או null",
+ "topics": [{"text": "נושא, 2-5 מילים", "conv": מספר השיחה}],
+ "highlights": [{"text": "רגע או אירוע בולט, שורה קצרה, בלשון של הסיכום", "conv": מספר השיחה}]}
+עד 4 פריטים בכל רשימה. אל תכתוב החלטות או מסקנות שלא כתובות במפורש בסיכום."""
+# Decisions and open questions are NOT taken from here: measured 2026-10-17 on a real day, the 4B model turned
+# "there is an intention to..." in a conversation summary into a decision 4 times out of 4. They come only from
+# sources with evidence (meeting summaries, quote-checked tasks) until a quote-checked extractor exists.
+DAY_LISTS = ("topics", "highlights")
+
+
+def day_detail(out, conv_ids):
+    """The model's lists -> [{text, conv_id}], kept only when they name one of the day's conversations ([n] -> id)."""
+    det = {}
+    for k in DAY_LISTS:
+        items = []
+        for x in (out.get(k) if isinstance(out.get(k), list) else [])[:4]:
+            if not isinstance(x, dict) or not isinstance(x.get("text"), str) or not x["text"].strip():
+                continue
+            try:
+                n = int(str(x.get("conv")).strip("[] "))
+            except ValueError:
+                continue
+            if 1 <= n <= len(conv_ids):                   # a claim with no conversation behind it is dropped
+                items.append({"text": x["text"].strip()[:160], "conv_id": conv_ids[n - 1]})
+        det[k] = items
+    return det
 
 
 def summarize_day(day):
     with db() as c:
-        convs = c.execute("SELECT start, end, topic, summary, mood_text, people, moments FROM conversations "
+        convs = c.execute("SELECT id, start, end, topic, summary, mood_text, people, moments FROM conversations "
                           "WHERE substr(start,1,10)=? AND status='done' AND summary IS NOT NULL ORDER BY start", (day,)).fetchall()
     if not convs:
         return {"ok": False, "msg": "אין עדיין שיחות מסוכמות ביום הזה"}
-    txt = "\n".join(f"{r['start'][11:16]}-{r['end'][11:16]} [{', '.join(json.loads(r['people'] or '[]')) or 'לא מזוהים'}] "
-                    f"{r['topic'] or ''}: {r['summary']} ({r['mood_text'] or ''})" for r in convs)[:9000]
+    txt = "\n".join(f"[{i + 1}] {r['start'][11:16]}-{r['end'][11:16]} [{', '.join(json.loads(r['people'] or '[]')) or 'לא מזוהים'}] "
+                    f"{r['topic'] or ''}: {r['summary']} ({r['mood_text'] or ''})" for i, r in enumerate(convs))[:9000]
     out = _ollama_json(DAY_TASK, txt, num_ctx=12288)
     if "error" in out:
         return {"ok": False, "msg": out["error"]}
+    det = day_detail(out, [r["id"] for r in convs])
     with db() as c:
-        c.execute("INSERT OR REPLACE INTO daily (day, summary, highlights, mood, conversations, updated, model) "
-                  "VALUES (?,?,?,?,?,?,?)", (day, out.get("summary"), json.dumps(out.get("highlights") or [], ensure_ascii=False),
-                                             out.get("mood"), len(convs), iso(datetime.now()), out.get("model")))
+        c.execute("INSERT OR REPLACE INTO daily (day, summary, highlights, mood, conversations, updated, model, detail) "
+                  "VALUES (?,?,?,?,?,?,?,?)", (day, out.get("summary") if isinstance(out.get("summary"), str) else None,
+                                               json.dumps([h["text"] for h in det["highlights"]], ensure_ascii=False),
+                                               out.get("mood") if isinstance(out.get("mood"), str) else None, len(convs),
+                                               iso(datetime.now()), out.get("model"), json.dumps(det, ensure_ascii=False)))
     return {"ok": True}
+
+
+def _quote_line(c, cid, quote):
+    """The line in conversation cid that a task's quote came from (same normalised start), or None."""
+    q = " ".join(str(quote or "").split())[:14]
+    if len(q) < 8:
+        return None
+    for u in c.execute("SELECT id, t0, text FROM utterances WHERE conv_id=? AND media IS NULL ORDER BY t0", (cid,)):
+        if q in " ".join((u["text"] or "").split()):
+            return {"utt_id": u["id"], "t0": u["t0"]}
+    return None
+
+
+BRIEF_MAX = 5
+
+
+def brief(c, day):
+    """'What matters today' for the home page: at most 5 items, every one with evidence behind it. Kinds with
+    nothing in them are simply absent. Tasks point at the exact line (their quote was checked when they were made);
+    decisions come only from recorded meetings; conversations the user marked; voices worth naming. Day-summary
+    highlights stay in the summary card: they are a model's reading of summaries, not evidence."""
+    convs = {r["id"]: r for r in c.execute("SELECT id, start, topic, marked FROM conversations WHERE substr(start,1,10)=? "
+                                           "AND status!='empty'", (day,))}
+    items = []
+    if convs:
+        ph = ",".join("?" * len(convs))
+        for r in c.execute(f"SELECT m.conv_id, m.title, m.result FROM meetings m WHERE m.conv_id IN ({ph}) AND m.result IS NOT NULL",
+                           list(convs)):
+            for d in (json.loads(r["result"]).get("decisions") or [])[:3]:
+                items.append({"kind": "decision", "text": d, "conv_id": r["conv_id"], "src": "meeting",
+                              "t0": convs[r["conv_id"]]["start"]})
+        for t in c.execute(f"SELECT id, conv_id, who, what, due, quote FROM tasks WHERE state='open' AND conv_id IN ({ph}) "
+                           "ORDER BY id", list(convs)):
+            it = {"kind": "task", "id": t["id"], "text": t["what"], "who": t["who"] if t["who"] and t["who"] != "?" else None,
+                  "due": t["due"], "quote": t["quote"], "conv_id": t["conv_id"], "src": "quote", "t0": convs[t["conv_id"]]["start"]}
+            it.update(_quote_line(c, t["conv_id"], t["quote"]) or {})
+            items.append(it)
+    for cid, k in convs.items():
+        if k["marked"]:
+            items.append({"kind": "marked", "text": k["topic"] or "שיחה שסימנת", "conv_id": cid, "src": "mark", "t0": k["start"]})
+    order = {"decision": 0, "task": 1, "marked": 2}
+    items.sort(key=lambda i: (order[i["kind"]], i["t0"]))
+    # last place: unnamed voices worth naming (only when there are enough to matter)
+    unk = c.execute("SELECT count(*) FROM utterances WHERE t0>=? AND t0<? AND speaker IS NULL AND media IS NULL "    # t0 index
+                    "AND emb IS NOT NULL AND seconds>=1.2", (day, day + "T99")).fetchone()[0]
+    if unk >= 5:
+        items = items[:BRIEF_MAX - 1] + [{"kind": "teach", "n": unk, "text": f"{unk} משפטים בלי שם", "src": "teach"}]
+    return {"day": day, "items": items[:BRIEF_MAX]}
 
 
 def daily_summaries():
@@ -2369,7 +2450,15 @@ def range_summary(r):
 
 
 ASK_TASK = """אתה עונה על שאלה על שיחות שהוקלטו, רק לפי קטעי השיחות שלפניך. אל תמציא. אם התשובה לא כתובה שם, כתוב שלא נמצא.
-ציין תאריך ושם דובר כשהם ברורים. החזר JSON: {"answer": "תשובה קצרה בעברית", "conv_ids": [מספרי השיחות שהתשובה מבוססת עליהן]}"""
+ציין תאריך ושם דובר כשהם ברורים. אל תכתוב מספרי שיחה בתוך התשובה ואל תמנה מילים בודדות: כתוב מה נאמר, במשפט או שניים.
+החזר JSON: {"answer": "תשובה קצרה בעברית", "conv_ids": [מספרי השיחות שהתשובה מבוססת עליהן]}"""
+
+
+def _ask_dates(answer, hits):
+    """'בשיחה 777' -> 'בשיחה מ-17/10' for a real source; a number that is not one of the sources is dropped."""
+    when = {h["id"]: f"{h['start'][8:10]}/{h['start'][5:7]}" for h in hits}
+    return re.sub(r"(ב?שיחה)\s*(?:מספר\s*)?(\d+)",
+                  lambda m: f"{m.group(1)} מ-{when[int(m.group(2))]}" if int(m.group(2)) in when else m.group(1), answer)
 
 
 def ask(q, r="all"):
@@ -2385,8 +2474,39 @@ def ask(q, r="all"):
                           "\n".join(f"{u['name'] or '?'}: {u['text']}" for u in U)[:1800])
     out = _ollama_json(ASK_TASK, "שאלה: " + q + "\n\n" + "\n\n".join(blocks), num_ctx=12288)
     ids = {h["id"] for h in hits}
-    cited = [i for i in (out.get("conv_ids") or []) if i in ids]
-    return {"answer": out.get("answer") if "error" not in out else None, "conversations": [h for h in hits if h["id"] in (cited or ids)]}
+    cited = [i for i in (out.get("conv_ids") or []) if isinstance(i, int) and i in ids]
+    convs = [h for h in hits if h["id"] in (cited or ids)]
+    with db() as c:
+        for h in convs:
+            h["lines"] = source_lines(c, h["id"], q)
+    # cited = the answer names these conversations; otherwise they are only the search hits it was written from
+    ans = out.get("answer") if "error" not in out and isinstance(out.get("answer"), str) else None
+    return {"answer": _ask_dates(ans, hits) if ans else None, "cited": bool(cited), "conversations": convs}
+
+
+ASK_STOP = {"מה", "מי", "מתי", "איפה", "איך", "למה", "על", "את", "של", "עם", "זה", "זאת", "היה", "הייתה", "כבר", "אם",
+            "האם", "דיברנו", "אמרנו", "אמר", "אמרה", "אני", "אנחנו", "הוא", "היא", "לי", "לו", "לה", "יש", "אין", "גם"}
+
+
+def source_lines(c, cid, q, k=2):
+    """The (at most k) lines of a conversation that share the most question words: where to listen. Hebrew prefixes
+    (ו/ה/ב/ל/ש...) are matched through he_variants, so "לתמר" finds "תמר"."""
+    from he_text import he_variants
+    want = [set(he_variants(w)) | {w} for w in _norm_words(q) if len(w) > 2 and w not in ASK_STOP]
+    if not want:
+        return []
+    scored = []
+    for u in c.execute("SELECT id, t0, name, how, text FROM utterances WHERE conv_id=? AND media IS NULL AND text!='' ORDER BY t0",
+                       (cid,)):
+        have = set()
+        for w in _norm_words(u["text"]):
+            have |= set(he_variants(w)) | {w}
+        n = sum(1 for v in want if v & have)
+        if n:
+            scored.append((n, u))
+    scored.sort(key=lambda x: -x[0])
+    return [{"utt_id": u["id"], "t0": u["t0"], "name": u["name"], "how": u["how"], "text": (u["text"] or "")[:240]}
+            for _, u in sorted(scored[:k], key=lambda x: x[1]["t0"])]
 
 
 TASKS_TASK = """אתה מחלץ התחייבויות מתמלול שיחה בעברית: רק דברים שמישהו לקח על עצמו או שסוכמו במפורש בין אנשים
@@ -2884,6 +3004,8 @@ def api(path, qs):
             return {"q": q, "range": r, "results": search_convs(q, 20, r) if q else list_convs(r)}
         if path == "/home/api/ask":
             return ask(qs.get("q", [""])[0], qs.get("r", ["all"])[0])
+        if path == "/home/api/brief":
+            return brief(c, qs.get("d", [datetime.now().strftime("%Y-%m-%d")])[0])
         if path == "/home/api/stats":
             return stats(qs.get("r", ["today"])[0])
         if path == "/home/api/range_summary":
