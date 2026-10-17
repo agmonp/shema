@@ -860,6 +860,7 @@ let SHOW_SHORT = false, STATS_OPEN = false;
 async function showDay(){
   await days();
   const D = await J("/home/api/day?d=" + day);
+  if (location.hash && location.hash !== "#") return;      // the user moved to another tab meanwhile: don't draw over it
   if (!D.conversations.length) {
     $("#main").innerHTML = `<div id="livebox"></div>${askCard()}<div class="empty">אין שיחות ביום הזה.</div>`;
     bindAsk(); live.key = null; live(); return;
