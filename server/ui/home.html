@@ -182,6 +182,53 @@ mark{background:rgba(234,164,94,.3);color:inherit;border-radius:3px}
 .toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:var(--surface3);border:1px solid var(--line2);
   border-radius:12px;padding:10px 16px;z-index:10;box-shadow:0 6px 24px rgba(0,0,0,.4)}
 .who.maybe{opacity:.72}
+/* 2026-10-17 "מי אמר את זה?" compact: player, words, up to 3 candidates, name field, the rest behind ⋯ */
+.utt .body.tap{cursor:pointer;border-radius:6px} .utt .body.tap:hover{background:rgba(255,236,214,.03)}
+.who2{max-width:440px!important;padding:14px 16px!important}
+.who2 .hd{display:flex;align-items:center;gap:8px}
+.who2 .hd h3{margin:0;flex:1}
+.who2 .hd .x{float:none}
+.who2 .meta{color:var(--faint);font-size:12px;margin-top:2px}
+.mini{display:flex;align-items:center;gap:8px;margin:10px 0 8px;direction:ltr}
+.mini button{width:34px;height:34px;border-radius:50%;background:var(--surface2);border:1px solid var(--line2);display:grid;place-items:center;font-size:14px;flex:none}
+.mini button.pp{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.mini .track{flex:1;height:6px;border-radius:3px;background:var(--surface3);overflow:hidden;cursor:pointer}
+.mini .track i{display:block;height:100%;width:0;background:var(--accent)}
+.mini .tm{font-size:11px;color:var(--faint);min-width:34px;text-align:end;font-variant-numeric:tabular-nums}
+.who2 .said{font-size:16px;line-height:1.5;margin:2px 0}
+.who2 .ctxbtn{font-size:12px;color:var(--faint);padding:2px 0}
+.who2 .ctxbtn:hover{color:var(--accent)}
+.who2 .ctx{border-inline-start:2px solid var(--line2);padding-inline-start:8px;margin:4px 0;font-size:13px;color:var(--dim)}
+.who2 .ctx div{margin:2px 0} .who2 .ctx b{color:var(--faint);font-weight:600}
+.who2 .lbl{color:var(--faint);font-size:12px;margin:12px 0 6px}
+.who2 .cands{display:flex;flex-wrap:wrap;gap:6px}
+.who2 .cands button{background:var(--surface2);border:1px solid var(--line2);border-radius:18px;padding:6px 12px;font-size:14px;display:flex;align-items:center;gap:6px;min-height:36px}
+.who2 .cands button:hover,.who2 .cands button:focus-visible{border-color:var(--accent);outline:none}
+.who2 .cands button.strong{border-color:var(--accent);background:rgba(234,164,94,.12)}
+.who2 .cands small{color:var(--faint);font-size:11px;font-weight:400}
+.who2 .cands kbd{font:11px monospace;color:var(--faint)}
+.who2 .namebox{position:relative;margin-top:8px}
+.who2 .namebox input{width:100%;background:var(--surface2);border:1px solid var(--line2);border-radius:10px;color:var(--ink);padding:9px 12px;font:inherit}
+.who2 .namebox input:focus{border-color:var(--accent);outline:none}
+.who2 .sugg{margin-top:4px;background:var(--surface2);border:1px solid var(--line2);border-radius:10px;overflow:hidden;z-index:2;max-height:220px;overflow-y:auto}
+.who2 .sugg button{display:block;width:100%;text-align:start;padding:8px 12px;font-size:14px}
+.who2 .sugg button.on,.who2 .sugg button:hover{background:var(--surface3)}
+.who2 .sugg button.add{color:var(--accent);font-weight:700}
+.who2 .foot{display:flex;align-items:center;gap:8px;margin-top:12px}
+.who2 .more{position:relative}
+.who2 .more>button{font-size:13px;color:var(--dim);border:1px solid var(--line2);border-radius:14px;padding:4px 12px}
+.who2 .menu{position:absolute;bottom:100%;inset-inline-start:0;margin-bottom:6px;background:var(--surface2);border:1px solid var(--line2);border-radius:12px;padding:4px;min-width:230px;box-shadow:0 8px 24px rgba(0,0,0,.4);z-index:3}
+.who2 .menu button{display:block;width:100%;text-align:start;padding:8px 10px;border-radius:8px;font-size:14px}
+.who2 .menu button:hover,.who2 .menu button:focus-visible{background:var(--surface3);outline:none}
+.who2 .foot .legend{margin:0;flex:1;font-size:11px}
+.topconn{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--dim);background:var(--surface2);border:1px solid var(--line2);border-radius:16px;padding:3px 10px}
+.topconn .dot{width:8px;height:8px;border-radius:50%;background:var(--unk)} .topconn.live .dot{background:var(--sage)}
+.topconn:hover{border-color:var(--accent)}
+.phacts{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+.phacts button{font-size:12px;color:var(--dim);border:1px solid var(--line2);border-radius:14px;padding:3px 10px}
+.phacts button:hover{color:var(--accent);border-color:var(--accent)}
+.paired{display:flex;align-items:center;gap:12px;padding:18px 4px}
+.paired .ok2{width:44px;height:44px;border-radius:50%;background:rgba(134,187,168,.18);color:var(--sage);display:grid;place-items:center;font-size:24px;flex:none}
 .asr .tbl{overflow-x:auto;margin:6px 0}
 .asr table{border-collapse:collapse;font-size:13px;min-width:100%}
 .asr th,.asr td{padding:4px 8px;border-top:1px solid var(--line);text-align:start;white-space:nowrap}
@@ -257,7 +304,16 @@ let day = null, phoneOnline = false, TL_OPEN = null;
 function toast(t){ const e = document.createElement("div"); e.className = "toast"; e.textContent = t; document.body.appendChild(e); setTimeout(() => e.remove(), 4500); }
 
 const ago = s => s < 60 ? `לפני ${s} שנ׳` : s < 3600 ? `לפני ${Math.round(s / 60)} דק׳` : `לפני ${Math.round(s / 3600)} שעות`;
-let COV = null, HEALTH = null;
+let COV = null, HEALTH = null, PHONES = [];
+const todayLocal = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
+// "invite a friend": the system share sheet where the browser has one (Edge/Chrome on Windows), else copy the link
+const PLAY_URL = "https://play.google.com/store/apps/details?id=app.shema.listener";
+async function shareApp(){
+  const text = "אני משתמש בשמע: זיכרון של השיחות שלי, בעברית, ונשאר אצלי בבית בלי ענן. שווה לנסות:";
+  try { if (navigator.share) { await navigator.share({title: "שמע", text, url: PLAY_URL}); return; } } catch (e) { if (e.name === "AbortError") return; }
+  try { await navigator.clipboard.writeText(`${text} ${PLAY_URL}`); toast("הקישור הועתק. אפשר להדביק בוואטסאפ או במייל."); }
+  catch (e) { prompt("העתק את הקישור:", PLAY_URL); }
+}
 const LINK = {lan: ["🏠 בבית", ""], tailscale: ["🛰 Tailscale", "ts"]};
 const LEG = [["rec", "var(--sage)", "הוקלט"], ["private", "#c9a3e6", "פרטי/מושהה"], ["battery", "var(--rose)", "סוללה"], ["busy", "var(--accent)", "מיקרופון תפוס"],
   ["killed", "#8a4a47", "האפליקציה נעצרה"], ["away", "#5c554d", "לא בבית/ממתין לקול"], ["unknown", "#e5484d", "הטלפון לא ענה"]];
@@ -285,12 +341,16 @@ function phoneCard(p){
   ].join("");
   return `<div class="pcard ${speaking ? "on" : ""} ${p.online ? "live" : ""}"><h3><span class="dot"></span>${esc(p.device)}<span class="pill">${p.role === "wearer" ? "אישי" : "בית"}</span>
     <span style="font-weight:400;font-size:13px;color:var(--dim)">${p.online ? esc(p.state || "") : "לא מחובר"}</span></h3>
-    <div class="row">${pills}<span class="pill">נראה ${ago(p.seconds_ago)}</span>${p.last_chunk ? `<span class="pill">קטע אחרון ${p.last_chunk.slice(11, 16)}</span>` : ""}</div>
-    ${stripOf(p.code)}</div>`;
+    <div class="row">${pills}<span class="pill">נראה ${ago(p.seconds_ago)}</span>${p.last_chunk ? `<span class="pill">סונכרן לאחרונה ${p.last_chunk.slice(11, 16)}</span>` : ""}</div>
+    ${stripOf(p.code)}
+    ${!p.online && p.seconds_ago > 3600 ? `<div class="phacts"><span class="legend" style="margin:0">לא מתחבר? ודא שהטלפון ברשת הבית ו"שמע" פתוח בו, או</span>
+      <button onclick="showPair()">חבר מחדש</button><button data-forget="${esc(p.code)}" data-name="${esc(p.device)}">הסר מהרשימה</button></div>` : ""}</div>`;
 }
 function source(s){
   const ph = s.phones || [];
   phoneOnline = ph.some(x => x.online);
+  PHONES = ph;
+  $("#pairbtn").hidden = ph.length > 0;          // once a phone is paired the QR is a secondary action (phone details)
   if (!ph.length) {
     $("#phones").innerHTML = `<div class="pcards"><div class="pcard"><h3><span class="dot"></span>אין טלפון מחובר</h3><div class="legend">ההקלטה נעשית רק בטלפון (אפליקציית "שמע"). המחשב רק מנתח ואין בו מיקרופון.</div>
       <div style="margin-top:8px"><button class="pairbtn" onclick="showPair()">📱 חבר טלפון</button></div></div></div>`;
@@ -299,8 +359,15 @@ function source(s){
     $("#phones").innerHTML = `<button class="phline${open ? " open" : ""}" id="phtoggle" title="${open ? "סגור" : "פרטי הטלפונים: כיסוי ההקלטה היום, סוללה, חיבור"}">
         ${ph.map(phoneChip).join("")}<span class="phmore">${open ? "סגור ▴" : "פרטים ▾"}</span></button>
       ${open ? `<div class="pcards">${ph.map(phoneCard).join("")}</div>
-      <div class="legend2">${LEG.map(([k, c, t]) => `<span><b style="background:${c}"></b>${t}</span>`).join("")}<span style="margin-inline-start:auto">🖥 המחשב רק מנתח · אין בו מיקרופון</span></div>` : ""}`;
+      <div class="legend2">${LEG.map(([k, c, t]) => `<span><b style="background:${c}"></b>${t}</span>`).join("")}<span style="margin-inline-start:auto">🖥 המחשב רק מנתח · אין בו מיקרופון</span></div>
+      <div class="phacts"><button id="phnew">📱 חבר טלפון נוסף או מחליף</button><button id="phshare">💌 שתף את שמע עם חבר</button></div>` : ""}`;
     $("#phtoggle").onclick = () => { PH_OPEN = !PH_OPEN; try { localStorage.setItem("shema_ph_open", PH_OPEN ? "1" : ""); } catch (e) {} source(s); };
+    if (open) {
+      $("#phnew").onclick = showPair; $("#phshare").onclick = shareApp;
+      document.querySelectorAll("[data-forget]").forEach(b => b.onclick = async () => {
+        if (!confirm(`להסיר את ${b.dataset.name} מהרשימה? (אם הטלפון עדיין מחובר, הוא יופיע שוב בפעם הבאה שהוא שולח)`)) return;
+        const r = await POST("/home/api/forget_phone", {device: b.dataset.forget}); toast(r.ok ? "הוסר מהרשימה" : (r.msg || "לא הצליח")); status(); });
+    }
   }
 }
 // the closed phones line: one chip per phone (state, battery, hours recorded today) + any warning
@@ -313,7 +380,7 @@ function phoneChip(p){
   const warn = [p.vpn === "0" && !p.online ? "Tailscale כבוי?" : "", p.bat && +p.bat > 0 && +p.bat < 15 && p.charging !== "1" ? "סוללה חלשה" : "",
     q && oldest > 48 * 3600 ? `${q} ממתינים` : ""].filter(Boolean).join(" · ");
   return `<span class="phchip ${speaking ? "on" : ""} ${p.online ? "live" : ""}"><span class="dot"></span><b>${esc(p.device)}</b>
-    <span>${p.online ? esc((p.state || "").split("·")[0].trim()) : "לא מחובר"}</span>${p.bat && +p.bat > 0 ? `<span>🔋${p.bat}%${p.charging === "1" ? "⚡" : ""}</span>` : ""}
+    <span>${p.online ? esc((p.state || "").split("·")[0].trim() || "מחובר") : `לא מחובר · נראה ${ago(p.seconds_ago)}`}</span>${p.last_chunk ? `<span title="הקטע האחרון שהגיע מהטלפון">סונכרן ${p.last_chunk.slice(0, 10) === todayLocal() ? "" : p.last_chunk.slice(8, 10) + "/" + p.last_chunk.slice(5, 7) + " "}${p.last_chunk.slice(11, 16)}</span>` : ""}${p.bat && +p.bat > 0 ? `<span>🔋${p.bat}%${p.charging === "1" ? "⚡" : ""}</span>` : ""}
     ${rec != null ? `<span>הוקלט ${rec.toFixed(1)} ש׳</span>` : ""}${warn ? `<span class="w">⚠ ${esc(warn)}</span>` : ""}</span>`;
 }
 async function covHealth(){
@@ -366,7 +433,12 @@ function uttRow(u){
 let UMAP = {};
 function bindWho(root, U){
   U.forEach(u => UMAP[u.id] = u);
-  root.querySelectorAll(".who[data-u]").forEach(b => b.onclick = () => askWho(UMAP[b.dataset.u]));
+  root.querySelectorAll(".who[data-u]").forEach(b => {
+    b.onclick = () => askWho(UMAP[b.dataset.u]);
+    // the whole line opens it too (not while selecting text to copy)
+    const body = b.parentElement.querySelector(".body");
+    if (body) { body.classList.add("tap"); body.onclick = e => { if (e.target.closest("button,a,audio") || String(getSelection())) return; askWho(UMAP[b.dataset.u]); }; }
+  });
   root.querySelectorAll("button.gold[data-g]").forEach(b => b.onclick = () => askGold(UMAP[b.dataset.g]));
 }
 function askGold(u){
@@ -385,40 +457,123 @@ function askGold(u){
     toast(r.ok ? `נוסף. בסט הזהב ${r.gold_items} משפטים` : (r.msg || "לא הצליח")); if (r.ok) sh.remove();
   };
 }
-let PEOPLE = null;
+let PEOPLE = null, WHO_AUDIO = null;
+const WHY = {voice: "קול דומה", conv: "דיבר/ה בשיחה"};
+const mmss = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+// one small player per window: progress, play/pause, replay. Opening another window stops the previous clip.
+function miniPlayer(box, src){
+  if (WHO_AUDIO) { WHO_AUDIO.pause(); WHO_AUDIO.src = ""; }
+  const a = WHO_AUDIO = new Audio(src);
+  a.preload = "auto";
+  box.innerHTML = `<button class="pp" aria-label="נגן / השהה">⏸</button><div class="track" role="progressbar" aria-label="התקדמות"><i></i></div>
+    <span class="tm">0:00</span><button class="rp" aria-label="מההתחלה" title="מההתחלה">↻</button>`;
+  const pp = box.querySelector(".pp"), bar = box.querySelector(".track i"), tm = box.querySelector(".tm");
+  const sync = () => { pp.textContent = a.paused ? "▶" : "⏸"; };
+  a.ontimeupdate = () => { if (a.duration) bar.style.width = (a.currentTime / a.duration * 100) + "%"; tm.textContent = mmss(a.currentTime); };
+  a.onplay = a.onpause = a.onended = sync;
+  a.onerror = () => { tm.textContent = ""; box.innerHTML = `<span class="legend" style="margin:0;direction:rtl">ההקלטה של המשפט הזה כבר לא שמורה (הזיהוי נשאר אפשרי).</span>`; };
+  pp.onclick = () => a.paused ? a.play().catch(() => {}) : a.pause();
+  box.querySelector(".rp").onclick = () => { a.currentTime = 0; a.play().catch(() => {}); };
+  box.querySelector(".track").onclick = e => { const r = e.currentTarget.getBoundingClientRect(); if (a.duration) a.currentTime = (e.clientX - r.left) / r.width * a.duration; };
+  a.play().then(sync).catch(sync);           // started from the click that opened the window: browsers allow it
+  return a;
+}
 async function askWho(u){
-  PEOPLE ||= await J("/home/api/people");
-  const groups = {};
-  PEOPLE.forEach(p => (groups[p.group] ||= []).push(p));
+  document.querySelector(".sheet.whosheet")?.remove();
   const sh = document.createElement("div");
-  sh.className = "sheet";
-  sh.innerHTML = `<div class="box"><button class="x" title="סגור">×</button><h3>מי אמר את זה?</h3>
-    <div class="q">${u.media ? `${MEDIA_ICON[u.media] || ""} סומן כ${esc(u.media)} (לא תומלל)` : `״${esc(u.text.slice(0, 140))}״`} · ${hms(u.t0)}${u.name ? ` · עכשיו: ${esc(u.name)}` : ""}</div>
-    <audio controls preload="auto" src="/home/audio/utt/${u.id}"></audio>
-    ${Object.entries(groups).map(([g, ps]) => `<div class="grp">${esc(g)}</div><div class="opts">${ps.slice(0, g === "מוכנים מראש" ? 24 : 99)
-        .map(p => `<button data-id="${p.id}">${esc(p.name)}</button>`).join("")}</div>`).join("")}
-    <div class="grp">לא אדם</div>
-    <div class="opts">${u.media ? `<button data-id="__person__">זה לא ${esc(u.media)}: זה מישהו מדבר</button>`
-                                : `<button data-id="__tv__">📺 זו הטלוויזיה / רדיו / שיר</button>`}</div>
-    <div class="grp">מישהו חדש (אורח, בייביסיטר…)</div>
-    <div class="new"><input id="newname" placeholder="שם"><button class="ok" id="addnew">שמור</button></div>
-    <div class="legend">המחשב לומד את הקול מהמשפט הזה, ומיד מזהה מחדש משפטים לא מזוהים מ-30 הימים האחרונים.</div></div>`;
+  sh.className = "sheet whosheet";
+  sh.innerHTML = `<div class="box who2" role="dialog" aria-label="מי אמר את זה?">
+    <div class="hd"><h3>מי אמר את זה?</h3><button class="x" title="סגור (Esc)" aria-label="סגור">×</button></div>
+    <div class="meta">${hms(u.t0)}${u.seconds ? ` · ${(+u.seconds).toFixed(1)} שנ׳` : ""}${u.name ? ` · עכשיו: <b style="color:${colorOf(u.name)}">${esc(u.name)}</b>${u.how && HOW[u.how] ? ` (${esc(HOW[u.how])})` : ""}` : ""}</div>
+    <div class="mini"></div>
+    <div class="said">${u.media ? `${MEDIA_ICON[u.media] || "📺"} סומן כ${esc(u.media)} (לא תומלל)` : `״${esc((u.text || "").slice(0, 400))}״`}</div>
+    <button class="ctxbtn" hidden>מה נאמר לפני ואחרי ▾</button><div class="ctx" hidden></div>
+    <div class="lbl" id="wl" hidden>אולי</div><div class="cands" id="wc"></div>
+    <div class="namebox"><input id="wname" placeholder="הקלד שם, או שם חדש…" autocomplete="off" aria-label="שם הדובר"><div class="sugg" hidden></div></div>
+    <div class="foot"><div class="more"><button id="wmore" aria-haspopup="true">⋯ עוד</button><div class="menu" hidden>
+        ${u.media ? `<button data-act="person">🗣 זה לא ${esc(u.media)}: מישהו מדבר</button>` : `<button data-act="tv">📺 טלוויזיה / רדיו / שיר</button>`}
+        <button data-act="multi">👥 כמה אנשים מדברים כאן</button>
+        <button data-act="unclear">❔ לא ניתן לזהות</button></div></div>
+      <span class="legend">כל בחירה מלמדת את הקול ומזהה מחדש משפטים דומים.</span></div></div>`;
   document.body.appendChild(sh);
-  const close = () => sh.remove();
+  document.addEventListener("keydown", keys, true);
+  miniPlayer(sh.querySelector(".mini"), `/home/audio/utt/${u.id}`);
+  const close = () => { if (WHO_AUDIO) WHO_AUDIO.pause(); sh.remove(); document.removeEventListener("keydown", keys, true); };
   sh.querySelector(".x").onclick = close;
   sh.onclick = e => { if (e.target === sh) close(); };
-  const send = async body => {
-    const r = await POST("/home/api/label", Object.assign({utt_id: u.id}, body));
+  const send = async (body, msg) => {
     close();
+    toast(msg || "שומר…");                                   // fast feedback: the window closes at once
+    const r = await POST("/home/api/label", Object.assign({utt_id: u.id}, body));
     if (!r.ok) return toast("לא נשמר: " + (r.msg || ""));
     PEOPLE = null;
     toast(r.name === "טלוויזיה" ? `סימנתי כטלוויזיה והמחשב לומד את הקולות שלה.${r.renamed ? ` עוד ${r.renamed} משפטים סומנו.` : ""}`
+        : r.speaker === null ? "חזר לתמלול כדובר לא מזוהה."
         : `למדתי: ${r.name}.${r.renamed ? ` זיהיתי מחדש עוד ${r.renamed} משפטים.` : ""}`);
     live.key = null;
     route(true);
   };
-  sh.querySelectorAll(".opts button").forEach(b => b.onclick = () => send({speaker: b.dataset.id}));
-  sh.querySelector("#addnew").onclick = () => { const v = sh.querySelector("#newname").value.trim(); if (v) send({new_name: v}); };
+  const skip = async (reason, msg) => { close(); await POST("/home/api/teach_skip", {utt_id: u.id, reason}); toast(msg); };
+  // ⋯ more: the rare answers
+  const menu = sh.querySelector(".menu");
+  sh.querySelector("#wmore").onclick = e => { e.stopPropagation(); menu.hidden = !menu.hidden; if (!menu.hidden) menu.querySelector("button").focus(); };
+  sh.querySelector(".box").addEventListener("click", e => { if (!e.target.closest(".more")) menu.hidden = true; });
+  menu.querySelectorAll("[data-act]").forEach(b => b.onclick = () => ({
+    tv: () => send({speaker: "__tv__"}),
+    person: () => send({speaker: "__person__"}),
+    multi: () => skip("multi", "סומן: כמה מדברים. לא נלמד מזה ולא יישאל שוב."),
+    unclear: () => skip("unclear", "סומן: לא ניתן לזהות. לא יישאל שוב."),
+  })[b.dataset.act]());
+  // name field: known people as you type; Enter = the first suggestion or a new person
+  PEOPLE ||= await J("/home/api/people").catch(() => []);
+  const inp = sh.querySelector("#wname"), sg = sh.querySelector(".sugg");
+  let hits = [], hi = 0;
+  const norm = s => (s || "").trim().toLowerCase();
+  const draw = () => {
+    const q = norm(inp.value);
+    if (!q) { sg.hidden = true; hits = []; return; }
+    hits = PEOPLE.filter(p => norm(p.name).includes(q)).sort((a, b) => norm(a.name).indexOf(q) - norm(b.name).indexOf(q)).slice(0, 6);
+    const exact = PEOPLE.some(p => norm(p.name) === q);
+    hi = Math.min(hi, hits.length - (exact ? 1 : 0));
+    sg.innerHTML = hits.map((p, i) => `<button data-id="${esc(p.id)}" class="${i === hi ? "on" : ""}">${esc(p.name)}</button>`).join("")
+      + (exact ? "" : `<button class="add ${hi === hits.length ? "on" : ""}" data-new="1">＋ הוסף את ״${esc(inp.value.trim())}״ כאדם חדש</button>`);
+    sg.hidden = false;
+    sg.querySelectorAll("button").forEach(b => b.onclick = () => b.dataset.new ? send({new_name: inp.value.trim()}) : send({speaker: b.dataset.id}));
+  };
+  inp.oninput = () => { hi = 0; draw(); };
+  inp.onkeydown = e => {
+    const n = sg.querySelectorAll("button").length;
+    if (e.key === "ArrowDown") { e.preventDefault(); hi = Math.min(hi + 1, n - 1); draw(); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); hi = Math.max(hi - 1, 0); draw(); }
+    else if (e.key === "Enter" && inp.value.trim()) { e.preventDefault(); sg.querySelectorAll("button")[hi]?.click(); }
+  };
+  // candidates: only with a real reason (the voice, or named in this conversation and the voice agrees); else none
+  const W = await J("/home/api/who_cands?utt=" + u.id).catch(() => null);
+  if (!sh.isConnected) return;
+  const wc = sh.querySelector("#wc");
+  const cands = (W && W.cands || []).filter(p => p.id !== u.speaker || u.how !== "user");
+  if (cands.length) {
+    sh.querySelector("#wl").hidden = false;
+    wc.innerHTML = cands.map((p, i) => `<button data-id="${esc(p.id)}" class="${p.strong ? "strong" : ""}" title="${esc(WHY[p.why] || "")}">
+      ${esc(p.name)}${W.owner === p.id ? " (אני)" : ""} <small>${esc(WHY[p.why] || "")}${p.why === "voice" && p.in_conv ? " · בשיחה" : ""}</small><kbd>${i + 1}</kbd></button>`).join("");
+    wc.querySelectorAll("button").forEach(b => b.onclick = () => send({speaker: b.dataset.id}, `שומר: ${b.firstChild.textContent.trim()}…`));
+  }
+  if (W && W.context && W.context.length) {
+    const cb = sh.querySelector(".ctxbtn"), cx = sh.querySelector(".ctx");
+    cb.hidden = false;
+    const line = x => `<div><b>${esc(x.name ? first(x.name) : x.media ? x.media : "לא מזוהה")}:</b> ${esc(x.media ? "(ברקע)" : (x.text || "").slice(0, 160))}</div>`;
+    cx.innerHTML = W.context.filter(x => x.before).map(line).join("") + `<div style="color:var(--ink)">▸ המשפט הזה</div>` + W.context.filter(x => !x.before).map(line).join("");
+    cb.onclick = () => { cx.hidden = !cx.hidden; cb.textContent = cx.hidden ? "מה נאמר לפני ואחרי ▾" : "הסתר הקשר ▴"; };
+  }
+  (cands.length ? wc.querySelector("button") : inp).focus({preventScroll: true});
+}
+// keys while the window is open: 1-3 = a candidate, space = play/pause, Esc = close
+function keys(e){
+  const sh = document.querySelector(".sheet.whosheet"); if (!sh) return document.removeEventListener("keydown", keys, true);
+  if (e.key === "Escape") { e.preventDefault(); sh.querySelector(".x").click(); return; }
+  if (e.target.closest("input")) return;
+  if (/^[1-3]$/.test(e.key)) { const b = sh.querySelectorAll("#wc button")[+e.key - 1]; if (b) { e.preventDefault(); b.click(); } }
+  else if (e.key === " " && WHO_AUDIO && !e.target.closest("button")) { e.preventDefault(); WHO_AUDIO.paused ? WHO_AUDIO.play() : WHO_AUDIO.pause(); }
 }
 
 async function days(){
@@ -717,10 +872,28 @@ async function showPair(){
     body = e.message !== "remote" ? `<div class="legend">לא הצלחנו להציג את ה-QR (${esc(e.message)}). סגרו ופתחו שוב את החלון. אם זה חוזר, הריצו שוב את Install.bat.</div>` :
       `<div class="legend">את ה-QR אפשר לראות רק במחשב שבו "שמע" מותקן (הוא מכיל את קוד הגישה). פתח שם את <code>http://localhost:8770/home</code>.</div>`;
   }
-  sh.innerHTML = `<div class="box" style="max-width:760px"><button class="x">×</button><h3>📱 חבר טלפון</h3>${body}</div>`;
+  sh.innerHTML = `<div class="box" style="max-width:760px"><button class="x">×</button><h3>📱 חבר טלפון</h3><div id="pairbody">${body}</div>
+    <div class="legend" id="pairwait">ממתין לטלפון… ברגע שהוא מתחבר, ה-QR נסגר לבד.</div></div>`;
   document.body.appendChild(sh);
-  sh.querySelector(".x").onclick = () => sh.remove();
-  sh.onclick = e => { if (e.target === sh) sh.remove(); };
+  // the QR stays only until a phone really connects: a phone that was not online when the window opened sends a heartbeat
+  const before = Object.fromEntries(PHONES.map(p => [p.code, p.online]));
+  let tries = 0;
+  const poll = setInterval(async () => {
+    if (!sh.isConnected) return clearInterval(poll);
+    if (++tries > 300) { clearInterval(poll); $("#pairwait").textContent = "עוד לא התחבר טלפון. ודא שהטלפון והמחשב באותה רשת Wi-Fi, וסרוק שוב."; return; }
+    const s = await J("/home/api/status").catch(() => null);
+    const p = s && (s.phones || []).find(x => x.online && x.seconds_ago < 15 && !before[x.code]);
+    if (!p) return;
+    clearInterval(poll);
+    $("#pairbody").innerHTML = `<div class="paired"><span class="ok2">✓</span><div><b style="font-size:17px">${esc(p.device)} מחובר</b>
+      <div class="legend" style="margin:2px 0 0">ההקלטות מהטלפון יגיעו לכאן ויתומללו. אפשר לסגור את החלון.</div></div></div>`;
+    $("#pairwait").remove();
+    source(s);
+    setTimeout(() => sh.remove(), 4000);
+  }, 2000);
+  const close = () => { clearInterval(poll); sh.remove(); };
+  sh.querySelector(".x").onclick = close;
+  sh.onclick = e => { if (e.target === sh) close(); };
 }
 // ---------------------------------------------------------------- system: health, storage, models
 async function showSystem(){

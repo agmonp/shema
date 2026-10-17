@@ -15,8 +15,12 @@ import android.text.InputType
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.view.inputmethod.EditorInfo
+import android.widget.ArrayAdapter
+import android.widget.AutoCompleteTextView
 import android.widget.EditText
 import android.widget.LinearLayout
+import android.widget.PopupMenu
 import android.widget.ScrollView
 import android.widget.TextView
 import org.json.JSONArray
@@ -137,31 +141,86 @@ class TeachActivity : Activity() {
         play(it.getInt("id"))                                  // the clip starts by itself; tap to hear it again
         body.addView(card)
         body.addView(View(this), LinearLayout.LayoutParams(1, px(12)))
-        val guess = it.optString("guess")
-        val gname = it.optString("guess_name")
-        if (guess.isNotEmpty() && gname.isNotEmpty() && guess != "__tv__") {
-            body.addView(button("זה ${gname} (ניחוש ${(it.optDouble("guess_sim") * 100).toInt()}%)", primary = true) { label(it, guess, null) })
-            body.addView(View(this), LinearLayout.LayoutParams(1, px(8)))
+        // 2026-10-17: at most 3 people, each only with a real reason (the PC's /home/api/who_cands), and no percentage:
+        // the voice similarity is not a calibrated probability. Older PC programs: the queue's own guess.
+        val candBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        body.addView(candBox)
+        val shown = idx
+        thread {
+            val w = call("GET", "/home/api/who_cands?utt=${it.getInt("id")}")?.let { s -> try { JSONObject(s) } catch (e: Exception) { null } }
+            ui.post { if (shown == idx && !isFinishing) fillCands(candBox, it, w) }
         }
-        if (owner.isNotEmpty() && guess != owner) {           // the owner's own lines: this is also how the voice is learnt without reading
-            body.addView(button("🙋 זה אני") { label(it, owner, null) })
-            body.addView(View(this), LinearLayout.LayoutParams(1, px(8)))
+        // a name: known people as you type, or a new person
+        val names = (0 until people.length()).map { i -> people.getJSONObject(i) }
+        val field = AutoCompleteTextView(this).apply {
+            hint = "הקלד שם, או שם חדש…"; setTextColor(col.ink); setHintTextColor(col.dim); textSize = 16f
+            threshold = 1; inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_WORDS
+            imeOptions = EditorInfo.IME_ACTION_DONE; isSingleLine = true
+            background = round(col.surface2, 12); setPadding(px(14), px(12), px(14), px(12))
+            setAdapter(ArrayAdapter(this@TeachActivity, android.R.layout.simple_dropdown_item_1line, names.map { p -> p.optString("name") }))
+            contentDescription = "שם הדובר"
         }
-        body.addView(button("מישהו אחר…") { pick(it) })
-        body.addView(View(this), LinearLayout.LayoutParams(1, px(8)))
+        val save = {
+            val n = field.text.toString().trim()
+            if (n.isNotEmpty()) {
+                val hit = names.firstOrNull { p -> p.optString("name") == n }
+                if (hit != null) label(it, hit.optString("id"), null) else label(it, null, n)
+            }
+        }
+        field.setOnItemClickListener { _, _, _, _ -> save() }
+        field.setOnEditorActionListener { _, a, _ -> if (a == EditorInfo.IME_ACTION_DONE) { save(); true } else false }
+        val nameRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        nameRow.addView(field, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = px(8) })
+        nameRow.addView(button("שמור") { save() })
+        body.addView(nameRow)
+        body.addView(View(this), LinearLayout.LayoutParams(1, px(10)))
+        // the rare answers behind "⋯ עוד"
         val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        row.addView(button("📺 טלוויזיה") { label(it, "__tv__", null) },
-            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = px(8) })
-        body.addView(View(this), LinearLayout.LayoutParams(1, px(8)))
-        body.addView(button("🗣 כמה מדברים / לא ברור") {
-            try { player?.stop() } catch (e: Exception) { }
-            val id = it.getInt("id"); idx++
-            thread { call("POST", "/home/api/teach_skip", JSONObject().put("utt_id", id).put("reason", "multi")) }
-            show()
-        })
-        body.addView(View(this), LinearLayout.LayoutParams(1, px(8)))
+        val more = button("⋯ עוד") { }
+        more.setOnClickListener { v ->
+            PopupMenu(this, v).apply {
+                menu.add(0, 1, 0, "📺 טלוויזיה / רדיו / שיר")
+                menu.add(0, 2, 1, "👥 כמה אנשים מדברים כאן")
+                menu.add(0, 3, 2, "❔ לא ניתן לזהות")
+                setOnMenuItemClickListener { m ->
+                    when (m.itemId) { 1 -> label(it, "__tv__", null); 2 -> skipAs(it, "multi"); else -> skipAs(it, "unclear") }
+                    true
+                }
+            }.show()
+        }
+        row.addView(more, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = px(8) })
         row.addView(button("דלג") { try { player?.stop() } catch (e: Exception) { }; idx++; show() }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         body.addView(row)
+    }
+
+    private val why = mapOf("voice" to "קול דומה", "conv" to "דיבר/ה בשיחה")
+
+    private fun fillCands(box: LinearLayout, it: JSONObject, w: JSONObject?) {
+        data class C(val id: String, val name: String, val why: String, val strong: Boolean)
+        val list = ArrayList<C>()
+        val arr = w?.optJSONArray("cands")
+        if (arr != null) for (i in 0 until minOf(3, arr.length())) {
+            val o = arr.getJSONObject(i); list += C(o.optString("id"), o.optString("name"), o.optString("why"), o.optBoolean("strong"))
+        } else if (it.optString("guess").isNotEmpty() && it.optString("guess") != "__tv__" && it.optDouble("guess_sim") >= 0.30)
+            list += C(it.optString("guess"), it.optString("guess_name"), "voice", false)
+        if (list.isNotEmpty()) box.addView(text("אולי", 13f, col.dim))
+        for ((k, p) in list.withIndex()) {
+            val me = if (p.id == owner) " (אני)" else ""
+            box.addView(button("${p.name}$me · ${why[p.why] ?: ""}", primary = k == 0 && p.strong) { label(it, p.id, null) }.apply {
+                contentDescription = "${p.name}, ${why[p.why] ?: ""}" })
+            box.addView(View(this), LinearLayout.LayoutParams(1, px(8)))
+        }
+        if (owner.isNotEmpty() && list.none { c -> c.id == owner }) {   // the owner's own lines: also how the voice is learnt without reading
+            box.addView(button("🙋 זה אני") { label(it, owner, null) })
+            box.addView(View(this), LinearLayout.LayoutParams(1, px(8)))
+        }
+    }
+
+    private fun skipAs(it: JSONObject, reason: String) {
+        try { player?.stop() } catch (e: Exception) { }
+        val id = it.getInt("id"); idx++
+        thread { call("POST", "/home/api/teach_skip", JSONObject().put("utt_id", id).put("reason", reason)) }
+        show()
     }
 
     /** The clip is downloaded first (token header, short wav) and then played from a file: MediaPlayer streaming
@@ -198,23 +257,6 @@ class TeachActivity : Activity() {
                 ui.post { btn?.text = "⚠ ${e.message ?: "אין חיבור"}. הקש לנסות שוב" }
             }
         }
-    }
-
-    private fun pick(it: JSONObject) {
-        val names = ArrayList<String>(); val ids = ArrayList<String>()
-        for (i in 0 until people.length()) { val p = people.getJSONObject(i); names += p.optString("name"); ids += p.optString("id") }
-        names += "+ שם חדש…"
-        AlertDialog.Builder(this).setTitle("מי דיבר?")
-            .setItems(names.toTypedArray()) { _, which ->
-                if (which == ids.size) newName(it) else label(it, ids[which], null)
-            }.show()
-    }
-
-    private fun newName(it: JSONObject) {
-        val e = EditText(this).apply { inputType = InputType.TYPE_CLASS_TEXT; hint = "שם" }
-        AlertDialog.Builder(this).setTitle("שם חדש").setView(e)
-            .setPositiveButton("שמור") { _, _ -> val n = e.text.toString().trim(); if (n.isNotEmpty()) label(it, null, n) }
-            .setNegativeButton("בטל", null).show()
     }
 
     private fun label(it: JSONObject, speaker: String?, newName: String?) {

@@ -684,6 +684,80 @@ def teach_queue(c, limit=40, mode="smart"):
             "need": {name_of(c, k): v for k, v in taught.items() if not k.startswith("__")}}
 
 
+WHO_VOICE_MIN, WHO_VOICE_NEAR, WHO_CONV_MIN, WHO_MAX = 0.30, 0.10, 0.20, 3
+
+
+def who_cands(c, utt_id):
+    """2026-10-17 "מי אמר את זה?": at most WHO_MAX people worth one tap, each with why ("voice" = the voice is close to
+    what was taught; "conv" = already named in this conversation AND the voice does not contradict it). A name heard in
+    the text or a line next to it is never a reason by itself. No candidate when nothing is close: the screen then
+    offers only the name field. The similarity is not a calibrated probability, so the screen shows no number."""
+    from home_analyze import SIM_MIN, MARGIN
+    u = c.execute("SELECT id, conv_id, t0, speaker, how, emb FROM utterances WHERE id=?", (utt_id,)).fetchone()
+    if not u:
+        return {"ok": False, "msg": "no such utterance"}
+    cv = c.execute("SELECT cal FROM conversations WHERE id=?", (u["conv_id"],)).fetchone() if u["conv_id"] else None
+    call = bool(cv and call_contact(cv["cal"]))
+    sims = {}
+    if u["emb"] is not None:
+        x = np.frombuffer(u["emb"], dtype=np.float32)
+        for pid, vs in current_cands(c, CALL_DEVICE if call else None).items():
+            if pid != TV and vs:
+                sims[pid] = max(float(x @ v) for v in vs)
+    in_conv = {}
+    if u["conv_id"]:
+        for r in c.execute("SELECT speaker, count(*) AS n FROM utterances WHERE conv_id=? AND id!=? AND speaker IS NOT NULL "
+                           "AND how IN ('user','voice') GROUP BY speaker", (u["conv_id"], utt_id)):
+            in_conv[r["speaker"]] = r["n"]
+    top = max(sims.values(), default=0.0)
+    out = []
+    for pid, s in sims.items():
+        if s >= WHO_VOICE_MIN and s >= top - WHO_VOICE_NEAR:
+            out.append({"id": pid, "why": "voice", "strong": s >= SIM_MIN and s - max([v for k, v in sims.items() if k != pid] or [0]) >= MARGIN,
+                        "rank": s + (0.05 if pid in in_conv else 0)})
+    for pid, n in in_conv.items():
+        if pid in {o["id"] for o in out}:
+            continue
+        s = sims.get(pid)
+        if s is None and u["emb"] is not None:          # a voice nobody taught: a conversation alone is not enough
+            continue
+        if s is None or s >= WHO_CONV_MIN:
+            out.append({"id": pid, "why": "conv", "strong": False, "rank": (s or 0) - 0.05 + min(n, 10) * 0.002})
+    out.sort(key=lambda o: -o["rank"])
+    out = out[:WHO_MAX]
+    for o in out:
+        o["name"] = name_of(c, o["id"])
+        o["in_conv"] = o["id"] in in_conv
+        o.pop("rank")
+    near = []                                            # "see the context": the lines just before and after
+    if u["conv_id"]:
+        for r in c.execute("SELECT id, t0, name, text, media FROM utterances WHERE conv_id=? AND t0<? ORDER BY t0 DESC LIMIT 2",
+                           (u["conv_id"], u["t0"])).fetchall()[::-1] + \
+                 c.execute("SELECT id, t0, name, text, media FROM utterances WHERE conv_id=? AND t0>? ORDER BY t0 LIMIT 2",
+                           (u["conv_id"], u["t0"])).fetchall():
+            near.append({"id": r["id"], "t0": r["t0"], "name": r["name"], "text": "" if r["media"] else r["text"], "media": r["media"],
+                         "before": r["t0"] < u["t0"]})
+    return {"ok": True, "utt_id": utt_id, "cands": out, "context": near, "owner": owner_id(),
+            "current": {"speaker": u["speaker"], "how": u["how"]}}
+
+
+def forget_phone(device):
+    """Removes a phone from the list on this screen (an old or replaced phone). It does not revoke its access code:
+    a phone that is still paired and sends a heartbeat shows up again."""
+    with _phones_lock:
+        try:
+            ph = json.load(open(PHONES_FILE, encoding="utf-8"))
+        except (OSError, ValueError):
+            return {"ok": False, "msg": "no phones"}
+        if device not in ph:
+            return {"ok": False, "msg": "no such phone"}
+        ph.pop(device)
+        tmp = PHONES_FILE.with_suffix(".tmp")
+        json.dump(ph, open(tmp, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+        tmp.replace(PHONES_FILE)
+    return {"ok": True}
+
+
 def people_stats(c):
     """Per person: minutes per day (last 14 days), mood, last line, how many voice samples taught."""
     since = (datetime.now() - timedelta(days=13)).strftime("%Y-%m-%d")
@@ -2642,6 +2716,8 @@ def api(path, qs):
             return sounds_day(c, qs.get("d", [datetime.now().strftime("%Y-%m-%d")])[0])
         if path == "/home/api/teach":
             return dict(teach_queue(c, mode=(qs.get("m") or ["smart"])[0]), owner=owner_id())    # the phone's "זה אני"
+        if path == "/home/api/who_cands":
+            return who_cands(c, int((qs.get("utt") or ["0"])[0]))
         if path == "/home/api/people_stats":
             return people_stats(c)
         if path == "/home/api/days":
@@ -2751,7 +2827,7 @@ class Handler(BaseHTTPRequestHandler):
                       "/home/api/delete_audio", "/home/api/task", "/home/api/optout", "/home/api/place", "/home/api/import_dirs",
                       "/home/api/privacy_set", "/home/api/gold", "/home/api/asr_check", "/home/api/teach_skip",
                       "/home/api/asr_settings", "/home/api/asr_glossary", "/home/api/asr_rollback", "/home/api/asr_install",
-                      "/home/api/asr_nominate"):
+                      "/home/api/asr_nominate", "/home/api/forget_phone"):
             phone_ok = u.path in ("/home/api/label", "/home/api/task", "/home/api/teach_skip")       # teaching + task checking also from the paired phone
             if not (self._authed() if phone_ok else self._local()):
                 return self._send(403, {"error": "only from this PC" if not phone_ok else "bad token"})
@@ -2767,6 +2843,8 @@ class Handler(BaseHTTPRequestHandler):
                         c.execute("INSERT OR REPLACE INTO teach_skips (utt_id, reason, at) VALUES (?,?,?)",
                                   (int(b.get("utt_id", 0)), str(b.get("reason") or "unclear")[:20], iso(datetime.now())))
                     return self._send(200, {"ok": True})
+                if u.path == "/home/api/forget_phone":
+                    return self._send(200, forget_phone(clean_device(b.get("device"))))
                 if u.path == "/home/api/gold":
                     with db() as c:
                         return self._send(200, add_gold(c, int(b.get("utt_id", 0)), b.get("text"), b.get("condition")))

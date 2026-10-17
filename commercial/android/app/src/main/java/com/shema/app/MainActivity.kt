@@ -69,6 +69,8 @@ class MainActivity : Activity(), BillingManager.BillingCallback {
     private lateinit var enrollStatus: TextView
     private lateinit var enrollBtn: TextView
     private lateinit var subPill: TextView
+    private lateinit var subBtn: TextView
+    private lateinit var shareBtn: TextView
     private lateinit var meetBtn: TextView
     private var pendingOpen: Class<*>? = null             // open this screen once listening has started (after start()'s dialogs)
     private var pendingAt = 0L
@@ -173,10 +175,11 @@ class MainActivity : Activity(), BillingManager.BillingCallback {
                 addView(View(this@MainActivity).apply { background = getDrawable(R.mipmap.ic_launcher) },
                     LinearLayout.LayoutParams(px(36), px(36)))
                 addView(text("שמע Pro", 21f, bold = true).apply { setPadding(px(10), 0, px(8), 0) })
+                // 2026-10-17: a small quiet status, not a call to buy (the title already says "Pro")
                 subPill = TextView(this@MainActivity).apply {
-                    text = "14 ימי ניסיון"; textSize = 12f; typeface = Typeface.DEFAULT_BOLD
-                    setTextColor(c.proGoldInk); background = round(c.proGold, 12)
-                    setPadding(px(10), px(6), px(10), px(6))
+                    text = "ניסיון"; textSize = 11f
+                    setTextColor(c.faint); background = round(c.surface2, 10)
+                    setPadding(px(8), px(4), px(8), px(4))
                     isClickable = true; setOnClickListener { if (Gift.active(this@MainActivity)) showGiftInfo() else showSubscriptionDialog() }
                 }
                 addView(subPill)
@@ -333,7 +336,11 @@ class MainActivity : Activity(), BillingManager.BillingCallback {
 
             // subscription
             section(this, "מנוי")
-            addView(button("שמע Pro · מנוי וקוד מתנה") { if (Gift.active(this@MainActivity)) showGiftInfo() else showSubscriptionDialog() })
+            subBtn = button("שמע Pro · מנוי וקוד מתנה") { if (Gift.active(this@MainActivity)) showGiftInfo() else showSubscriptionDialog() }
+            addView(subBtn)
+            gap(8)
+            shareBtn = button("💌 שתף את שמע עם חבר") { shareApp() }
+            addView(shareBtn)
 
             section(this, "")
             addView(button("מדיניות פרטיות") { openPrivacyPolicy() })
@@ -507,28 +514,23 @@ class MainActivity : Activity(), BillingManager.BillingCallback {
         this.isTrial = isTrial
         this.trialDaysLeft = daysRemaining
 
+        // quiet in every state; only the expired one gets the accent colour (still no fill, no red)
+        subPill.background = round(c.surface2, 10)
+        subPill.setTextColor(c.faint)
+        subPill.contentDescription = null
         when {
-            isSubscribed -> {
-                subPill.text = "שמע Pro ✓"
-                subPill.setTextColor(c.proGoldInk)
-                subPill.background = round(c.proGold, 12)
-            }
-            isGift -> {
-                subPill.text = "שמע Pro 🎁"
-                subPill.setTextColor(c.proGoldInk)
-                subPill.background = round(c.proGold, 12)
-            }
-            isTrial -> {
-                subPill.text = "ניסיון: עוד $daysRemaining ימים"
-                subPill.setTextColor(c.accentInk)
-                subPill.background = round(c.accent, 12)
-            }
-            else -> {
-                subPill.text = "שדרג ל-Pro"
-                subPill.setTextColor(c.rose)
-                subPill.background = round(c.surface2, 12, c.rose)
-            }
+            isSubscribed -> subPill.text = "פעיל ✓"
+            isGift -> subPill.text = "פעיל 🎁"
+            isTrial -> subPill.text = "ניסיון · עוד $daysRemaining ימים"
+            else -> { subPill.text = "שדרוג"; subPill.setTextColor(c.accent); subPill.background = round(c.surface2, 10, c.accent) }
         }
+        subPill.contentDescription = "מנוי: " + subPill.text
+        subBtn.text = when {
+            isSubscribed || isGift -> "מנוי: Pro פעיל"
+            isTrial -> "מנוי: ניסיון, עוד $daysRemaining ימים · הירשם או קוד מתנה"
+            else -> "מנוי: שדרג ל-Pro · קוד מתנה"
+        }
+        shareBtn.text = if (isSubscribed || isGift) "💌 שתף את שמע עם חבר" else "💌 הזמן מישהו להתנסות בשמע"
     }
 
     override fun onProductPriceLoaded(priceFormatted: String, billingPeriod: String) {
@@ -555,10 +557,15 @@ class MainActivity : Activity(), BillingManager.BillingCallback {
 
         val giftLink = text("🎁 יש לי קוד מתנה", 15f, c.accent, bold = true).apply {
             setPadding(px(24), px(4), px(24), px(4)); isClickable = true }
+        // before paying: a quiet invitation (never a condition for anything)
+        val invite = text("רוצה שגם מישהו אחר יכיר את שמע? הזמן אותו להתנסות", 13f, c.dim).apply {
+            setPadding(px(24), px(10), px(24), px(4)); isClickable = true; setOnClickListener { shareApp() } }
+        val extra = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; addView(giftLink)
+            if (!Prefs.isSubscribed(this@MainActivity) && !Gift.active(this@MainActivity)) addView(invite) }
         val d = AlertDialog.Builder(this)
             .setTitle("שמע Pro — זיכרון קולי אישי")
             .setMessage(top + msg)
-            .setView(giftLink)
+            .setView(extra)
             .setPositiveButton(if (trial) "הירשם עכשיו" else "הירשם ל-Pro") { _, _ ->
                 billingManager.launchBillingFlow(this)
             }
@@ -621,6 +628,14 @@ class MainActivity : Activity(), BillingManager.BillingCallback {
             .setMessage("שמע Pro במתנה" + (if (g.name.isNotBlank()) " ל${g.name}" else "") + ", $until.\nהמתנה שייכת לטלפון הזה בלבד.")
             .setPositiveButton("מעולה") { _, _ -> if (fresh && !ListenService.on && Prefs.paired(this)) start() }
             .show()
+    }
+
+    /** "Share Shema with a friend": the Android share sheet with a short message and the Play link. */
+    private fun shareApp() {
+        val url = "https://play.google.com/store/apps/details?id=app.shema.listener"
+        val msg = "אני משתמש בשמע: זיכרון של השיחות שלי, בעברית, ונשאר אצלי בבית בלי ענן. שווה לנסות:\n$url"
+        startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain")
+            .putExtra(Intent.EXTRA_TEXT, msg), "שתף את שמע"))
     }
 
     // ------------------------------------------------------------ Desktop Onboarding & Helper
