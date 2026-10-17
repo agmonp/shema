@@ -684,7 +684,7 @@ def teach_queue(c, limit=40, mode="smart"):
             "need": {name_of(c, k): v for k, v in taught.items() if not k.startswith("__")}}
 
 
-WHO_VOICE_MIN, WHO_VOICE_NEAR, WHO_CONV_MIN, WHO_MAX = 0.30, 0.10, 0.20, 3
+WHO_VOICE_MIN, WHO_VOICE_NEAR, WHO_CONV_MIN, WHO_MAX = 0.30, 0.07, 0.20, 3   # near: measured 2026-10-17 on 180 taught lines (left out): right person shown 86%, 1.45 names on average
 
 
 def who_cands(c, utt_id):
