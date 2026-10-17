@@ -13,6 +13,9 @@ _TMP = tempfile.mkdtemp(prefix="shema_spk_")
 os.environ["SHEMA_DATA"] = _TMP
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "server"))
 import home_listener as H      # noqa: E402
+import memory_index            # noqa: E402
+
+memory_index.embed = lambda texts, query=False: None      # labelling re-indexes meaning; no model in tests
 
 D = 192
 RNG = np.random.default_rng(3)

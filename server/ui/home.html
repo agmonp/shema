@@ -313,6 +313,21 @@ mark{background:rgba(234,164,94,.3);color:inherit;border-radius:3px}
 .brief .k.decision{background:rgba(134,187,168,.16);color:var(--sage)} .brief .k.task{background:rgba(234,164,94,.16);color:var(--accent)}
 .brief .k.open{background:rgba(143,179,224,.16);color:var(--sky)} .brief .k.marked,.brief .k.highlight{background:var(--surface3);color:var(--dim)}
 .brief .k.teach{background:rgba(228,138,127,.14);color:var(--rose)}
+.brief .k.cand,.items .k.cand{background:none;border:1px dashed currentColor}
+.items .row{display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-top:1px solid var(--line)}
+.items .row:first-of-type{border-top:0}
+.items .k{flex:none;font-size:11px;font-weight:700;padding:1px 8px;border-radius:10px;min-width:58px;text-align:center;margin-top:2px}
+.items .k.decision{background:rgba(134,187,168,.16);color:var(--sage)} .items .k.promise,.items .k.agreed{background:rgba(234,164,94,.16);color:var(--accent)}
+.items .k.request{background:rgba(143,179,224,.16);color:var(--sky)}
+.items .bd{flex:1;min-width:0}
+.items .q{display:flex;gap:8px;align-items:baseline;margin-top:4px;font-size:13px;color:var(--dim)}
+.items .q .pl{flex:none;width:24px;height:24px;border-radius:50%;border:1px solid var(--line2);color:var(--accent);font-size:10px;line-height:22px;text-align:center}
+.items .q a{color:inherit;text-decoration:none} .items .q a:hover{text-decoration:underline dotted}
+.items .acts{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+.items .acts button{font-size:12px;border:1px solid var(--line2);border-radius:14px;padding:2px 10px;color:var(--dim)}
+.items .acts button.y{color:var(--sage)} .items .acts button:hover{border-color:var(--accent);color:var(--ink)}
+.items h3{font-size:12px;color:var(--faint);margin:14px 0 2px}
+@media (max-width:600px){ .items .row{flex-wrap:wrap} }
 .brief .tx{flex:1;min-width:0;color:var(--ink)}
 .brief .tx small{display:block;color:var(--faint);font-size:12px}
 .brief .src{flex:none;font-size:12px;color:var(--faint);white-space:nowrap}
@@ -541,6 +556,7 @@ let LIVE_OPEN = (() => { try { return !!localStorage.getItem("shema_now_open"); 
 
 // ---------------------------------------------------------------- home v2: what matters today + ask
 const BRIEF_K = {decision: "החלטה", task: "משימה", open: "פתוח", marked: "סימנת", highlight: "בולט", teach: "קולות"};
+const ITEM_K = {promise: "הבטחה", agreed: "סוכם", request: "בקשה", decision: "החלטה"};
 const BRIEF_SRC = {quote: "ציטוט · לשמוע ›", meeting: "מסיכום הפגישה ›", summary: "מסיכום השיחה ›", mark: "לשיחה ›", teach: "ללמד ›"};
 const convHref = (cid, uid) => `#c${cid}${uid ? "u" + uid : ""}`;
 async function showBrief(d){
@@ -548,12 +564,22 @@ async function showBrief(d){
   let B; try { B = await J("/home/api/brief?d=" + d); } catch (e) { return; }
   if (d !== day || !B.items.length) { el.innerHTML = ""; return; }
   el.innerHTML = `<div class="card"><h2>${d === todayLocal() ? "חשוב היום" : "חשוב ביום הזה"}</h2><div class="brief">${B.items.map((i, k) =>
-    `<button class="it" data-k="${k}"><span class="k ${i.kind}">${BRIEF_K[i.kind]}</span>
-      <span class="tx">${i.who ? `<b>${esc(i.who)}</b>: ` : ""}${esc(i.text)}${i.due ? ` <span class="chip">${esc(i.due)}</span>` : ""}
+    `<button class="it" data-k="${k}"><span class="k ${i.kind}${i.sure === false ? " cand" : ""}" title="${i.sure === false ? "הצעה של המחשב: לאשר או לדחות ברשימה" : ""}">${ITEM_K[i.item_kind] || BRIEF_K[i.kind]}${i.sure === false ? "?" : ""}</span>
+      <span class="tx">${i.who ? `<b>${esc(i.who)}${i.who_sure === false ? "?" : ""}</b>: ` : ""}${esc(i.text)}${i.due ? ` <span class="chip">${esc(i.due)}</span>` : ""}
         ${i.t0 ? `<small>${hm(i.t0)}${i.quote ? ` · ״${esc(i.quote)}״` : ""}</small>` : i.kind === "teach" ? "<small>לזהות אותם משפר את הסיכומים והחיפוש</small>" : ""}</span>
       <span class="src">${BRIEF_SRC[i.src] || ""}</span></button>`).join("")}</div></div>`;
   el.querySelectorAll(".it").forEach(b => b.onclick = () => { const i = B.items[+b.dataset.k];
     location.hash = i.kind === "teach" ? "teach" : convHref(i.conv_id, i.utt_id).slice(1); });
+}
+// ▶ buttons (data-play = line id): one clip at a time, press again to pause
+function bindPlays(root){
+  root.querySelectorAll("[data-play]").forEach(b => b.onclick = () => {
+    if (WHO_AUDIO && WHO_AUDIO.dataset_u === b.dataset.play && !WHO_AUDIO.paused) { WHO_AUDIO.pause(); b.textContent = "▶"; return; }
+    if (WHO_AUDIO) WHO_AUDIO.pause();
+    root.querySelectorAll("[data-play]").forEach(x => x.textContent = "▶");
+    WHO_AUDIO = new Audio(`/home/audio/utt/${b.dataset.play}`); WHO_AUDIO.dataset_u = b.dataset.play;
+    WHO_AUDIO.onended = () => b.textContent = "▶"; WHO_AUDIO.onerror = () => { b.textContent = "–"; b.title = "ההקלטה כבר לא שמורה"; };
+    WHO_AUDIO.play().then(() => b.textContent = "⏸").catch(() => {}); });
 }
 const ASK_EX = ["מה הבטחתי השבוע?", "אילו החלטות התקבלו אתמול?", "מה נשאר פתוח?", "מתי דיברנו על מחשב?"];
 function askCard(){
@@ -570,19 +596,14 @@ function bindAsk(){
     let a; try { a = await J("/home/api/ask?r=all&q=" + encodeURIComponent(q)); } catch (e) { out.innerHTML = `<div class="legend">לא הצליח. נסה שוב.</div>`; return; }
     const C = a.conversations || [];
     const who = l => l.name ? `<span class="nm${l.how === "conv" || l.how === "call" ? " maybe" : ""}" style="color:${colorOf(l.name)}" title="${esc(HOW[l.how] || "")}">${esc(first(l.name))}${l.how === "conv" ? "?" : ""}</span>` : `<span class="nm" style="color:var(--unk)">לא מזוהה</span>`;
-    out.innerHTML = `<div class="a${a.cited ? "" : " weak"}">${esc(a.answer || (C.length ? "לא הצלחתי לנסח תשובה. אלה השיחות שנמצאו:" : "לא נמצאה שיחה שקשורה לזה."))}</div>
-      ${C.length && !a.cited ? `<div class="legend" style="margin-top:4px">התשובה לא נשענת על שיחה מסוימת. אלה השיחות הקרובות ביותר: כדאי לבדוק בהן.</div>` : ""}
+    out.innerHTML = `<div class="a${a.cited ? "" : " weak"}">${esc(a.cited && a.answer ? a.answer : C.length ? "לא מצאתי בשיחות תשובה ברורה לזה." : "לא נמצאה שיחה שקשורה לזה.")}</div>
+      ${C.length && !a.cited ? `<div class="legend" style="margin-top:4px">אין ציטוט שמראה תשובה, אז לא כתבתי אחת. אלה הקטעים הכי קרובים לשאלה: אולי יש בהם משהו.</div>`
+        : C.length ? `<div class="legend" style="margin-top:4px">התשובה נשענת על המשפטים המסומנים למטה: אפשר להקשיב להם.</div>` : ""}
       <div class="srcs">${C.map(c => `<div class="s"><div class="hd"><span>${c.start.slice(8, 10)}/${c.start.slice(5, 7)}/${c.start.slice(2, 4)} · ${hm(c.start)}</span>
         <b style="color:var(--ink)">${esc(c.topic || "שיחה")}</b>${c.place ? `<span>📍 ${esc(c.place)}</span>` : ""}<a href="#c${c.id}">לשיחה ›</a></div>
         ${(c.lines || []).map(l => `<div class="ln"><button class="pl" data-play="${l.utt_id}" aria-label="נגן את המשפט" title="נגן">▶</button>${who(l)}
           <a href="${convHref(c.id, l.utt_id)}">״${esc(l.text)}״</a></div>`).join("") || (c.snippet ? `<div class="ln"><span class="sum" style="margin:0">${mark(c.snippet)}</span></div>` : "")}</div>`).join("")}</div>`;
-    out.querySelectorAll("[data-play]").forEach(b => b.onclick = () => {
-      if (WHO_AUDIO && WHO_AUDIO.dataset_u === b.dataset.play && !WHO_AUDIO.paused) { WHO_AUDIO.pause(); b.textContent = "▶"; return; }
-      if (WHO_AUDIO) WHO_AUDIO.pause();
-      out.querySelectorAll("[data-play]").forEach(x => x.textContent = "▶");
-      WHO_AUDIO = new Audio(`/home/audio/utt/${b.dataset.play}`); WHO_AUDIO.dataset_u = b.dataset.play;
-      WHO_AUDIO.onended = () => b.textContent = "▶"; WHO_AUDIO.onerror = () => { b.textContent = "–"; b.title = "ההקלטה כבר לא שמורה"; };
-      WHO_AUDIO.play().then(() => b.textContent = "⏸").catch(() => {}); });
+    bindPlays(out);
   };
   $("#askgo").onclick = go;
   $("#askq").onkeydown = e => { if (e.key === "Enter") go(); };
@@ -1399,10 +1420,15 @@ const mark = t => esc(t).replace(/«/g, "<mark>").replace(/»/g, "</mark>");
 async function showSearch(){
   $("#days").innerHTML = "";
   const T = await J("/home/api/tasks");
-  const tasks = T.map(t => `<div class="utt" data-t="${t.id}"><div class="body"><b>${esc(t.who)}</b>: ${esc(t.what)}${t.due ? ` <span class="chip">${esc(t.due)}</span>` : ""}
-      <div class="legend" style="margin:2px 0 0">״${esc(t.quote)}״ · ${t.conv_start ? t.conv_start.slice(8, 10) + "/" + t.conv_start.slice(5, 7) + " " + hm(t.conv_start) : ""}${t.place ? " · " + esc(t.place) : ""}
-      · <a href="#c${t.conv_id}" style="color:var(--accent)">לשיחה</a></div></div>
-      <button class="act" data-s="done">בוצע</button><button class="act" data-s="dismissed">לא רלוונטי</button></div>`).join("");
+  // decisions and commitments: the computer's proposals (dashed "?") wait for a yes; each shows the words and plays the line
+  const row = t => { const cand = t.state === "open", k = t.kind || "promise", sure = ["user", "voice", null, undefined].includes(t.who_how);
+    return `<div class="row" data-t="${t.id}"><span class="k ${k}${cand ? " cand" : ""}">${ITEM_K[k]}${cand ? "?" : ""}</span><div class="bd">
+      ${t.who && t.who !== "?" ? `<b style="color:${colorOf(t.who)}">${esc(first(t.who))}${sure ? "" : "?"}</b>${k === "request" ? " ביקש/ה" : ""}: ` : ""}${esc(t.what)}${t.due ? ` <span class="chip" title="כך נאמר בשיחה">${esc(t.due)}</span>` : ""}
+      <div class="q">${t.utt_id ? `<button class="pl" data-play="${t.utt_id}" aria-label="נגן את המשפט">▶</button>` : ""}<a href="${convHref(t.conv_id, t.utt_id)}">״${esc(t.quote)}״</a></div>
+      <div class="legend" style="margin:2px 0 0">${t.conv_start ? t.conv_start.slice(8, 10) + "/" + t.conv_start.slice(5, 7) + " " + hm(t.conv_start) : ""}${t.place ? " · " + esc(t.place) : ""}</div>
+      <div class="acts">${cand ? `<button class="y" data-s="confirmed">✓ נכון</button>` : ""}${k !== "decision" ? `<button data-s="done">בוצע</button>` : ""}<button data-s="dismissed">${cand ? "✕ לא נכון" : "הסר"}</button></div></div></div>`; };
+  const grp = (title, f) => { const a = T.filter(f); return a.length ? `<h3>${title} · ${a.length}</h3>${a.map(row).join("")}` : ""; };
+  const tasks = T.length ? `<div class="items">${grp("החלטות", t => t.kind === "decision")}${grp("התחייבויות ומשימות", t => !t.kind || t.kind === "promise" || t.kind === "agreed")}${grp("בקשות", t => t.kind === "request")}</div>` : "";
   $("#main").innerHTML = `<div class="card"><h2>חיפוש בשיחות</h2>
       <div class="new" style="margin:0"><input id="q" placeholder="מה חיפשת? למשל: חוזה, רופא, המחיר שדיברנו עליו"><button class="ok" id="dosearch">חפש</button><button class="ok" id="doask" style="background:var(--sage)">שאל</button></div>
       <div class="chips" id="rng" style="margin-top:8px">${[["today","היום"],["yesterday","אתמול"],["week","7 ימים"],["month","30 יום"],["all","הכל"]].map(([k, t]) =>
@@ -1410,12 +1436,13 @@ async function showSearch(){
         <button class="ok" id="dosum" style="margin-inline-start:auto">סכם את התקופה</button></div>
       <div class="legend">"חפש" מציג שיחות שמכילות את המילים (בלי מילים: כל שיחות התקופה). "שאל" מנסח תשובה קצרה, רק מתוך מה שנאמר (דגם מקומי, בלי ענן).
       "סכם את התקופה" כותב סיכום לכל התקופה שנבחרה.</div><div id="sres"></div></div>
-    <div class="card"><h2>משימות והתחייבויות שנאמרו</h2>${tasks || '<div class="legend">אין משימות פתוחות. המחשב מחלץ אותן אחרי כל שיחה (רק מה שנאמר במפורש, עם ציטוט).</div>'}</div>`;
+    <div class="card"><h2>החלטות והתחייבויות שנאמרו</h2>${tasks || '<div class="legend">אין כרגע. אחרי כל שיחה המחשב מחפש החלטות, הבטחות ובקשות שנאמרו במפורש.</div>'}
+      <div class="legend">רק מה שנמצא מילה במילה בתמלול. "?" = הצעה של המחשב שעוד לא אישרת: בשיחות בבית הוא צודק בערך בחצי מהמקרים (משחקים ותמלול משובש מבלבלים אותו), אז כדאי להקשיב לפני שמאשרים. מי אמר = השם שעל השורה; מועד מופיע רק אם נאמר.</div></div>`;
   const run = async ask => {
     const q = $("#q").value.trim(); const r = window.SR || "today";
     if (!q && ask) return toast("כתוב שאלה");
     $("#sres").innerHTML = '<div class="legend">מחפש…</div>';
-    const conv = c => `<div class="card conv" data-id="${c.id}" style="margin-top:8px"><div class="when">${c.start.slice(0, 10)} ${hm(c.start)} ${c.place ? "· 📍 " + esc(c.place) : ""}</div>
+    const conv = c => `<div class="card conv" data-id="${c.id}" style="margin-top:8px"><div class="when">${c.start.slice(0, 10)} ${hm(c.start)} ${c.place ? "· 📍 " + esc(c.place) : ""}${c.match === "meaning" ? ' · <span class="chip" title="נמצא לפי משמעות דומה, לא לפי אותן מילים: כדאי לבדוק">לפי משמעות</span>' : ""}</div>
       <div class="topic">${esc(c.topic || "שיחה")}</div>${c.snippet ? `<div class="sum">${mark(c.snippet)}</div>` : c.summary ? `<div class="sum">${esc(c.summary)}</div>` : ""}</div>`;
     if (ask) {
       const a = await J("/home/api/ask?r=" + r + "&q=" + encodeURIComponent(q));
@@ -1441,8 +1468,9 @@ async function showSearch(){
   };
   window.SR ||= "today"; document.querySelector(`#rng [data-r="${window.SR}"]`)?.click();
   $("#q").onkeydown = e => { if (e.key === "Enter") run(false); };
-  document.querySelectorAll("[data-t] .act").forEach(b => b.onclick = async () => {
+  document.querySelectorAll(".items [data-s]").forEach(b => b.onclick = async () => {
     await POST("/home/api/task", {id: +b.closest("[data-t]").dataset.t, state: b.dataset.s}); showSearch(); });
+  bindPlays($("#main"));
 }
 
 // ---------------------------------------------------------------- me
@@ -1508,7 +1536,8 @@ function route(soft){
   else if (tab === "search") showSearch(); else if (tab === "me") showMe(); else if (tab === "privacy") showPrivacy(); else if (tab === "system") showSystem();
   else if (tab === "sounds") showSounds(); else if (tab === "asr") showAsr(); else showDay();
   J("/home/api/teach").then(t => teachCount(t.left)).catch(() => {});
-  J("/home/api/tasks").then(t => { const e = $("#taskn"); e.hidden = !t.length; e.textContent = t.length; }).catch(() => {});
+  J("/home/api/tasks").then(t => { const n = t.filter(x => x.state === "open").length, e = $("#taskn");     // proposals waiting for a yes/no
+    e.hidden = !n; e.textContent = n; }).catch(() => {});
 }
 window.onhashchange = () => route();
 $("#store").onclick = showStorage;

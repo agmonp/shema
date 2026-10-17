@@ -148,6 +148,9 @@ MIGRATIONS = [   # columns added after the first version (2026-10-06 afternoon)
     # 2026-10-17 (home v2): the day summary's parts, each tied to a conversation: decisions, open questions, topics,
     # highlights (JSON). Old days keep only summary/highlights and are drawn as before.
     ("daily", "detail", "TEXT"),
+    # 2026-10-17 (phase 5): what kind of item (promise / agreed / request / decision; NULL = an older task), the line it
+    # was said in, how sure that line's name is, and which model proposed it
+    ("tasks", "kind", "TEXT"), ("tasks", "utt_id", "INTEGER"), ("tasks", "who_how", "TEXT"), ("tasks", "model", "TEXT"),
 ]
 
 
@@ -166,6 +169,8 @@ def db():
 def migrate():
     with db() as c:
         c.executescript(SCHEMA)
+        import memory_index
+        c.executescript(memory_index.SCHEMA)
         for table, col, typ in MIGRATIONS:
             have = {r["name"] for r in c.execute(f"PRAGMA table_info({table})")}
             if col not in have:
@@ -950,6 +955,7 @@ def refresh_people(cid):
         done = c.execute("SELECT status FROM conversations WHERE id=?", (cid,)).fetchone()
     if done and done["status"] == "done":
         index_conversation(cid)
+        index_meaning(cid)
 
 
 # ------------------------------------------------------------------ phones (heartbeat every 30 s)
@@ -1231,6 +1237,11 @@ class Worker(threading.Thread):
         close_conversations()
         provisional_summaries()
         daily_summaries()
+        try:
+            import memory_index as MI
+            MI.backfill(db, budget_s=20)          # older conversations into the meaning index, a little at a time
+        except Exception as exc:  # noqa: BLE001
+            log(f"meaning backfill failed {exc!r}")
         retention()
 
     def step(self):
@@ -1613,8 +1624,9 @@ def finish_conversation(cid, final=True):
             if meet:
                 save_meeting(meet, cid, summ)
             else:
-                extract_tasks(cid, U)
+                extract_items(cid)
             index_conversation(cid)
+            index_meaning(cid)
         except Exception as exc:  # noqa: BLE001
             log(f"tasks/index for conversation {cid} failed {exc!r}")
     log(f"conversation {cid} {'done' if final else 'provisional summary'}: {len(U)} utterances, {people}")
@@ -1632,12 +1644,13 @@ SUMMARY_TASK = f"""אתה מסכם שיחה שהוקלטה בבית. כתוב ב
  "moments": ["עד 3 משפטים בולטים, מצוטטים מילה במילה מהתמלול"]}}"""
 
 
-def _ollama_json(system, user, num_ctx=8192):
+def _ollama_json(system, user, num_ctx=8192, models=None):
     import ollama
     cl = ollama.Client(host=os.getenv("OLLAMA_HOST", "http://127.0.0.1:11434"), timeout=300)
     last = None
     first = SUMMARY_MODEL or config().get("summary_model") or "gemma3:4b"
-    for model in dict.fromkeys((first, "gemma3:4b")):      # a big model may not load while the card is full
+    # models: only these, no small-model fallback (used where a weak answer is worse than none)
+    for model in (models or dict.fromkeys((first, "gemma3:4b"))):      # a big model may not load while the card is full
         try:
             kw = {"think": False} if model.startswith(("gemma4", "qwen3")) else {}
             r = cl.chat(model=model, messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
@@ -2035,19 +2048,25 @@ def brief(c, day):
         for r in c.execute(f"SELECT m.conv_id, m.title, m.result FROM meetings m WHERE m.conv_id IN ({ph}) AND m.result IS NOT NULL",
                            list(convs)):
             for d in (json.loads(r["result"]).get("decisions") or [])[:3]:
-                items.append({"kind": "decision", "text": d, "conv_id": r["conv_id"], "src": "meeting",
+                items.append({"kind": "decision", "text": d, "conv_id": r["conv_id"], "src": "meeting", "sure": True,
                               "t0": convs[r["conv_id"]]["start"]})
-        for t in c.execute(f"SELECT id, conv_id, who, what, due, quote FROM tasks WHERE state='open' AND conv_id IN ({ph}) "
-                           "ORDER BY id", list(convs)):
-            it = {"kind": "task", "id": t["id"], "text": t["what"], "who": t["who"] if t["who"] and t["who"] != "?" else None,
-                  "due": t["due"], "quote": t["quote"], "conv_id": t["conv_id"], "src": "quote", "t0": convs[t["conv_id"]]["start"]}
-            it.update(_quote_line(c, t["conv_id"], t["quote"]) or {})
+        # extracted items: a candidate (state open) until the user confirms it; both point at the line it was said in
+        for t in c.execute(f"SELECT id, conv_id, who, who_how, what, due, quote, kind, utt_id, state FROM tasks "
+                           f"WHERE state IN ('open','confirmed') AND conv_id IN ({ph}) ORDER BY id", list(convs)):
+            it = {"kind": "decision" if t["kind"] == "decision" else "task", "item_kind": t["kind"] or "promise", "id": t["id"],
+                  "text": t["what"], "who": t["who"] if t["who"] and t["who"] != "?" else None, "who_sure": t["who_how"] in ("user", "voice", None),
+                  "due": t["due"], "quote": t["quote"], "conv_id": t["conv_id"], "src": "quote", "sure": t["state"] == "confirmed",
+                  "t0": convs[t["conv_id"]]["start"]}
+            if t["utt_id"]:
+                it["utt_id"] = t["utt_id"]
+            else:
+                it.update(_quote_line(c, t["conv_id"], t["quote"]) or {})
             items.append(it)
     for cid, k in convs.items():
         if k["marked"]:
             items.append({"kind": "marked", "text": k["topic"] or "שיחה שסימנת", "conv_id": cid, "src": "mark", "t0": k["start"]})
     order = {"decision": 0, "task": 1, "marked": 2}
-    items.sort(key=lambda i: (order[i["kind"]], i["t0"]))
+    items.sort(key=lambda i: (order[i["kind"]], not i.get("sure", True), i["t0"]))     # confirmed before candidates
     # last place: unnamed voices worth naming (only when there are enough to matter)
     unk = c.execute("SELECT count(*) FROM utterances WHERE t0>=? AND t0<? AND speaker IS NULL AND media IS NULL "    # t0 index
                     "AND emb IS NOT NULL AND seconds>=1.2", (day, day + "T99")).fetchone()[0]
@@ -2279,6 +2298,16 @@ def index_conversation(cid):
                   (cid, expand_he(head), people, expand_he(body)))
 
 
+def index_meaning(cid):
+    """The conversation's meaning windows (memory_index); quietly nothing when the embedding model is missing."""
+    try:
+        import memory_index as MI
+        with db() as c:
+            MI.index_conv(c, cid)
+    except Exception as exc:  # noqa: BLE001
+        log(f"meaning index {cid} failed {exc!r}")
+
+
 def reindex_all():
     with db() as c:
         have = c.execute("SELECT count(*) FROM conv_fts").fetchone()[0]
@@ -2322,6 +2351,35 @@ def list_convs(r, limit=60):
 
 
 def search_convs(q, limit=12, r="all"):
+    """Full text + meaning (memory_index), fused. A hit may carry `win`: its best transcript window by meaning."""
+    lo, hi = range_bounds(r)
+    fts = _fts_convs(q, limit * 2, r)
+    try:
+        import memory_index as MI
+        with db() as c:
+            sem = MI.semantic(c, q, lo, hi)
+    except Exception as exc:  # noqa: BLE001
+        log(f"meaning search failed {exc!r}")
+        sem = []
+    if not sem:
+        return fts[:limit]
+    by = {h["id"]: h for h in fts}
+    out = []
+    with db() as c:
+        for cid, _, win in MI.fuse([h["id"] for h in fts], sem, limit):
+            h = by.get(cid)
+            if not h:
+                k = c.execute("SELECT id, start, end, topic, summary, people, place, away, marked FROM conversations WHERE id=?",
+                              (cid,)).fetchone()
+                if not k:
+                    continue
+                h = dict(k, snippet=None)
+            # match: how it was found -- "words" (full text), "meaning" (only by meaning: similar, not the same words)
+            out.append(dict(h, win=win, match="both" if cid in by and win else "words" if cid in by else "meaning"))
+    return out
+
+
+def _fts_convs(q, limit=12, r="all"):
     out = []
     lo, hi = range_bounds(r)
     for mode in ("AND", "OR"):
@@ -2449,9 +2507,14 @@ def range_summary(r):
             "by_person": {k: v for k, v in (out.get("by_person") or {}).items() if isinstance(v, str)}}
 
 
-ASK_TASK = """אתה עונה על שאלה על שיחות שהוקלטו, רק לפי קטעי השיחות שלפניך. אל תמציא. אם התשובה לא כתובה שם, כתוב שלא נמצא.
+ASK_TASK = """אתה עונה על שאלה על שיחות שהוקלטו, רק לפי קטעי השיחות שלפניך (תמלול אוטומטי, עם שגיאות). אל תמציא.
 ציין תאריך ושם דובר כשהם ברורים. אל תכתוב מספרי שיחה בתוך התשובה ואל תמנה מילים בודדות: כתוב מה נאמר, במשפט או שניים.
-החזר JSON: {"answer": "תשובה קצרה בעברית", "conv_ids": [מספרי השיחות שהתשובה מבוססת עליהן]}"""
+לכל תשובה צרף ציטוט אחד או שניים, מילה במילה (4-15 מילים) מתוך הקטעים, שמראים שהתשובה נאמרה שם.
+החזר JSON: {"answer": "תשובה קצרה בעברית", "conv_ids": [מספרי השיחות שהתשובה מבוססת עליהן],
+"quotes": [{"conv": מספר השיחה, "quote": "..."}]}
+אם התשובה לא כתובה בקטעים: {"answer": "לא נמצא", "conv_ids": [], "quotes": []}"""
+# 2026-10-17: an answer is shown only with a quote that is really in one of the conversations it names. Before
+# this, gemma3:4b answered "we talked about a flight to Japan on 06/10" from lines about the fridge.
 
 
 def _ask_dates(answer, hits):
@@ -2468,20 +2531,71 @@ def ask(q, r="all"):
     with db() as c:
         blocks = []
         for h in hits:
-            U = c.execute("SELECT name, text FROM utterances WHERE conv_id=? AND media IS NULL AND text!='' ORDER BY t0",
-                          (h["id"],)).fetchall()
-            blocks.append(f"[שיחה {h['id']} · {h['start'][:16]} · {h['place'] or ''}]\n" +
-                          "\n".join(f"{u['name'] or '?'}: {u['text']}" for u in U)[:1800])
-    out = _ollama_json(ASK_TASK, "שאלה: " + q + "\n\n" + "\n\n".join(blocks), num_ctx=12288)
-    ids = {h["id"] for h in hits}
-    cited = [i for i in (out.get("conv_ids") or []) if isinstance(i, int) and i in ids]
-    convs = [h for h in hits if h["id"] in (cited or ids)]
-    with db() as c:
-        for h in convs:
-            h["lines"] = source_lines(c, h["id"], q)
-    # cited = the answer names these conversations; otherwise they are only the search hits it was written from
+            h["lines"] = evidence_lines(c, h, q)
+            blocks.append(f"[שיחה {h['id']} · {h['start'][:10]} {h['start'][11:16]} · {h['topic'] or ''}]\n" + passage(c, h))
+    first = SUMMARY_MODEL or config().get("summary_model") or "gemma3:4b"
+    out = _ollama_json(ASK_TASK, "שאלה: " + q + "\n\n" + "\n\n".join(blocks), num_ctx=12288,
+                       models=tuple(dict.fromkeys((config().get("extract_model") or EXTRACT_MODEL, first))))
+    by = {h["id"]: h for h in hits}
     ans = out.get("answer") if "error" not in out and isinstance(out.get("answer"), str) else None
-    return {"answer": _ask_dates(ans, hits) if ans else None, "cited": bool(cited), "conversations": convs}
+    # support = quotes found word for word in the conversation they name; each becomes the first line to listen to
+    support = set()
+    with db() as c:
+        for x in out.get("quotes") or [] if ans else []:
+            if not isinstance(x, dict) or x.get("conv") not in by:
+                continue
+            h = by[x["conv"]]
+            L = [dict(r) for r in c.execute("SELECT id, t0, name, how, text FROM utterances WHERE conv_id=? AND media IS NULL "
+                                            "AND text!='' ORDER BY t0", (h["id"],))]
+            i = find_quote(L, str(x.get("quote") or ""))
+            if i is None:
+                continue
+            support.add(h["id"])
+            if all(l["utt_id"] != L[i]["id"] for l in h["lines"]):
+                h["lines"] = [{"utt_id": L[i]["id"], "t0": L[i]["t0"], "name": L[i]["name"], "how": L[i]["how"],
+                               "text": L[i]["text"][:240]}] + h["lines"][:1]
+    if ans and re.match(r"\s*(לא נמצא|לא מצאתי|אין (בקטעים|מידע))", ans):
+        support = set()
+    if not support:
+        # no evidence -> no answer; the closest passages are still shown, marked as "worth checking"
+        return {"answer": None, "cited": False, "conversations": hits, "model": out.get("model")}
+    convs = [h for h in hits if h["id"] in support]
+    return {"answer": _ask_dates(ans, hits), "cited": True, "conversations": convs, "model": out.get("model")}
+
+
+def evidence_lines(c, h, q, k=2):
+    """Where to listen: lines sharing the question's words first, then the closest lines by meaning."""
+    out = source_lines(c, h["id"], q, k)
+    if len(out) < k and h.get("win"):
+        import memory_index as MI
+        have = {x["utt_id"] for x in out}
+        for u in MI.best_lines(c, q, h["id"], h["win"], k):
+            if u["id"] not in have and len(out) < k:
+                out.append({"utt_id": u["id"], "t0": u["t0"], "name": u["name"], "how": u["how"], "text": u["text"]})
+    return sorted(out, key=lambda x: x["t0"])
+
+
+def passage(c, h, around=2, cap=1800):
+    """What the answer is written from: each evidence line and the meaning window, with `around` lines on both sides
+    (merged, gaps marked …); the conversation's opening only when nothing matched."""
+    U = c.execute("SELECT id, name, text FROM utterances WHERE conv_id=? AND media IS NULL AND text!='' ORDER BY t0",
+                  (h["id"],)).fetchall()
+    pos = {u["id"]: i for i, u in enumerate(U)}
+    keep = set()
+    for x in h.get("lines") or []:
+        i = pos.get(x["utt_id"])
+        if i is not None:
+            keep |= set(range(max(0, i - around), min(len(U), i + around + 1)))
+    w = h.get("win")
+    if w and w["u0"] in pos:
+        keep |= set(range(pos[w["u0"]], pos.get(w["u1"], pos[w["u0"]]) + 1))
+    out, prev = [], None
+    for i in sorted(keep) or range(len(U)):
+        if prev is not None and i != prev + 1:
+            out.append("…")
+        out.append(f"{U[i]['name'] or '?'}: {U[i]['text']}")
+        prev = i
+    return "\n".join(out)[:cap]
 
 
 ASK_STOP = {"מה", "מי", "מתי", "איפה", "איך", "למה", "על", "את", "של", "עם", "זה", "זאת", "היה", "הייתה", "כבר", "אם",
@@ -2509,37 +2623,163 @@ def source_lines(c, cid, q, k=2):
             for _, u in sorted(scored[:k], key=lambda x: x[1]["t0"])]
 
 
-TASKS_TASK = """אתה מחלץ התחייבויות מתמלול שיחה בעברית: רק דברים שמישהו לקח על עצמו או שסוכמו במפורש בין אנשים
-("אני אשלח לך מחר", "נקבע ליום שלישי", "אני אבדוק ואחזור אליך", "צריך להגיש עד סוף החודש").
-לא בקשות או הוראות יומיומיות (למשל "תביא", "תסגור", "תעשה שיעורי בית"), לא שאלות ולא שיחה כללית. אל תמציא.
-החזר JSON: {"tasks": [{"who": "שם מי שהתחייב או ? אם לא ברור", "what": "מה צריך לקרות, קצר", "when": "מתי, רק אם נאמר, אחרת null",
-"quote": "ציטוט מילה במילה מהתמלול, עד 12 מילים"}]}. אם אין כלום: {"tasks": []}"""
+# 2026-10-17 (Shema 2.0 phase 5): decisions and commitments, every one tied to the line it was said in.
+# The model proposes; the code keeps an item only when its quote is really in one line (or across two neighbouring
+# lines) of this conversation. "Who" is the name on that line (never the model's guess), a due time only when its
+# words are in that line or the next, and ideas / maybes / everyday orders are not kept at all.
+ITEMS_TASK = """אתה קורא תמלול אוטומטי (עם שגיאות) של שיחה בעברית. כל שורה מתחילה במספר: [12] שם: טקסט. "?" = דובר לא מזוהה.
+מצא רק את מה שנאמר במפורש, מהסוגים האלה:
+- "promise": מישהו מתחייב לעשות משהו בעצמו ("אני אשלח לך מחר", "אני אבדוק ואחזור אליך", "אני אדבר איתו").
+- "agreed": משימה שהמשתתפים סיכמו שתתבצע ("אז סגרנו שאתה מזמין", "נקבע ליום שלישי").
+- "request": מישהו מבקש מאדם אחר לעשות משהו שאינו יומיומי ("תשלח לי את החוזה", "תקבע לנו תור").
+- "decision": החלטה שהתקבלה ונאמרה כהחלטה ("החלטנו לא לקנות", "סגרנו, הולכים על הדירה בחולון").
+  רצון ("אני רוצה ש..."), איום, ויכוח, תנאי ("אם..., אז...") או רגש אינם החלטה.
+אל תכלול: רעיונות ואפשרויות ("אולי כדאי", "אפשר ל..."), הוראות יומיומיות (תביא, תסגור, תאכל, תתקלח, שיעורי בית), שאלות,
+בדיחות, משחקים, ציטוט מטלוויזיה או מסרט, ודברים שנאמרו על אנשים אחרים בלי התחייבות.
+לכל פריט: ציטוט מדויק, מילה במילה, 5-15 מילים, מהשורה שבה זה נאמר, ומספר השורה.
+החזר JSON: {"items": [{"type": "promise|agreed|request|decision", "line": 12, "quote": "...", "what": "תיאור קצר",
+"when": "המועד רק אם נאמר במפורש, אחרת null"}]}. אם אין: {"items": []}. עדיף לא להחזיר כלום מאשר לנחש."""
+ITEM_KINDS = ("promise", "agreed", "request", "decision")
+WHEN_STOP = {"עד", "ב", "ל", "של", "את", "ה", "ו", "לפני", "אחרי"}
 
 
-def extract_tasks(cid, U, force=False):
-    """Commitments from conversations away from home (and marked ones); at home only with config "tasks_at_home"."""
-    text = " ".join(u["text"] for u in U)
-    if len(text.split()) < 25:
-        return
-    with db() as c:
-        k = c.execute("SELECT away, marked FROM conversations WHERE id=?", (cid,)).fetchone()
-    if not force and not (k and (k["away"] or k["marked"])) and not config().get("tasks_at_home"):
-        return
-    out = _ollama_json(TASKS_TASK, "\n".join(f"{u['name'] or '?'}: {u['text']}" for u in U)[:7000])
+def _qwords(t):
+    return [w for w in _norm_words(t) if w]
+
+
+def find_quote(L, quote, line=None):
+    """Index of the line (in L: rows with text) where `quote` was said: its first up-to-8 words, as a contiguous run,
+    inside that line or that line + the next. The model's line number is tried first. None = not said."""
+    q = _qwords(quote)
+    if len(q) < 4:
+        return None
+    q = q[:8]
+    words = [_qwords(u["text"]) for u in L]
+    order = list(range(len(L)))
+    if isinstance(line, int) and 0 <= line < len(L):
+        order.remove(line)
+        order.insert(0, line)
+    for i in order:
+        w = words[i] + (words[i + 1] if i + 1 < len(L) else [])
+        for j in range(0, len(w) - len(q) + 1):
+            if w[j:j + len(q)] == q:
+                return i if j < len(words[i]) else i + 1
+    return None
+
+
+def when_said(when, text):
+    """`when` only if its words (Hebrew prefixes allowed) are in `text`: a due time that was really said, or None."""
+    from he_text import he_variants
+    if not isinstance(when, str) or not when.strip():
+        return None
+    have = set()
+    for w in _qwords(text):
+        have |= set(he_variants(w)) | {w}
+    need = [w for w in _qwords(when) if w not in WHEN_STOP]
+    if need and all((set(he_variants(w)) | {w}) & have for w in need):
+        return when.strip()[:40]
+    return None
+
+
+def check_items(L, items, model=None):
+    """The model's items -> rows to store; everything that can't be tied to a line is dropped."""
+    out, seen = [], set()
+    for t in (items if isinstance(items, list) else [])[:8]:
+        if not isinstance(t, dict) or t.get("type") not in ITEM_KINDS or not isinstance(t.get("what"), str):
+            continue
+        try:
+            line = int(t.get("line")) - 1
+        except (TypeError, ValueError):
+            line = None
+        i = find_quote(L, str(t.get("quote") or ""), line)
+        if i is None or (L[i]["id"], t["type"]) in seen:
+            continue
+        seen.add((L[i]["id"], t["type"]))
+        u = L[i]
+        near = " ".join(x["text"] for x in L[i:i + 2])
+        out.append({"kind": t["type"], "utt_id": u["id"], "who": u["name"], "who_how": u["how"] if u["name"] else None,
+                    "what": t["what"].strip()[:200], "due": when_said(t.get("when"), near),
+                    "quote": " ".join(str(t["quote"]).split())[:200], "model": model})
+    return out
+
+
+JUDGE_TASK = """לפניך פריטים שחולצו אוטומטית מתמלול אוטומטי (עם שגיאות) של שיחות. לכל פריט: הסוג, הציטוט, והשורות שמסביב.
+השאר רק פריט שעומד בכל התנאים:
+1. הציטוט מובן: עברית תקינה שאפשר להבין ממנה מה בדיוק צריך לקרות (לא מילים משובשות או חסרות משמעות).
+2. זו פעולה או החלטה אמיתית בחיים: לא משחק, לא ניקוד, לא שיר, לא בדיחה, לא טלוויזיה, לא דמיון של ילדים.
+3. מישהו התכוון לזה ברצינות, וזה לא הוראה יומיומית רגעית (תביא, תסגור, בוא נלך עכשיו, תאכל).
+   החלטה: רק אם נאמרה כהחלטה שהתקבלה. רצון, איום, משפט בוויכוח או בכעס, תנאי ("אם...") או אפשרות אינם החלטה.
+4. יש לזה ערך לזכור מחר: משהו שמישהו עלול לשכוח או שיש לו המשך.
+החזר JSON: {"keep": [מספרי הפריטים שעומדים בכל התנאים]}. אם אין: {"keep": []}."""
+# Measured 2026-10-17 on 40 real home conversations: gemma3:4b looped on 11/40, proposed 182 items and 55% of its
+# quotes were never said; gemma4:12b proposed 20, 16 with real quotes, of which ~3 were useful (games, garbled
+# transcription, everyday orders). The 12B judge above kept 2 of those 3 and nothing else. So: 12B only, two passes,
+# and the result is a list of candidates for the user to confirm -- never shown as facts.
+EXTRACT_MODEL = "gemma4:12b"
+
+
+def _propose_once(L, model):
+    """One pass: extract -> quote check -> judge. None = the model could not be asked."""
+    body = "\n".join(f"[{i + 1}] {u['name'] or '?'}: {u['text']}" for i, u in enumerate(L))
+    out = _ollama_json(ITEMS_TASK, body[:9000], num_ctx=12288, models=(model,))
     if "error" in out:
-        return
-    norm = " ".join(text.split())
+        return None
+    rows = check_items(L, out.get("items"), out.get("model"))
+    if not rows:
+        return []
+    pos = {u["id"]: i for i, u in enumerate(L)}
+    txt = "\n\n".join(f"#{k} סוג: {r['kind']} | ציטוט: {r['quote']}\n" +
+                      "\n".join(f"{u['name'] or '?'}: {u['text']}" for u in L[max(0, pos[r['utt_id']] - 2):pos[r['utt_id']] + 3])
+                      for k, r in enumerate(rows))
+    j = _ollama_json(JUDGE_TASK, txt[:9000], num_ctx=12288, models=(model,))
+    if "error" in j:
+        return None
+    keep = {k for k in (j.get("keep") or []) if isinstance(k, int)}
+    return [r for k, r in enumerate(rows) if k in keep]
+
+
+def propose_items(cid):
+    """Candidates for one conversation (nothing is written). Two independent passes must name the same line and
+    kind: measured 2026-10-17 over 141 conversations x 3 runs, one pass was right ~45% of the time, items found
+    twice ~67% (a game score and "we won't divorce" were one-pass items). The second pass only runs when the
+    first found something, which is rare. None = the model could not be asked (nothing stored is touched)."""
     with db() as c:
+        L = [dict(r) for r in c.execute("SELECT id, name, how, text FROM utterances WHERE conv_id=? AND media IS NULL "
+                                        "AND text!='' ORDER BY t0", (cid,))]
+    if len(" ".join(u["text"] for u in L).split()) < 25:
+        return []
+    model = config().get("extract_model") or EXTRACT_MODEL
+    a = _propose_once(L, model)
+    if not a:
+        return a
+    b = _propose_once(L, model)
+    if b is None:
+        return None
+    again = {(r["utt_id"], r["kind"]) for r in b}
+    return [r for r in a if (r["utt_id"], r["kind"]) in again]
+
+
+def extract_items(cid, force=False):
+    """Decisions and commitments of one finished conversation (all of them since 2026-10-17, not only away from
+    home; config "extract_items": false turns it off). Open items are replaced; items the user already marked
+    done / dismissed / confirmed are kept and not proposed again."""
+    if not force and config().get("extract_items") is False:
+        return []
+    rows = propose_items(cid)
+    if rows is None:
+        return []
+    with db() as c:
+        handled = {r["utt_id"] for r in c.execute("SELECT utt_id FROM tasks WHERE conv_id=? AND state!='open' "
+                                                  "AND utt_id IS NOT NULL", (cid,))}
         c.execute("DELETE FROM tasks WHERE conv_id=? AND state='open'", (cid,))
-        for t in (out.get("tasks") or [])[:6]:
-            if not isinstance(t, dict) or not isinstance(t.get("what"), str):
+        now = iso(datetime.now())
+        for r in rows:
+            if r["utt_id"] in handled:
                 continue
-            quote = " ".join(str(t.get("quote") or "").split())
-            if len(quote) < 8 or quote[:14] not in norm:          # must be something that was really said
-                continue
-            c.execute("INSERT INTO tasks (conv_id, who, what, due, quote, created) VALUES (?,?,?,?,?,?)",
-                      (cid, str(t.get("who") or "?")[:40], t["what"][:200], (str(t["when"])[:40] if t.get("when") else None),
-                       quote[:200], iso(datetime.now())))
+            c.execute("INSERT INTO tasks (conv_id, who, what, due, quote, created, kind, utt_id, who_how, model) "
+                      "VALUES (?,?,?,?,?,?,?,?,?,?)", (cid, r["who"] or "?", r["what"], r["due"], r["quote"], now,
+                                                       r["kind"], r["utt_id"], r["who_how"], r["model"]))
+    return rows
 
 
 FILLERS = {"אה", "אמ", "אממ", "אמממ", "כאילו", "יעני", "נו", "אהה", "אההה"}
@@ -3004,6 +3244,9 @@ def api(path, qs):
             return {"q": q, "range": r, "results": search_convs(q, 20, r) if q else list_convs(r)}
         if path == "/home/api/ask":
             return ask(qs.get("q", [""])[0], qs.get("r", ["all"])[0])
+        if path == "/home/api/memory":
+            import memory_index as MI
+            return MI.stats(c)
         if path == "/home/api/brief":
             return brief(c, qs.get("d", [datetime.now().strftime("%Y-%m-%d")])[0])
         if path == "/home/api/stats":
@@ -3011,10 +3254,11 @@ def api(path, qs):
         if path == "/home/api/range_summary":
             return range_summary(qs.get("r", ["week"])[0])
         if path == "/home/api/tasks":
-            st = qs.get("state", ["open"])[0]
+            st = qs.get("state", ["active"])[0]             # active = candidates + confirmed
+            states = ("open", "confirmed") if st == "active" else (st,)
             return [dict(r) for r in c.execute(
                 "SELECT t.*, k.start AS conv_start, k.place AS place FROM tasks t LEFT JOIN conversations k ON k.id=t.conv_id "
-                "WHERE t.state=? ORDER BY t.created DESC LIMIT 100", (st,))]
+                f"WHERE t.state IN ({','.join('?' * len(states))}) ORDER BY k.start DESC, t.id LIMIT 150", states)]
         if path == "/home/api/me":
             return me_stats(c, qs.get("d", [datetime.now().strftime("%Y-%m-%d")])[0])
         if path == "/home/api/digest":
@@ -3149,7 +3393,7 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 if u.path == "/home/api/task":
                     with db() as c:
-                        c.execute("UPDATE tasks SET state=? WHERE id=?", (b.get("state") if b.get("state") in ("open", "done", "dismissed") else "open",
+                        c.execute("UPDATE tasks SET state=? WHERE id=?", (b.get("state") if b.get("state") in ("open", "done", "dismissed", "confirmed") else "open",
                                                                           int(b.get("id", 0))))
                     return self._send(200, {"ok": True})
                 if u.path == "/home/api/teach_skip":        # "several people talk / unclear": never ask about it again
