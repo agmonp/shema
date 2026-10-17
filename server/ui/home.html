@@ -182,6 +182,30 @@ mark{background:rgba(234,164,94,.3);color:inherit;border-radius:3px}
 .toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:var(--surface3);border:1px solid var(--line2);
   border-radius:12px;padding:10px 16px;z-index:10;box-shadow:0 6px 24px rgba(0,0,0,.4)}
 .who.maybe{opacity:.72}
+.asr .tbl{overflow-x:auto;margin:6px 0}
+.asr table{border-collapse:collapse;font-size:13px;min-width:100%}
+.asr th,.asr td{padding:4px 8px;border-top:1px solid var(--line);text-align:start;white-space:nowrap}
+.asr th{color:var(--faint);font-weight:500}
+.asr .num{direction:ltr;unicode-bidi:isolate;font-variant-numeric:tabular-nums}
+.asr .tag{font-size:11px;padding:1px 8px;border-radius:10px;background:var(--surface3);color:var(--dim)}
+.asr .tag.m{background:rgba(134,187,168,.15);color:var(--sage)}
+.asr .tag.h{background:rgba(234,164,94,.15);color:var(--accent)}
+.asr .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:6px 0}
+.asr .row label{display:flex;gap:6px;align-items:center;font-size:14px}
+.asr select{flex:0 1 auto}
+.asr .btn{border:1px solid var(--line2);border-radius:14px;padding:3px 12px;font-size:13px;color:var(--accent)}
+.asr .btn:disabled{color:var(--faint);cursor:default}
+.asr .line{border-top:1px solid var(--line);padding:10px 0}
+.asr .line .meta{color:var(--faint);font-size:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.asr .line audio{width:100%;height:32px;margin:6px 0}
+.asr .line textarea{width:100%;margin-top:4px}
+.asr .raw{color:var(--faint);text-decoration:line-through}
+.asr .gl{display:grid;grid-template-columns:minmax(90px,1fr) minmax(120px,2fr) auto auto auto;gap:6px;align-items:center}
+.asr .gl input{width:100%}
+.asr select,.asr textarea,.asr input{max-width:100%}
+.asr .kv>*{min-width:0;overflow-wrap:anywhere}
+@media (max-width:600px){ .asr .gl{grid-template-columns:1fr 1fr} .asr .gl .x2{grid-column:span 2}
+  .asr .kv{grid-template-columns:1fr;gap:0} .asr .kv>span:nth-child(odd){margin-top:6px;font-size:12px} .asr .kv select{width:100%} }
 </style>
 </head>
 <body>
@@ -198,6 +222,7 @@ mark{background:rgba(234,164,94,.3);color:inherit;border-radius:3px}
     <a href="#me" data-t="me">אני</a>
     <a href="#privacy" data-t="privacy">פרטיות</a>
     <a href="#system" data-t="system">מערכת</a>
+    <a href="#asr" data-t="asr">איכות התמלול<span class="n" id="asrn" hidden></span></a>
   </nav>
   <div class="days" id="days"></div>
   <div id="main"></div>
@@ -720,11 +745,91 @@ async function showSystem(){
         <span>בדיקה אחרונה</span><span>${A.last ? A.last.slice(0, 10) : "עוד לא נבדק"} · הבאה: ${esc(A.next)}</span>
         <span>שגיאות מילים (WER)</span><span>${A.wer != null ? (A.wer * 100).toFixed(1) + "%" : "לא נמדד (אין סט זהב)"}</span>
         <span>סט זהב</span><span>${A.gold_items} משפטים ${A.gold_items < 20 ? "· מומלץ לפחות 20 (כפתור ⭐ ליד משפט בשיחה)" : ""}</span>
-        <span>בדיקה כל 3 חודשים</span><span>${A.enabled ? "פעילה" : "כבויה אחרי 3 בדיקות בלי שיפור"} ${A.enabled ? "" : '<button class="ok" id="asron">הפעל מחדש</button>'}</span></div>
+        <span>בדיקה כל 3 חודשים</span><span>${A.enabled ? "פעילה" : "כבויה"} ${A.enabled ? "" : '<button class="ok" id="asron">הפעל מחדש</button>'}</span></div>
       ${A.note ? `<div class="legend" style="color:var(--accent)">${esc(A.note)}</div>` : ""}
-      <div class="legend">מודל חדש מאומץ רק אם הוא טוב ב-10% או יותר על הסט הזהב שלך.</div></div>`;
+      <div class="legend">מודל חדש מאומץ רק אם הוא טוב ב-10% או יותר על הסט הזהב שלך, בלי הרעה באף סוג הקלטה. <a href="#asr" style="color:var(--accent)">איכות התמלול ←</a></div></div>`;
   const on = $("#asron");
   if (on) on.onclick = async () => { await POST("/home/api/asr_check", {enabled: true}); showSystem(); };
+}
+// ---------------------------------------------------------------- transcription quality (ASR 2.0)
+const MODE_HE = {legacy: "רגיל (המודל המהיר, כמו תמיד)", adaptive: "חכם: קטעים חשודים נקראים שוב במודל הגדול",
+  large_only: "רק המודל הגדול (להשוואה, איטי)", dual_test: "שני המודלים על הכל (בדיקה בלבד, התמלול לא משתנה)"};
+const SEG_HE = {legacy: "רגיל", pad05: "הקשר 0.5 שנ׳", pad08: "הקשר 0.8 שנ׳", merge: "קטעים ארוכים יותר", overlap: "חלונות חופפים",
+  short: "גם תשובות קצרות מאוד", vadnorm: "זיהוי דיבור שקט"};
+const FLAG_HE = {low_logprob: "המודל לא בטוח", no_speech: "אולי אין דיבור", compression: "טקסט חוזר", repetition: "חזרה",
+  rate: "מהיר מדי", empty: "דיבור בלי מילים", dropped: "קטע נפסל", timestamps: "זמנים חריגים"};
+const KIND_HE = {"": "—", name: "שם", place: "מקום", tech: "מונח טכני", company: "חברה/מוצר", acronym: "ראשי תיבות", english: "אנגלית"};
+const COND_HE = {home: "בית", away: "בחוץ", meeting: "פגישה", call: "שיחת טלפון", import: "יבוא", gold: "זהב", car: "רכב"};
+const pct = v => v == null ? "—" : (v * 100).toFixed(1) + "%";
+const shortModel = m => (m || "").replace("ivrit-ai/whisper-", "").replace("-ct2", "");
+async function showAsr(){
+  $("#days").innerHTML = "";
+  const [A, L] = await Promise.all([J("/home/api/asr"), J("/home/api/asr_quality")]);
+  const goal = A.gold_target || 40, have = L.gold_items, left = Math.max(0, goal - have);
+  const segNow = A.segmentation === "legacy" ? "החיתוך הרגיל" : "החיתוך המשופר (אחרי שהוכח על ההקלטות שלך)";
+  const SE = A.settings_eval;
+  const line = u => `<div class="line" data-id="${u.id}">
+      <div class="meta"><span class="num">${esc(u.t0.slice(5, 16).replace("T", " "))}</span><b>${esc(u.name || "לא מזוהה")}</b>
+        <span class="tag">${esc(COND_HE[u.condition] || u.condition)}</span>
+        <a href="#c${u.conv_id}" style="color:var(--accent);margin-inline-start:auto">לשיחה</a></div>
+      <audio controls preload="none" src="/home/audio/utt/${u.id}"></audio>
+      <textarea rows="2">${esc(u.text)}</textarea>
+      <div class="row"><button class="ok" data-gold="${u.id}" data-cond="${esc(u.condition)}">שמור</button>
+        <button class="btn" data-skip="${u.id}">דלג</button></div></div>`;
+  $("#main").innerHTML = `<div class="asr">
+    <div class="card"><h2>מה צריך ממך</h2>
+      ${left ? `<div>להקשיב ל-<b>${left}</b> משפטים נוספים ולתקן את הטקסט למה שבאמת נאמר, מילה במילה. זה בערך ${Math.max(5, Math.round(left * 0.7))} דקות.</div>
+        <div class="meter" title="${have} מתוך ${goal}"><i style="width:${Math.min(100, have / goal * 100)}%"></i></div>
+        <div class="legend">${have} מתוך ${goal}. כשהמשפט לא ברור או כמה אנשים מדברים יחד: דלג.</div>`
+      : `<div>סיימת. ${have} משפטים בסט. אין צורך בעוד, אלא אם תרצה לשפר את המדידה.</div>`}</div>
+
+    <div class="card"><h2>מה קורה עם זה</h2>
+      <div>${left ? `כשיהיו ${goal} משפטים, המחשב יבדוק לבד אם השיפור שמצאתי בבדיקות (חיתוך הקלטה שמזהה גם דיבור שקט) מתמלל את ההקלטות <b>שלך</b> טוב יותר. אם כן, הוא יעבור אליו. אם לא, הכל נשאר כמו שהוא.`
+        : SE ? `נבדק: ${Object.entries(SE).map(([k, v]) => `${k === "legacy" ? "חיתוך רגיל" : "חיתוך משופר"} ${pct(v.wer)} שגיאות`).join(" · ")}`
+        : "הבדיקה תרוץ בדקות הקרובות, כשהמחשב פנוי."}</div>
+      ${A.note && !left ? `<div class="legend" style="color:var(--accent)">${esc(A.note)}</div>` : ""}
+      <div class="legend">עכשיו: ${esc(segNow)}, מודל ${esc(shortModel(A.model))}. לא צריך לבחור כלום.</div>
+      ${A.can_undo ? `<div class="row"><button class="btn" id="asrback">חזור למה שהיה לפני</button></div>` : ""}</div>
+
+    <div class="card"><h2>משפטים לבדיקה</h2>
+      <div id="asrrev">${L.review.length ? L.review.map(line).join("") : '<div class="empty">אין כרגע משפטים עם שמע לבדיקה.</div>'}</div></div>
+
+    <details class="card"><summary style="cursor:pointer;font-weight:700">שמות ומילים שהתמלול טועה בהם (לא חובה)</summary>
+      <div class="legend">כשאתה רואה שהתמלול כותב שם או מונח לא נכון באופן קבוע: כתוב את הנכון, ובטור השני את הטעויות שראית (מופרד בפסיקים).
+        המחשב יחליף רק את הטעויות האלה בדיוק. מילות שלילה ומספרים לא מוחלפים לעולם.</div>
+      <div class="gl" style="margin-top:8px;color:var(--faint);font-size:12px"><span>נכון</span><span>טעויות שראיתי</span><span>סוג</span><span></span><span></span></div>
+      <div id="glrows"></div>
+      <div class="row"><button class="btn" id="gladd">+ שורה</button><button class="ok" id="glsave">שמור</button><span id="glwarn" class="legend" style="margin:0"></span></div>
+    </details>
+  </div>`;
+  const glRow = e => `<div class="gl"><input value="${esc(e.term)}" data-f="term"><input value="${esc((e.variants || []).join(", "))}" data-f="variants">
+    <select data-f="kind">${Object.entries(KIND_HE).map(([k, v]) => `<option value="${k}" ${k === (e.kind || "") ? "selected" : ""}>${v}</option>`).join("")}</select>
+    <span></span><button class="btn x2" data-del>מחק</button></div>`;
+  $("#glrows").innerHTML = A.glossary.filter(e => e.variants && e.variants.length || e.kind).map(glRow).join("");
+  const wireDel = () => document.querySelectorAll("#glrows [data-del]").forEach(b => b.onclick = () => b.parentElement.remove());
+  wireDel();
+  $("#gladd").onclick = () => { $("#glrows").insertAdjacentHTML("beforeend", glRow({term: "", variants: []})); wireDel(); };
+  $("#glsave").onclick = async () => {
+    // only corrections: names are NOT sent to Whisper as a hint (measured 2026-10-15: it invented names on silence)
+    const g = [...document.querySelectorAll("#glrows .gl")].map(r => ({term: r.querySelector('[data-f="term"]').value.trim(),
+      variants: r.querySelector('[data-f="variants"]').value.split(",").map(x => x.trim()).filter(Boolean),
+      kind: r.querySelector('[data-f="kind"]').value, prompt: false})).filter(e => e.term && e.variants.length);
+    const r = await POST("/home/api/asr_glossary", {glossary: g});
+    if (r.ok && g.length) await POST("/home/api/asr_settings", {correct: true});
+    $("#glwarn").textContent = r.ok ? `נשמר: ${r.count} שורות` + (r.warnings.length ? " · " + r.warnings.join(" · ") : "") : (r.msg || "לא נשמר");
+  };
+  const back = $("#asrback");
+  if (back) back.onclick = async () => { const r = await POST("/home/api/asr_rollback", {}); toast(r.msg || (r.ok ? "חזרנו" : "לא הצליח")); showAsr(); };
+  document.querySelectorAll("[data-gold]").forEach(b => b.onclick = async () => {
+    const box = b.closest(".line"), txt = box.querySelector("textarea").value.trim();
+    if (!txt) return toast("אין טקסט");
+    const r = await POST("/home/api/gold", {utt_id: +b.dataset.gold, text: txt, condition: b.dataset.cond});
+    if (!r.ok) return toast(r.msg || "לא הצליח");
+    box.remove();
+    toast(`נשמר. ${r.gold_items} מתוך ${goal}`);
+    if (r.gold_items >= goal || !document.querySelector("#asrrev .line")) showAsr();
+  });
+  document.querySelectorAll("[data-skip]").forEach(b => b.onclick = () => { b.closest(".line").remove(); if (!document.querySelector("#asrrev .line")) showAsr(); });
 }
 // ---------------------------------------------------------------- people
 async function showPeople(){
@@ -853,12 +958,13 @@ function route(soft){
   live();
   const h = location.hash;
   const tab = h.startsWith("#teach") ? "teach" : h.startsWith("#people") ? "people" : h.startsWith("#sounds") ? "sounds"
-    : h.startsWith("#search") ? "search" : h.startsWith("#me") ? "me" : h.startsWith("#privacy") ? "privacy" : h.startsWith("#system") ? "system" : "day";
+    : h.startsWith("#search") ? "search" : h.startsWith("#me") ? "me" : h.startsWith("#privacy") ? "privacy" : h.startsWith("#system") ? "system"
+    : h.startsWith("#asr") ? "asr" : "day";
   document.querySelectorAll("#tabs a").forEach(a => a.classList.toggle("on", a.dataset.t === tab));
   const m = h.match(/^#c(\d+)/);
   if (m) showConv(+m[1]); else if (tab === "teach") showTeach(); else if (tab === "people") showPeople();
   else if (tab === "search") showSearch(); else if (tab === "me") showMe(); else if (tab === "privacy") showPrivacy(); else if (tab === "system") showSystem();
-  else if (tab === "sounds") showSounds(); else showDay();
+  else if (tab === "sounds") showSounds(); else if (tab === "asr") showAsr(); else showDay();
   J("/home/api/teach").then(t => teachCount(t.left)).catch(() => {});
   J("/home/api/tasks").then(t => { const e = $("#taskn"); e.hidden = !t.length; e.textContent = t.length; }).catch(() => {});
 }

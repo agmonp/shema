@@ -572,6 +572,13 @@ class ListenService : Service() {
         return if (speechy) 1f else 0f
     }
 
+    /** Segments are encoded on their own thread so the microphone loop never stops reading. Encoding inline took about
+     *  0.5 s per second of audio while AudioRecord's small buffer overflowed: after every segment the phone was deaf for
+     *  half its length (measured 2026-10-15 from the gaps between segment starts: ~15 s lost after each 30 s segment). */
+    private val encoder = java.util.concurrent.ThreadPoolExecutor(1, 1, 30, java.util.concurrent.TimeUnit.SECONDS,
+        java.util.concurrent.LinkedBlockingQueue<Runnable>()) { r -> Thread(r, "encode").apply { isDaemon = true } }
+        .apply { allowCoreThreadTimeOut(true) }           // no shutdown needed: the thread ends after 30 s idle
+
     private fun save(frames: List<ShortArray>, start: Long, sound: Boolean = false) {
         val pcm = ShortArray(frames.sumOf { it.size })
         var i = 0
@@ -579,18 +586,23 @@ class ListenService : Service() {
         val stamp = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS", Locale.US).format(Date(start))
         val enroll = !sound && start >= enrollFrom - 600 && start < enrollUntil && enrollUntil > 0
         val base = File(queueDir, when { sound -> "${stamp}_snd"; enroll -> "${stamp}_enr"; else -> stamp })
-        var out: File? = null
+        // the context of this segment (as it is now, when the segment ends), sent along with it
+        val m = StringBuilder("ms=$start&home=${if (atHome) 1 else 0}&role=${Prefs.role(this)}&bat=$batPct")
+        if (!lat.isNaN()) m.append("&lat=${"%.4f".format(Locale.US, lat)}&lon=${"%.4f".format(Locale.US, lon)}")
+        if (calTitle.isNotEmpty()) m.append("&cal=").append(URLEncoder.encode(calTitle.take(80), "UTF-8"))
+        val meta = m.toString()
         try {
-            out = encodeAudio(pcm, base)
-            // the context of this segment, sent along with it
-            val m = StringBuilder("ms=$start&home=${if (atHome) 1 else 0}&role=${Prefs.role(this)}&bat=$batPct")
-            if (!lat.isNaN()) m.append("&lat=${"%.4f".format(Locale.US, lat)}&lon=${"%.4f".format(Locale.US, lon)}")
-            if (calTitle.isNotEmpty()) m.append("&cal=").append(URLEncoder.encode(calTitle.take(80), "UTF-8"))
-            File(queueDir, "${out.name}.meta").writeText(m.toString())
-            if (!sound && !enroll) addSpeech(this, pcm.size.toDouble() / SR)
-        } catch (e: Exception) { out?.delete() }
-        refreshQueueStats()
-        update()
+            encoder.execute {
+                var out: File? = null
+                try {
+                    out = encodeAudio(pcm, base)
+                    File(queueDir, "${out.name}.meta").writeText(meta)
+                    if (!sound && !enroll) addSpeech(this, pcm.size.toDouble() / SR)
+                } catch (e: Exception) { out?.delete() }
+                refreshQueueStats()
+                update()
+            }
+        } catch (e: java.util.concurrent.RejectedExecutionException) { }
     }
 
     /** Opus 12 kbps in an Ogg (about 5 MB per hour of speech); AAC-LC 24 kbps .m4a if this phone has no Opus encoder. */

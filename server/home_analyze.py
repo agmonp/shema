@@ -48,7 +48,8 @@ def household():
 def asr_prompt(cfg=None):
     """Recurring words (names, professional terms; the user edits "asr_terms" in config.json) nudge
     Whisper toward the right spelling, in Hebrew or in Latin letters."""
-    terms = [t.strip() for t in ((cfg or home_config()).get("asr_terms") or []) if str(t).strip()]
+    import asr_correct
+    terms = asr_correct.prompt_terms(cfg or home_config())    # asr_terms + glossary terms (asr_correct.py)
     return ", ".join(terms[:60]) if terms else None      # no header word: "מונחים:" leaked into the transcript (test 2026-10-09)
 SOUND_KEEP = {  # AudioSet label -> our tag (home life)
     "Laughter": "צחוק", "Baby laughter": "צחוק", "Giggle": "צחוק", "Chuckle, chortle": "צחוק",
@@ -69,13 +70,13 @@ class Brain:
     def __init__(self):
         import torch  # noqa: F401  (cublas for CTranslate2)
         self.torch = torch
-        from faster_whisper import WhisperModel
+        import asr_engine
         cfg = home_config()
         self.dev = _device()
-        self.model_name = cfg.get("whisper_model") or WHISPER_MODEL
         compute = cfg.get("asr_compute") or ("float16" if self.dev == "cuda" else "int8")
-        self.whisper = WhisperModel(self.model_name, device=self.dev, compute_type=compute,
-                                    cpu_threads=max(2, (os.cpu_count() or 4) - 2))
+        self.asr = asr_engine.Engine(cfg, self.dev, compute)      # config.json "asr": mode / segmentation (legacy default)
+        self.model_name = self.asr.model_name
+        self.asr.models.get(self.model_name)                      # load now, as before: a broken install fails here
         import voice_embed as VE
         self.VE = VE
         self.ex = VE.load_extractors(["eres2netv2", "titanet"])
@@ -120,33 +121,12 @@ class Brain:
         return self._ears
 
     # ---- pieces
-    def transcribe(self, audio):
-        """Silero speech regions (gaps < 0.4 s merged, <= 15 s), each decoded ON ITS OWN.
+    def transcribe(self, audio, raw=None):
+        """Silero speech regions (legacy: gaps < 0.4 s merged, <= 15 s), each decoded ON ITS OWN.
         One pass over the whole file can go silent after an English TV stretch with music, and
-        conditioning on the previous text carries the confusion forward."""
-        import voice_embed as VE
-        if not hasattr(self, "_vad_cfg"):
-            self._vad_cfg = VE.make_vad()
-        mask = VE.voiced_mask(self._vad_cfg, audio)
-        edges = np.flatnonzero(np.diff(np.r_[0, mask.astype(np.int8), 0]))
-        regions = []
-        for a, b in zip(edges[::2], edges[1::2]):
-            if regions and a - regions[-1][1] < 0.4 * SR and b - regions[-1][0] < 15 * SR:
-                regions[-1][1] = b
-            else:
-                regions.append([a, b])
-        words, pad = [], int(0.2 * SR)
-        prompt = asr_prompt()
-        for a, b in regions:
-            if b - a < 0.25 * SR:
-                continue
-            a0 = max(0, a - pad)
-            segs, _ = self.whisper.transcribe(audio[a0:b + pad], vad_filter=False, beam_size=5, word_timestamps=True,
-                                              condition_on_previous_text=False, language="he", initial_prompt=prompt)
-            off = a0 / SR
-            for s in segs:
-                if s.no_speech_prob < 0.6 and s.avg_logprob > -1.2 and not hallucination(s.text):
-                    words += [[round(w.start + off, 2), round(w.end + off, 2), w.word] for w in (s.words or [])]
+        conditioning on the previous text carries the confusion forward. asr_engine.py does the work (the benchmark
+        runs the same code); self.asr.trace keeps which model read which window and what looked suspicious."""
+        words, _ = self.asr.transcribe(audio, prompt=asr_prompt(), raw=raw)
         return words, "he"
 
     def voice_vec(self, wave):
@@ -180,14 +160,7 @@ class Brain:
         return ev, vecs, starts
 
 
-# Whisper writes these on silence / noise (subtitle credits in its training data).
-HALLUCINATIONS = {"תודה רבה", "תודה", "תודה רבה לכם", "תודה רבה לצפייה", "תודה שצפיתם", "תודה על הצפייה",
-                  "כתוביות", "תרגום", "מתורגמן", "שבת שלום", "thank you", "thanks for watching", "you"}
-
-
-def hallucination(text):
-    t = re.sub(r"[‏‪-‮.,!?״\"' ]+", " ", text).strip().lower()
-    return t in HALLUCINATIONS
+from asr_engine import HALLUCINATIONS, hallucination  # noqa: E402,F401  (moved; old imports keep working)
 
 
 HEB_VOWELISH = re.compile(r"[אהוי]|[^\s]")
@@ -383,6 +356,27 @@ def unknown_sounds(audio, words, events, vecs, starts, min_db=-38.0):
     return out[:6]
 
 
+def asr_annotate(U, trace, cfg=None):
+    """ASR 2.0, after the speakers are known (the text never moves between speakers):
+    u["asr"]      which model read it, the suspicion flags, uncertain yes / no   (config "asr": {"mark_uncertain"})
+    u["text_raw"] the transcript before glossary corrections, only when a correction changed it
+    Media utterances (TV / music) are left alone."""
+    import asr_correct
+    import asr_engine
+    cfg = cfg or home_config()
+    mark = (cfg.get("asr") or {}).get("mark_uncertain", True) is not False
+    for u in U:
+        if u.get("media"):
+            continue
+        info = asr_engine.utterance_info(u, trace) if mark else None
+        new, changes, raw = asr_correct.correct(u["text"], cfg)
+        if changes and new != raw:
+            u["text_raw"], u["text"] = raw, new
+            info = dict(info or {}, changes=changes)
+        if info:
+            u["asr"] = info
+
+
 SONG_TAGS = {"מוזיקה", "שירה", "שיר", "שירי ילדים", "גיטרה", "פסנתר", "קלידים"}
 
 
@@ -398,9 +392,10 @@ def analyse(B, path, year=None, people=None, bank=None, names=None, sound_bank=N
     events, vecs, starts = B.sounds(audio, sound_bank)          # on the recording as heard
     music = any(e["tag"] in MUSIC_HE for e in events)
     voice_audio = B.unmusic(audio) if music else audio
-    words, lang = B.transcribe(voice_audio)
+    words, lang = B.transcribe(voice_audio, raw=audio if music else None)
     cands = B.candidates(year, people, bank)
     U = utterances(B, voice_audio, words, cands, names, raw=audio, away=away) if words else []
+    asr_annotate(U, getattr(B.asr, "trace", None) if hasattr(B, "asr") else None)
     events += unknown_sounds(audio, words, events, vecs, starts)
     # which song: an ONLINE signature lookup (Shazam), so it is off unless config.json "song_lookup": true
     mw = [(e["t0"], e["t1"], e["score"]) for e in events if e["tag"] in SONG_TAGS and e["t1"] - e["t0"] >= 5]

@@ -130,6 +130,9 @@ MIGRATIONS = [   # columns added after the first version (2026-10-06 afternoon)
     ("utterances", "lang", "TEXT"), ("marks", "minutes", "INTEGER"),
     ("chunks", "tries", "INTEGER DEFAULT 0"),
     ("chunks", "meet", "TEXT"),                 # 2026-10-14: the phone's meeting id (meeting mode)   # 2026-10-09: requeue_failed() retries environment failures
+    # ASR 2.0: the transcript before glossary corrections (only when one changed it) and which model read it,
+    # with its suspicion flags (JSON). Old rows stay NULL; nothing historical is rewritten.
+    ("utterances", "text_raw", "TEXT"), ("utterances", "asr", "TEXT"),
 ]
 
 
@@ -969,6 +972,8 @@ class Worker(threading.Thread):
         self.busy = True
         try:
             import home_analyze
+            if getattr(self, "reload", False):        # ASR settings / model changed on the screen
+                self.B, self.reload = None, False
             if self.B is None:
                 log("loading models")
                 self.B = home_analyze.Brain()
@@ -1072,6 +1077,8 @@ def save_analysis(row, st, res):
                 skipped += 1
                 continue
             u["text"], u["media_text"] = redact(u["text"]), redact(u.get("media_text"))
+            if u.get("text_raw"):
+                u["text_raw"] = redact(u["text_raw"])
             t0, t1 = at(u["t0"]), at(u["t1"])
             p, e, d = u.get("prosody") or {}, u.get("emotion") or {}, u.get("dims") or {}
             dup = None if (u.get("media") or ctx.startswith(("import:", MEET_PREFIX))) else _dup_of(c, device, t0, t1, u["text"])
@@ -1102,14 +1109,15 @@ def save_analysis(row, st, res):
             emb = u.get("emb")
             c.execute("""INSERT INTO utterances (chunk_id,conv_id,t0,t1,seconds,speaker,name,text,f0_hz,f0_range_st,
                          intensity_db,syll_per_s,voiced_share,emotion,emotion_p,emotion_scores,arousal,dominance,valence,
-                         emb,how,media,media_text,device,alt_db,alt_device,lang)
-                         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                         emb,how,media,media_text,device,alt_db,alt_device,lang,text_raw,asr)
+                         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                       (chunk_id, conv, t0, t1, round(u["t1"] - u["t0"], 2), u["speaker"], u["name"],
                        u["text"].strip(), p.get("f0_hz"), p.get("f0_range_st"), p.get("intensity_db"),
                        p.get("syll_per_s"), p.get("voiced_share"), e.get("label"), e.get("p"),
                        json.dumps(e.get("scores")) if e else None, d.get("arousal"), d.get("dominance"), d.get("valence"),
                        emb.astype(np.float32).tobytes() if emb is not None else None, u.get("how"),
-                       u.get("media"), u.get("media_text"), device, alt_db, alt_dev, u.get("lang")))
+                       u.get("media"), u.get("media_text"), device, alt_db, alt_dev, u.get("lang"),
+                       u.get("text_raw"), json.dumps(u["asr"], ensure_ascii=False) if u.get("asr") else None))
         for s in res["sounds"]:
             if away:
                 break                                         # away from home: only the speech of the owner's conversations
@@ -2396,10 +2404,12 @@ def health(c):
             "requeued_total": c.execute("SELECT coalesce(sum(tries),0) FROM chunks").fetchone()[0]}
 
 
-def add_gold(c, utt_id, text):
-    """Cut one utterance's audio into gold/<id>.ogg (data folder) with its (corrected) text: the set asr_update.py measures on."""
-    r = c.execute("SELECT u.t0, u.t1, u.text, k.start, k.file FROM utterances u JOIN chunks k ON k.id=u.chunk_id WHERE u.id=?",
-                  (utt_id,)).fetchone()
+def add_gold(c, utt_id, text, condition=None):
+    """Cut one utterance's audio into gold/<id>.ogg (data folder) with its (corrected) text: the set asr_update.py measures on.
+    gold/<id>.json keeps the recording condition (home / away / meeting / call / TV around ...) so the benchmark can
+    report per condition."""
+    r = c.execute("SELECT u.t0, u.t1, u.text, u.text_raw, k.start, k.file, k.ctx, k.away, k.cal FROM utterances u "
+                  "JOIN chunks k ON k.id=u.chunk_id WHERE u.id=?", (utt_id,)).fetchone()
     if not r or not r["file"] or not os.path.exists(r["file"]):
         return {"ok": False, "msg": "השמע של המשפט הזה כבר נמחק"}
     import voice_embed as VE
@@ -2416,7 +2426,154 @@ def add_gold(c, utt_id, text):
     if p.returncode != 0 or not dst.exists():
         return {"ok": False, "msg": "החיתוך נכשל"}
     dst.with_suffix(".txt").write_text(text, encoding="utf-8")
+    cond = (str(condition)[:20] if condition else None) or utt_condition(r)
+    dst.with_suffix(".json").write_text(json.dumps({"condition": cond, "asr_text": r["text_raw"] or r["text"],
+                                                    "added": iso(datetime.now())}, ensure_ascii=False), encoding="utf-8")
     return {"ok": True, "gold_items": len(list(gold.glob("*.txt")))}
+
+
+def utt_condition(r):
+    ctx = r["ctx"] or "home"
+    if is_meet(ctx):
+        return "meeting"
+    if ctx.startswith("import:"):
+        return "import"
+    if r["cal"] and call_contact(r["cal"]):
+        return "call"
+    return "away" if r["away"] else "home"
+
+
+# ------------------------------------------------------------------ ASR 2.0: the "איכות התמלול" section
+ASR_SETTING_KEYS = {"mode": ("legacy", "large_only", "dual_test", "adaptive")}
+
+
+def asr_info():
+    import asr_correct, asr_engine, asr_models, asr_update
+    cfg = config()
+    st = asr_engine.settings(cfg)
+    a = cfg.get("asr") or {}
+    return dict(asr_update.status(), settings={
+        "mode": st["mode"], "segmentation": st["seg_name"], "secondary": st["secondary"],
+        "mark_uncertain": st["mark"], "correct": bool((a.get("correct") or {}).get("enabled")),
+        "llm": bool((a.get("correct") or {}).get("llm")), "modes": list(asr_engine.MODES),
+        "segmentations": list(__import__("asr_segment").PRESETS)},
+        models=asr_models.status(), glossary=asr_correct.glossary(cfg), bench=latest_bench(), speed=asr_speed())
+
+
+def asr_speed():
+    """Measured on this PC: analysis seconds per audio second over the last 24 h of chunks (all stages, not ASR alone)."""
+    with db() as c:
+        r = c.execute("SELECT count(*) n, sum(took) took, sum(seconds) sec FROM chunks WHERE status='done' AND analysed>=? "
+                      "AND took IS NOT NULL AND seconds>0", (iso(datetime.now() - timedelta(hours=24)),)).fetchone()
+    return {"chunks": r["n"], "rtf": round(r["took"] / r["sec"], 3) if r["sec"] else None,
+            "audio_min": round((r["sec"] or 0) / 60, 1)}
+
+
+def latest_bench():
+    """The newest benchmark report in <data>/bench (asr_bench.py output): measured numbers only."""
+    runs = sorted((HOME / "bench").glob("*/results.json")) if (HOME / "bench").exists() else []
+    if not runs:
+        return None
+    try:
+        r = json.loads(runs[-1].read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return {"run": runs[-1].parent.name, "meta": r.get("meta"), "summary": r.get("summary"),
+            "probes": [{"system": p["system"], "id": p["id"], "words": len(p["hyp"].split())} for p in r.get("probes") or []]}
+
+
+def asr_quality_lists(c):
+    """Uncertain and corrected lines (newest first) and a mixed queue of lines to check by ear for the gold set."""
+    gold = HOME / "gold"
+    in_gold = {p.stem[1:] for p in gold.glob("u*.txt")} if gold.exists() else set()
+    cols = ("u.id, u.t0, u.t1, u.seconds, u.text, u.text_raw, u.asr, u.name, u.conv_id, k.file, k.ctx, k.away, k.cal")
+
+    def rows(sql, args=()):
+        out = []
+        for r in c.execute(f"SELECT {cols} FROM utterances u JOIN chunks k ON k.id=u.chunk_id WHERE {sql}", args):
+            d = {k: r[k] for k in ("id", "t0", "t1", "seconds", "text", "text_raw", "name", "conv_id")}
+            d["asr"] = json.loads(r["asr"]) if r["asr"] else None
+            d["audio"] = bool(r["file"] and os.path.exists(r["file"]))
+            d["condition"] = utt_condition(r)
+            d["in_gold"] = str(r["id"]) in in_gold
+            out.append(d)
+        return out
+    uncertain = rows("u.asr IS NOT NULL AND json_extract(u.asr,'$.uncertain')=1 ORDER BY u.t0 DESC LIMIT 40")
+    corrected = rows("u.text_raw IS NOT NULL ORDER BY u.t0 DESC LIMIT 30")
+    # spread over the last 30 days (a stable shuffle per day, so a reload keeps the same list), <= 2 lines a conversation
+    pool = rows("u.media IS NULL AND u.text!='' AND u.seconds>=1.0 AND k.file IS NOT NULL AND u.t0>=? "
+                "ORDER BY (u.id * 2654435761 + ?) % 1000003 LIMIT 800",
+                (iso(datetime.now() - timedelta(days=30)), int(datetime.now().strftime("%Y%m%d"))))
+    pool = [p for p in pool if p["audio"] and not p["in_gold"]]
+    by, per_conv = {}, {}
+    for p in pool:
+        per_conv[p["conv_id"]] = per_conv.get(p["conv_id"], 0) + 1
+        if per_conv[p["conv_id"]] <= 2:
+            by.setdefault(p["condition"], []).append(p)
+    review, i = [], 0                       # round-robin over conditions, uncertain lines first inside each
+    for k in by:
+        by[k].sort(key=lambda p: not (p["asr"] or {}).get("uncertain"))
+    while len(review) < 30 and any(len(v) > i for v in by.values()):
+        review += [v[i] for v in by.values() if len(v) > i]
+        i += 1
+    return {"uncertain": uncertain, "corrected": corrected, "review": review[:30], "gold_items": len(in_gold)}
+
+
+def asr_settings_set(b):
+    cfg = config()
+    a = dict(cfg.get("asr") or {})
+    import asr_segment
+    if b.get("mode") in ASR_SETTING_KEYS["mode"]:
+        if b["mode"] in ("large_only", "dual_test", "adaptive"):
+            import asr_models
+            sec = a.get("secondary_model") or asr_models.SECONDARY
+            if not asr_models.local_path(sec):
+                return {"ok": False, "msg": f"המודל המשני {sec} לא מותקן. התקן אותו קודם."}
+        a["mode"] = b["mode"]
+    if "segmentation" in b:
+        if not all(p in asr_segment.PRESETS for p in str(b["segmentation"]).split("+")):
+            return {"ok": False, "msg": "חיתוך לא מוכר"}
+        a["segmentation"] = str(b["segmentation"])
+    if "mark_uncertain" in b:
+        a["mark_uncertain"] = bool(b["mark_uncertain"])
+    if "correct" in b or "llm" in b:
+        cc = dict(a.get("correct") or {})
+        if "correct" in b:
+            cc["enabled"] = bool(b["correct"])
+        if "llm" in b:
+            cc["llm"] = bool(b["llm"])
+        a["correct"] = cc
+    cfg["asr"] = a
+    _write_config(cfg)
+    if WORKER:
+        WORKER.reload = True
+    return {"ok": True, "asr": a}
+
+
+def asr_glossary_set(b):
+    import asr_correct
+    entries, warn = [], []
+    for e in (b.get("glossary") or [])[:300]:
+        if not isinstance(e, dict) or not str(e.get("term", "")).strip():
+            continue
+        e = {"term": str(e["term"]).strip()[:60],
+             "variants": [str(v).strip()[:60] for v in (e.get("variants") or []) if str(v).strip()][:20],
+             "kind": str(e.get("kind") or "")[:12], "prompt": e.get("prompt", True) is not False}
+        warn += asr_correct.check_entry(e)
+        entries.append(e)
+    cfg = config()
+    cfg["asr_glossary"] = entries
+    if "asr_terms" in b:
+        cfg["asr_terms"] = [str(t).strip()[:60] for t in (b.get("asr_terms") or []) if str(t).strip()][:60]
+    _write_config(cfg)
+    return {"ok": True, "count": len(entries), "warnings": warn}
+
+
+def _write_config(cfg):
+    tmp = CONFIG.with_suffix(".tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(cfg, f, indent=1, ensure_ascii=False)
+    tmp.replace(CONFIG)
 
 
 def api(path, qs):
@@ -2438,8 +2595,9 @@ def api(path, qs):
         if path == "/home/api/health":
             return health(c)
         if path == "/home/api/asr":
-            import asr_update
-            return asr_update.status()
+            return asr_info()
+        if path == "/home/api/asr_quality":
+            return asr_quality_lists(c)
         if path == "/home/api/live":
             since = iso(datetime.now() - timedelta(minutes=15))
             U = _clean(c.execute("SELECT * FROM utterances WHERE t0>=? ORDER BY t0 DESC LIMIT 40", (since,)).fetchall())[::-1]
@@ -2586,7 +2744,9 @@ class Handler(BaseHTTPRequestHandler):
         qs = urllib.parse.parse_qs(u.query)
         if u.path in ("/home/api/label", "/home/api/summarize_day", "/home/api/summarize_conv", "/home/api/label_sound",
                       "/home/api/delete_audio", "/home/api/task", "/home/api/optout", "/home/api/place", "/home/api/import_dirs",
-                      "/home/api/privacy_set", "/home/api/gold", "/home/api/asr_check", "/home/api/teach_skip"):
+                      "/home/api/privacy_set", "/home/api/gold", "/home/api/asr_check", "/home/api/teach_skip",
+                      "/home/api/asr_settings", "/home/api/asr_glossary", "/home/api/asr_rollback", "/home/api/asr_install",
+                      "/home/api/asr_nominate"):
             phone_ok = u.path in ("/home/api/label", "/home/api/task", "/home/api/teach_skip")       # teaching + task checking also from the paired phone
             if not (self._authed() if phone_ok else self._local()):
                 return self._send(403, {"error": "only from this PC" if not phone_ok else "bad token"})
@@ -2604,17 +2764,39 @@ class Handler(BaseHTTPRequestHandler):
                     return self._send(200, {"ok": True})
                 if u.path == "/home/api/gold":
                     with db() as c:
-                        return self._send(200, add_gold(c, int(b.get("utt_id", 0)), b.get("text")))
+                        return self._send(200, add_gold(c, int(b.get("utt_id", 0)), b.get("text"), b.get("condition")))
                 if u.path == "/home/api/asr_check":
                     import asr_update
                     cfg = asr_update.cfg_read()
                     st = asr_update.state(cfg)
-                    st["enabled"] = bool(b.get("enabled", True))
-                    if st["enabled"]:
-                        st["misses"] = 0
-                        st["note"] = None
+                    if "enabled" in b:
+                        st["enabled"] = bool(b.get("enabled", True))
+                        if st["enabled"]:
+                            st["misses"] = 0
+                            st["note"] = None
+                    if "auto_promote" in b:
+                        st["auto_promote"] = bool(b["auto_promote"])
                     asr_update.cfg_write(cfg)
                     return self._send(200, dict(asr_update.status(), ok=True))
+                if u.path == "/home/api/asr_settings":
+                    return self._send(200, asr_settings_set(b))
+                if u.path == "/home/api/asr_glossary":
+                    return self._send(200, asr_glossary_set(b))
+                if u.path == "/home/api/asr_rollback":
+                    import asr_update
+                    r = asr_update.rollback()
+                    if r.get("ok") and WORKER:
+                        WORKER.reload = True
+                    return self._send(200, r)
+                if u.path == "/home/api/asr_install":       # an explicit download: only the models this screen offers
+                    import asr_models
+                    m = str(b.get("model") or "")
+                    if m not in asr_models.KNOWN:
+                        return self._send(400, {"ok": False, "msg": "מודל לא מוכר"})
+                    return self._send(200, asr_models.install_async(m))
+                if u.path == "/home/api/asr_nominate":
+                    import asr_update
+                    return self._send(200, asr_update.nominate(str(b.get("model") or "")))
                 if u.path == "/home/api/optout":
                     return self._send(200, set_optout(str(b.get("id", "")), bool(b.get("on", True))))
                 if u.path == "/home/api/place":
