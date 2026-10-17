@@ -287,10 +287,11 @@ def utterances(B, audio, words, cands, names=None, raw=None, away=False):
     for c in ch:
         if U and U[-1]["speaker"] == c["speaker"] and U[-1].get("media") == c["media"] and c["t0"] - U[-1]["t1"] < 1.2:
             U[-1]["t1"], U[-1]["text"] = c["t1"], U[-1]["text"] + " " + c["text"]
+            U[-1]["words"] += c.get("words") or []
         else:
             U.append({"t0": c["t0"], "t1": c["t1"], "speaker": c["speaker"], "text": c["text"],
                       "how": "voice" if c["speaker"] else ("media" if c["media"] else None), "media": c["media"],
-                      "media_scores": c.get("media_scores"),
+                      "media_scores": c.get("media_scores"), "words": list(c.get("words") or []),
                       "lang": "en" if latin_share(c["text"]) > 0.6 else "he"})
     names = names or {}
     for u in U:

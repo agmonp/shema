@@ -221,6 +221,22 @@ mark{background:rgba(234,164,94,.3);color:inherit;border-radius:3px}
 .who2 .menu button{display:block;width:100%;text-align:start;padding:8px 10px;border-radius:8px;font-size:14px}
 .who2 .menu button:hover,.who2 .menu button:focus-visible{background:var(--surface3);outline:none}
 .who2 .foot .legend{margin:0;flex:1;font-size:11px}
+/* 2026-10-17 split one line between speakers */
+.splitw{line-height:2.1;font-size:16px;margin:8px 0;user-select:none}
+.splitw .w{padding:2px 3px;border-radius:5px;border-bottom:3px solid var(--pc,var(--unk))}
+.splitw .cut{display:inline-block;width:14px;text-align:center;color:var(--faint);cursor:pointer;border-radius:4px;font-size:13px}
+.splitw .cut:hover,.splitw .cut:focus-visible{background:var(--surface3);color:var(--accent);outline:none}
+.splitw .cut.on{color:var(--accent);font-weight:800}
+.splitbar{position:relative;height:10px;border-radius:5px;background:var(--surface3);margin:6px 0 10px;direction:ltr;overflow:hidden}
+.splitbar i{position:absolute;top:0;bottom:0}
+.sparts{display:grid;gap:8px}
+.spart{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:6px 8px;border-radius:10px;background:var(--surface2);border-inline-start:4px solid var(--pc,var(--unk))}
+.spart .tx{flex:1 1 140px;min-width:0;font-size:14px}
+.spart select,.spart input{background:var(--surface3);color:var(--ink);border:1px solid var(--line2);border-radius:8px;padding:4px 6px;font:inherit;font-size:13px;max-width:150px}
+.spart .play{width:30px;height:30px;border-radius:50%;background:var(--surface3);border:1px solid var(--line2);flex:none}
+.who2 .row2{display:flex;gap:8px;align-items:center;margin-top:12px;flex-wrap:wrap}
+.who2 .row2 label{display:flex;gap:6px;align-items:center;font-size:13px;color:var(--dim)}
+.utt .mk{font-size:11px;color:var(--faint);margin-inline-start:4px}
 .topconn{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--dim);background:var(--surface2);border:1px solid var(--line2);border-radius:16px;padding:3px 10px}
 .topconn .dot{width:8px;height:8px;border-radius:50%;background:var(--unk)} .topconn.live .dot{background:var(--sage)}
 .topconn:hover{border-color:var(--accent)}
@@ -428,7 +444,7 @@ function uttRow(u){
     <div class="body"><span class="t">${hms(u.t0)}</span> ${esc(u.media)} ברקע · ${Math.round(u.seconds)} שנ׳</div></div>`;
   return `<div class="utt"><button class="who${u.how === "conv" || u.how === "call" ? " maybe" : ""}" data-u="${u.id}" style="color:${colorOf(u.name)}" title="לחץ כדי לומר מי זה">${esc(first(u.name))}${u.how === "conv" ? "?" : ""}
       <small>${u.name ? (HOW[u.how] || "") : "מי זה? ✎"}</small></button>
-    <div class="body"><span class="t">${hms(u.t0)}</span> ${esc(u.text)}${u.text ? `<button class="gold" data-g="${u.id}" title="הוסף לסט הזהב: מדידת איכות התמלול">⭐ זהב</button>` : ""}<div class="feel">${feel(u)}</div></div></div>`;
+    <div class="body"><span class="t">${hms(u.t0)}</span>${u.split_of ? `<span class="mk" title="פוצל מתוך שורה אחת · לחץ על השורה ← ⋯ עוד כדי לבטל">✂${u.overlap ? " בו-זמנית" : ""}</span>` : ""} ${esc(u.text)}${u.text ? `<button class="gold" data-g="${u.id}" title="הוסף לסט הזהב: מדידת איכות התמלול">⭐ זהב</button>` : ""}<div class="feel">${feel(u)}</div></div></div>`;
 }
 let UMAP = {};
 function bindWho(root, U){
@@ -492,6 +508,8 @@ async function askWho(u){
     <div class="namebox"><input id="wname" placeholder="הקלד שם, או שם חדש…" autocomplete="off" aria-label="שם הדובר"><div class="sugg" hidden></div></div>
     <div class="foot"><div class="more"><button id="wmore" aria-haspopup="true">⋯ עוד</button><div class="menu" hidden>
         ${u.media ? `<button data-act="person">🗣 זה לא ${esc(u.media)}: מישהו מדבר</button>` : `<button data-act="tv">📺 טלוויזיה / רדיו / שיר</button>`}
+        ${!u.media && (u.text || "").split(/\s+/).filter(Boolean).length >= 2 ? `<button data-act="split">✂ פצל בין דוברים</button>` : ""}
+        <button data-act="unsplit" hidden>↺ בטל את הפיצול של השורה</button>
         <button data-act="multi">👥 כמה אנשים מדברים כאן</button>
         <button data-act="unclear">❔ לא ניתן לזהות</button></div></div>
       <span class="legend">כל בחירה מלמדת את הקול ומזהה מחדש משפטים דומים.</span></div></div>`;
@@ -515,12 +533,16 @@ async function askWho(u){
   };
   const skip = async (reason, msg) => { close(); await POST("/home/api/teach_skip", {utt_id: u.id, reason}); toast(msg); };
   // ⋯ more: the rare answers
+  let W = null;                                             // candidates, context, word times (filled below)
   const menu = sh.querySelector(".menu");
   sh.querySelector("#wmore").onclick = e => { e.stopPropagation(); menu.hidden = !menu.hidden; if (!menu.hidden) menu.querySelector("button").focus(); };
   sh.querySelector(".box").addEventListener("click", e => { if (!e.target.closest(".more")) menu.hidden = true; });
   menu.querySelectorAll("[data-act]").forEach(b => b.onclick = () => ({
     tv: () => send({speaker: "__tv__"}),
     person: () => send({speaker: "__person__"}),
+    split: () => { menu.hidden = true; splitEditor(sh, u, W); },
+    unsplit: async () => { close(); const r = await POST("/home/api/unsplit", {utt_id: u.id});
+      toast(r.ok ? "הפיצול בוטל. השורה חזרה כמו שהייתה." : (r.msg || "לא הצליח")); live.key = null; route(true); },
     multi: () => skip("multi", "סומן: כמה מדברים. לא נלמד מזה ולא יישאל שוב."),
     unclear: () => skip("unclear", "סומן: לא ניתן לזהות. לא יישאל שוב."),
   })[b.dataset.act]());
@@ -548,8 +570,9 @@ async function askWho(u){
     else if (e.key === "Enter" && inp.value.trim()) { e.preventDefault(); sg.querySelectorAll("button")[hi]?.click(); }
   };
   // candidates: only with a real reason (the voice, or named in this conversation and the voice agrees); else none
-  const W = await J("/home/api/who_cands?utt=" + u.id).catch(() => null);
+  W = await J("/home/api/who_cands?utt=" + u.id).catch(() => null);
   if (!sh.isConnected) return;
+  if (W && W.split_of) menu.querySelector('[data-act="unsplit"]').hidden = false;
   const wc = sh.querySelector("#wc");
   const cands = (W && W.cands || []).filter(p => p.id !== u.speaker || u.how !== "user");
   if (cands.length) {
@@ -566,6 +589,69 @@ async function askWho(u){
     cb.onclick = () => { cx.hidden = !cx.hidden; cb.textContent = cx.hidden ? "מה נאמר לפני ואחרי ▾" : "הסתר הקשר ▴"; };
   }
   (cands.length ? wc.querySelector("button") : inp).focus({preventScroll: true});
+}
+// "✂ split between speakers": tap between words to cut, give every part a person, listen to each part.
+// With word times the parts follow the audio; without them the time is estimated by the text (said so on screen).
+// "They spoke at the same time" keeps the whole time span for every part: cutting the words does not tell who spoke when.
+async function splitEditor(sh, u, W){
+  W ||= await J("/home/api/who_cands?utt=" + u.id).catch(() => ({}));
+  PEOPLE ||= await J("/home/api/people").catch(() => []);
+  const toks = (u.text || "").split(/\s+/).filter(Boolean);
+  const words = W.words && W.words.length === toks.length ? W.words : null;
+  const dur = W.dur || +u.seconds || 1;
+  const cuts = new Set(), who = {}, PART_C = ["var(--p0)", "var(--p1)", "var(--p2)", "var(--p3)", "var(--p4)", "var(--p5)"];
+  let overlap = false;
+  const box = sh.querySelector(".box");
+  const parts = () => { const b = [0, ...[...cuts].sort((a, b) => a - b), toks.length]; return b.slice(0, -1).map((a, i) => [a, b[i + 1]]); };
+  const lens = toks.map(t => t.length + 1), tot = lens.reduce((a, b) => a + b, 0);
+  const timeAt = k => words ? (k <= 0 ? 0 : k >= toks.length ? dur : words[k][0]) : dur * lens.slice(0, k).reduce((a, b) => a + b, 0) / tot;
+  const span = ([a, b]) => overlap ? [0, dur] : [timeAt(a), b >= toks.length ? dur : (words ? words[b - 1][1] : timeAt(b))];
+  const opts = sel => {
+    const seen = new Set(), o = [`<option value="">❔ לא ידוע</option>`];
+    const add = (id, name, tag) => { if (seen.has(id)) return; seen.add(id); o.push(`<option value="${esc(id)}" ${sel === id ? "selected" : ""}>${esc(name)}${tag || ""}</option>`); };
+    (W.cands || []).forEach(p => add(p.id, p.name, ` · ${WHY[p.why] || ""}`));
+    if (u.speaker) add(u.speaker, u.name || u.speaker, " · עכשיו");
+    PEOPLE.forEach(p => add(p.id, p.name));
+    o.push(`<option value="__new__" ${sel === "__new__" ? "selected" : ""}>＋ שם חדש…</option>`);
+    return o.join("");
+  };
+  const draw = () => {
+    const P = parts();
+    const colorAt = k => PART_C[P.findIndex(([a, b]) => k >= a && k < b) % PART_C.length];
+    box.innerHTML = `<div class="hd"><h3>✂ פצל בין דוברים</h3><button class="x" aria-label="סגור">×</button></div>
+      <div class="meta">הקש על ׀ בין מילים כדי לחתוך. כל חלק מקבל אדם משלו.</div>
+      <div class="splitw">${toks.map((t, k) => `${k ? `<span class="cut ${cuts.has(k) ? "on" : ""}" data-k="${k}" role="button" tabindex="0" aria-label="חתוך לפני ${esc(t)}">${cuts.has(k) ? "✂" : "׀"}</span>` : ""}<span class="w" style="--pc:${colorAt(k)}">${esc(t)}</span>`).join("")}</div>
+      ${P.length > 1 && !overlap ? `<div class="splitbar" title="איפה כל חלק בזמן">${P.map((p, i) => { const [s, e] = span(p);
+          return `<i style="left:${s / dur * 100}%;width:${Math.max(1, (e - s) / dur * 100)}%;background:${PART_C[i % PART_C.length]}"></i>`; }).join("")}</div>` : ""}
+      <div class="sparts">${P.map((p, i) => `<div class="spart" style="--pc:${PART_C[i % PART_C.length]}">
+          <button class="play" data-i="${i}" aria-label="השמע את החלק">▶</button>
+          <span class="tx">${esc(toks.slice(p[0], p[1]).join(" "))}</span>
+          <select data-i="${i}" aria-label="מי אמר את החלק">${opts(who[i] && who[i].sel)}</select>
+          ${who[i] && who[i].sel === "__new__" ? `<input data-n="${i}" placeholder="שם" value="${esc(who[i].name || "")}">` : ""}</div>`).join("")}</div>
+      <div class="row2"><label><input type="checkbox" id="ovl" ${overlap ? "checked" : ""}> דיברו באותו זמן (חפיפה)</label></div>
+      <div class="legend" style="margin:4px 0 0">${overlap ? "בחפיפה כל חלק נשמר על כל משך השורה: חלוקת המילים לא אומרת מי דיבר מתי."
+        : words ? "החלוקה בזמן לפי זמני המילים." : "לשורה הזו אין זמני מילים (הוקלטה לפני 17/10), אז הזמן של כל חלק משוער לפי אורך הטקסט."}
+        חלקים לא מלמדים את זיהוי הקול (הקול בהם מעורב). אפשר לבטל את הפיצול בכל רגע.</div>
+      <div class="row2"><button class="ok" id="ssave" ${P.length < 2 ? "disabled style=\"opacity:.5\"" : ""}>שמור פיצול</button><button class="back" id="sback">חזרה</button></div>`;
+    box.querySelector(".x").onclick = () => { if (WHO_AUDIO) WHO_AUDIO.pause(); sh.remove(); };
+    box.querySelectorAll(".cut").forEach(c => { const tg = () => { const k = +c.dataset.k; cuts.has(k) ? cuts.delete(k) : cuts.add(k); draw(); };
+      c.onclick = tg; c.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); tg(); } }; });
+    box.querySelectorAll("select[data-i]").forEach(s => s.onchange = () => { who[s.dataset.i] = {sel: s.value}; draw(); if (s.value === "__new__") box.querySelector(`[data-n="${s.dataset.i}"]`)?.focus(); });
+    box.querySelectorAll("input[data-n]").forEach(n => n.oninput = () => { who[n.dataset.n].name = n.value; });
+    box.querySelectorAll(".play").forEach(b => b.onclick = () => { const [s, e] = span(P[+b.dataset.i]);
+      if (WHO_AUDIO) WHO_AUDIO.pause(); WHO_AUDIO = new Audio(`/home/audio/utt/${u.id}?s=${s.toFixed(2)}&e=${e.toFixed(2)}`); WHO_AUDIO.play().catch(() => {}); });
+    box.querySelector("#ovl").onchange = e => { overlap = e.target.checked; draw(); };
+    box.querySelector("#sback").onclick = () => { sh.remove(); askWho(u); };
+    box.querySelector("#ssave").onclick = async () => {
+      const W2 = P.map((_, i) => { const w = who[i] || {}; return w.sel === "__new__" ? (w.name || "").trim() ? {new_name: w.name.trim()} : {} : w.sel ? {speaker: w.sel} : {}; });
+      if (W2.some((w, i) => (who[i] || {}).sel === "__new__" && !w.new_name)) return toast("כתוב את השם החדש");
+      sh.remove(); if (WHO_AUDIO) WHO_AUDIO.pause();
+      const r = await POST("/home/api/split", {utt_id: u.id, cuts: [...cuts], who: W2, overlap});
+      toast(r.ok ? `פוצל ל-${r.ids.length} חלקים${r.exact || overlap ? "" : " (זמנים משוערים)"}.` : (r.msg || "לא הצליח"));
+      live.key = null; route(true);
+    };
+  };
+  draw();
 }
 // keys while the window is open: 1-3 = a candidate, space = play/pause, Esc = close
 function keys(e){

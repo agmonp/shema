@@ -101,6 +101,8 @@ CREATE TABLE IF NOT EXISTS tasks (id INTEGER PRIMARY KEY, conv_id INTEGER, who T
 CREATE TABLE IF NOT EXISTS phone_timeline (device TEXT, s TEXT, e TEXT, reason TEXT, detail TEXT, received TEXT,
     PRIMARY KEY (device, s));
 CREATE TABLE IF NOT EXISTS teach_skips (utt_id INTEGER PRIMARY KEY, reason TEXT, at TEXT);
+CREATE TABLE IF NOT EXISTS utt_edits (id INTEGER PRIMARY KEY, utt_id INTEGER, kind TEXT, original TEXT, emb BLOB,
+    parts TEXT, at TEXT);
 CREATE TABLE IF NOT EXISTS imports (path TEXT PRIMARY KEY, mtime REAL, chunk_id INTEGER);
 CREATE TABLE IF NOT EXISTS meetings (id TEXT PRIMARY KEY, device TEXT, title TEXT, started TEXT, ended TEXT,
     conv_id INTEGER, status TEXT, result TEXT, updated TEXT);
@@ -138,6 +140,9 @@ MIGRATIONS = [   # columns added after the first version (2026-10-06 afternoon)
     # ASR 2.0: the transcript before glossary corrections (only when one changed it) and which model read it,
     # with its suspicion flags (JSON). Old rows stay NULL; nothing historical is rewritten.
     ("utterances", "text_raw", "TEXT"), ("utterances", "asr", "TEXT"),
+    # 2026-10-17: word times [[s0, s1, word], ...] (seconds from the line's start; new lines only), and lines made by
+    # "split between speakers": split_of = the original line's id, overlap = 1 when they spoke at the same time
+    ("utterances", "words", "TEXT"), ("utterances", "split_of", "INTEGER"), ("utterances", "overlap", "INTEGER"),
 ]
 
 
@@ -457,6 +462,138 @@ def names_by_context(c, cid, cands=None, call_cands=None):
     return conv_context_names(c, cid, cands if cands is not None else current_cands(c))
 
 
+def person_id(c, new_name):
+    """A typed name -> that person's id (a known name is reused, else a new person is added)."""
+    new_name = new_name.strip()[:60]
+    hit = next((pid for pid, d in known_names().items() if (d or {}).get("name") == new_name), None)
+    hit = hit or (c.execute("SELECT id FROM home_people WHERE name=?", (new_name,)).fetchone() or [None])[0]
+    if not hit:
+        hit = "home_" + secrets.token_hex(4)
+        c.execute("INSERT INTO home_people (id, name, created) VALUES (?,?,?)", (hit, new_name, iso(datetime.now())))
+    return hit
+
+
+def words_json(u):
+    """The line's word times, relative to its own start: [[s0, s1, word], ...] (None for TV / music lines)."""
+    ws = u.get("words") or []
+    if u.get("media") or not ws:
+        return None
+    return json.dumps([[round(w[0] - u["t0"], 2), round(w[1] - u["t0"], 2), str(w[2]).strip()] for w in ws if str(w[2]).strip()],
+                      ensure_ascii=False)
+
+
+# ------------------------------------------------------------------ split one line between speakers (2026-10-17)
+SPLIT_COLS = ("t0", "t1", "seconds", "speaker", "name", "text", "how", "score", "split_of", "overlap", "words")
+
+
+def split_times(u, n_tokens, cuts):
+    """Token cut positions -> [(start s, end s, exact)] relative to the line's start. With word times whose count
+    matches the line's words the cuts follow the audio; otherwise the time is shared by the length of the text
+    (marked not exact). A glossary correction can change the words, so the counts are checked."""
+    dur = max(0.01, (datetime.fromisoformat(u["t1"]) - datetime.fromisoformat(u["t0"])).total_seconds())
+    bounds = [0] + list(cuts) + [n_tokens]
+    ws = None
+    try:
+        ws = json.loads(u["words"]) if u["words"] else None
+    except ValueError:
+        ws = None
+    if ws and len(ws) == n_tokens:
+        return [(ws[a][0] if a else 0.0, ws[b - 1][1] if b < n_tokens else dur, True) for a, b in zip(bounds, bounds[1:])]
+    toks = (u["text"] or "").split()
+    lens = [len(t) + 1 for t in toks]
+    tot = sum(lens) or 1
+    at = lambda k: round(dur * sum(lens[:k]) / tot, 2)   # noqa: E731
+    return [(at(a), at(b), False) for a, b in zip(bounds, bounds[1:])]
+
+
+def split_utterance(utt_id, cuts, who, overlap=False):
+    """One line -> consecutive parts, each with its own person (or unknown). cuts = word positions where a new part
+    starts; who = one entry per part: {"speaker": id} / {"new_name": name} / {} (unknown).
+    overlap = they spoke at the same time: every part keeps the whole time span (a split of the words alone does not
+    tell when each one spoke). Nothing is lost: the original line (with its voice vector) is kept in utt_edits and
+    "unsplit" brings it back. The parts carry no voice vector (the audio is mixed), so they do not teach voices."""
+    with db() as c:
+        u = c.execute("SELECT * FROM utterances WHERE id=?", (utt_id,)).fetchone()
+        if not u:
+            return {"ok": False, "msg": "no such utterance"}
+        if u["split_of"]:
+            return {"ok": False, "msg": "השורה הזו כבר פוצלה. בטל את הפיצול ופצל מחדש."}
+        toks = (u["text"] or "").split()
+        cuts = sorted({int(k) for k in cuts if 0 < int(k) < len(toks)})
+        if not cuts or len(who) != len(cuts) + 1:
+            return {"ok": False, "msg": "צריך לפחות שני חלקים, ואדם (או לא ידוע) לכל חלק"}
+        times = split_times(u, len(toks), cuts)
+        bounds = [0] + cuts + [len(toks)]
+        start = datetime.fromisoformat(u["t0"])
+        dur = (datetime.fromisoformat(u["t1"]) - start).total_seconds()
+        try:
+            ws = json.loads(u["words"]) if u["words"] else None
+        except ValueError:
+            ws = None
+        orig = {k: u[k] for k in u.keys() if k != "emb"}
+        orig["_bank"] = [[r["speaker"], r["device"]] for r in c.execute("SELECT speaker, device FROM voice_bank WHERE utt_id=?", (utt_id,))]
+        ids, parts = [], []
+        for i, ((a, b), (s0, s1, exact), w) in enumerate(zip(zip(bounds, bounds[1:]), times, who)):
+            spk = w.get("speaker") or (person_id(c, w["new_name"]) if (w.get("new_name") or "").strip() else None)
+            if spk in (TV, "__person__"):
+                spk = None
+            if overlap:
+                s0, s1 = 0.0, dur
+            pw = None
+            if ws and len(ws) == len(toks):
+                pw = json.dumps([[round(x[0] - s0, 2), round(x[1] - s0, 2), x[2]] for x in ws[a:b]], ensure_ascii=False)
+            row = {"t0": iso(start + timedelta(seconds=s0)), "t1": iso(start + timedelta(seconds=max(s1, s0 + 0.05))),
+                   "seconds": round(max(s1 - s0, 0.05), 2), "speaker": spk, "name": name_of(c, spk) if spk else None,
+                   "text": " ".join(toks[a:b]), "how": "user" if spk else None, "score": None,
+                   "split_of": utt_id, "overlap": 1 if overlap else 0, "words": pw}
+            if i == 0:
+                c.execute(f"UPDATE utterances SET {', '.join(k + '=?' for k in SPLIT_COLS)}, emb=NULL WHERE id=?",
+                          [row[k] for k in SPLIT_COLS] + [utt_id])
+                ids.append(utt_id)
+            else:
+                keep = ("chunk_id", "conv_id", "device", "lang", "alt_db", "alt_device", "asr")
+                cols = list(SPLIT_COLS) + list(keep)
+                ids.append(c.execute(f"INSERT INTO utterances ({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})",
+                                     [row[k] for k in SPLIT_COLS] + [u[k] for k in keep]).lastrowid)
+            parts.append(dict(row, id=ids[-1], exact=exact))
+        c.execute("DELETE FROM voice_bank WHERE utt_id=?", (utt_id,))          # a mixed voice teaches nobody
+        c.execute("INSERT INTO utt_edits (utt_id, kind, original, emb, parts, at) VALUES (?,?,?,?,?,?)",
+                  (utt_id, "split", json.dumps(orig, ensure_ascii=False), u["emb"], json.dumps(ids), iso(datetime.now())))
+        cid = u["conv_id"]
+    if cid:
+        refresh_people(cid)
+    log(f"split: utterance {utt_id} -> {ids}{' (overlap)' if overlap else ''}")
+    return {"ok": True, "ids": ids, "parts": parts, "exact": all(p["exact"] for p in parts)}
+
+
+def unsplit_utterance(utt_id):
+    """Undo a split: any part's id (or the original's) -> the original line comes back as it was."""
+    with db() as c:
+        u = c.execute("SELECT id, split_of FROM utterances WHERE id=?", (utt_id,)).fetchone()
+        oid = (u["split_of"] or u["id"]) if u else utt_id
+        e = c.execute("SELECT * FROM utt_edits WHERE utt_id=? AND kind='split' ORDER BY id DESC LIMIT 1", (oid,)).fetchone()
+        if not e:
+            return {"ok": False, "msg": "no split to undo"}
+        orig = json.loads(e["original"])
+        for pid in json.loads(e["parts"]):
+            if pid != oid:
+                c.execute("DELETE FROM utterances WHERE id=? AND split_of=?", (pid, oid))
+        bank_rows = orig.pop("_bank", [])
+        cols = [k for k in orig if k != "id"]
+        c.execute(f"UPDATE utterances SET {', '.join(k + '=?' for k in cols)}, emb=? WHERE id=?",
+                  [orig[k] for k in cols] + [e["emb"], oid])
+        if e["emb"] is not None:                                 # what this line taught before the split, as it was
+            for spk, dev in bank_rows:
+                c.execute("INSERT INTO voice_bank (speaker, utt_id, vec, created, device) VALUES (?,?,?,?,?)",
+                          (spk, oid, e["emb"], iso(datetime.now()), dev))
+        c.execute("DELETE FROM utt_edits WHERE id=?", (e["id"],))
+        cid = orig.get("conv_id")
+    if cid:
+        refresh_people(cid)
+    log(f"unsplit: utterance {oid} restored")
+    return {"ok": True, "id": oid}
+
+
 def label(utt_id, speaker=None, new_name=None):
     """The user says who spoke one utterance -> voice bank -> re-score unnamed utterances.
     speaker "__tv__" = "this is the TV": the words leave the transcript, the voice teaches the TV filter.
@@ -467,13 +604,7 @@ def label(utt_id, speaker=None, new_name=None):
         if not u:
             return {"ok": False, "msg": "no such utterance"}
         if new_name:
-            new_name = new_name.strip()[:60]
-            hit = next((pid for pid, d in known_names().items() if (d or {}).get("name") == new_name), None)
-            hit = hit or (c.execute("SELECT id FROM home_people WHERE name=?", (new_name,)).fetchone() or [None])[0]
-            if not hit:
-                hit = "home_" + secrets.token_hex(4)
-                c.execute("INSERT INTO home_people (id, name, created) VALUES (?,?,?)", (hit, new_name, iso(datetime.now())))
-            speaker = hit
+            speaker = person_id(c, new_name)
         if not speaker:
             return {"ok": False, "msg": "no speaker"}
         if speaker == "__person__":
@@ -687,13 +818,21 @@ def teach_queue(c, limit=40, mode="smart"):
 WHO_VOICE_MIN, WHO_VOICE_NEAR, WHO_CONV_MIN, WHO_MAX = 0.30, 0.07, 0.20, 3   # near: measured 2026-10-17 on 180 taught lines (left out): right person shown 86%, 1.45 names on average
 
 
+def J0(s):
+    try:
+        return json.loads(s) if s else None
+    except ValueError:
+        return None
+
+
 def who_cands(c, utt_id):
     """2026-10-17 "מי אמר את זה?": at most WHO_MAX people worth one tap, each with why ("voice" = the voice is close to
     what was taught; "conv" = already named in this conversation AND the voice does not contradict it). A name heard in
     the text or a line next to it is never a reason by itself. No candidate when nothing is close: the screen then
     offers only the name field. The similarity is not a calibrated probability, so the screen shows no number."""
     from home_analyze import SIM_MIN, MARGIN
-    u = c.execute("SELECT id, conv_id, t0, speaker, how, emb FROM utterances WHERE id=?", (utt_id,)).fetchone()
+    u = c.execute("SELECT id, conv_id, t0, t1, speaker, how, emb, split_of, overlap, words FROM utterances WHERE id=?",
+                  (utt_id,)).fetchone()
     if not u:
         return {"ok": False, "msg": "no such utterance"}
     cv = c.execute("SELECT cal FROM conversations WHERE id=?", (u["conv_id"],)).fetchone() if u["conv_id"] else None
@@ -738,7 +877,9 @@ def who_cands(c, utt_id):
             near.append({"id": r["id"], "t0": r["t0"], "name": r["name"], "text": "" if r["media"] else r["text"], "media": r["media"],
                          "before": r["t0"] < u["t0"]})
     return {"ok": True, "utt_id": utt_id, "cands": out, "context": near, "owner": owner_id(),
-            "current": {"speaker": u["speaker"], "how": u["how"]}}
+            "current": {"speaker": u["speaker"], "how": u["how"]},
+            "split_of": u["split_of"], "overlap": u["overlap"], "words": J0(u["words"]),
+            "dur": round((datetime.fromisoformat(u["t1"]) - datetime.fromisoformat(u["t0"])).total_seconds(), 2)}
 
 
 def forget_phone(device):
@@ -1188,15 +1329,16 @@ def save_analysis(row, st, res):
             emb = u.get("emb")
             c.execute("""INSERT INTO utterances (chunk_id,conv_id,t0,t1,seconds,speaker,name,text,f0_hz,f0_range_st,
                          intensity_db,syll_per_s,voiced_share,emotion,emotion_p,emotion_scores,arousal,dominance,valence,
-                         emb,how,media,media_text,device,alt_db,alt_device,lang,text_raw,asr)
-                         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                         emb,how,media,media_text,device,alt_db,alt_device,lang,text_raw,asr,words)
+                         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                       (chunk_id, conv, t0, t1, round(u["t1"] - u["t0"], 2), u["speaker"], u["name"],
                        u["text"].strip(), p.get("f0_hz"), p.get("f0_range_st"), p.get("intensity_db"),
                        p.get("syll_per_s"), p.get("voiced_share"), e.get("label"), e.get("p"),
                        json.dumps(e.get("scores")) if e else None, d.get("arousal"), d.get("dominance"), d.get("valence"),
                        emb.astype(np.float32).tobytes() if emb is not None else None, u.get("how"),
                        u.get("media"), u.get("media_text"), device, alt_db, alt_dev, u.get("lang"),
-                       u.get("text_raw"), json.dumps(u["asr"], ensure_ascii=False) if u.get("asr") else None))
+                       u.get("text_raw"), json.dumps(u["asr"], ensure_ascii=False) if u.get("asr") else None,
+                       words_json(u)))
         for s in res["sounds"]:
             if away:
                 break                                         # away from home: only the speech of the owner's conversations
@@ -2827,8 +2969,8 @@ class Handler(BaseHTTPRequestHandler):
                       "/home/api/delete_audio", "/home/api/task", "/home/api/optout", "/home/api/place", "/home/api/import_dirs",
                       "/home/api/privacy_set", "/home/api/gold", "/home/api/asr_check", "/home/api/teach_skip",
                       "/home/api/asr_settings", "/home/api/asr_glossary", "/home/api/asr_rollback", "/home/api/asr_install",
-                      "/home/api/asr_nominate", "/home/api/forget_phone"):
-            phone_ok = u.path in ("/home/api/label", "/home/api/task", "/home/api/teach_skip")       # teaching + task checking also from the paired phone
+                      "/home/api/asr_nominate", "/home/api/forget_phone", "/home/api/split", "/home/api/unsplit"):
+            phone_ok = u.path in ("/home/api/label", "/home/api/task", "/home/api/teach_skip", "/home/api/split", "/home/api/unsplit")       # teaching + task checking also from the paired phone
             if not (self._authed() if phone_ok else self._local()):
                 return self._send(403, {"error": "only from this PC" if not phone_ok else "bad token"})
             b = self._body()
@@ -2843,6 +2985,11 @@ class Handler(BaseHTTPRequestHandler):
                         c.execute("INSERT OR REPLACE INTO teach_skips (utt_id, reason, at) VALUES (?,?,?)",
                                   (int(b.get("utt_id", 0)), str(b.get("reason") or "unclear")[:20], iso(datetime.now())))
                     return self._send(200, {"ok": True})
+                if u.path == "/home/api/split":
+                    return self._send(200, split_utterance(int(b.get("utt_id", 0)), b.get("cuts") or [], b.get("who") or [],
+                                                           bool(b.get("overlap"))))
+                if u.path == "/home/api/unsplit":
+                    return self._send(200, unsplit_utterance(int(b.get("utt_id", 0))))
                 if u.path == "/home/api/forget_phone":
                     return self._send(200, forget_phone(clean_device(b.get("device"))))
                 if u.path == "/home/api/gold":
@@ -2981,7 +3128,12 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, pair_info())
         m = re.fullmatch(r"/home/audio/utt/(\d+)", u.path)
         if m and self._authed():                           # one utterance's audio (to check by ear before labelling)
-            return self._utt_audio(int(m.group(1)))
+            q = urllib.parse.parse_qs(u.query)
+            try:
+                part = (float(q["s"][0]), float(q["e"][0])) if "s" in q and "e" in q else None
+            except ValueError:
+                part = None
+            return self._utt_audio(int(m.group(1)), part=part)
         m = re.fullmatch(r"/home/audio/sound/(\d+)", u.path)
         if m and self._authed():                           # one sound event's audio
             return self._utt_audio(int(m.group(1)), table="sounds")
@@ -3010,7 +3162,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(500, {"error": repr(exc)})
         return self._send(200, out) if out is not None else self._send(404, {"error": "not found"})
 
-    def _utt_audio(self, uid, table="utterances"):
+    def _utt_audio(self, uid, table="utterances", part=None):
         with db() as c:
             r = c.execute(f"SELECT u.t0, u.t1, k.start, k.file FROM {table} u JOIN chunks k ON k.id=u.chunk_id "
                           "WHERE u.id=?", (uid,)).fetchone()
@@ -3019,6 +3171,9 @@ class Handler(BaseHTTPRequestHandler):
         import voice_embed as VE
         off = (datetime.fromisoformat(r["t0"]) - datetime.fromisoformat(r["start"])).total_seconds()
         dur = (datetime.fromisoformat(r["t1"]) - datetime.fromisoformat(r["t0"])).total_seconds()
+        if part:                                           # one part of the line (split between speakers)
+            s0, s1 = max(0.0, min(part)), min(dur, max(part))
+            off, dur = off + s0, max(0.1, s1 - s0)
         wav = subprocess.run([VE.FF, "-v", "error", "-ss", f"{max(0, off - 0.2):.2f}", "-t", f"{dur + 0.4:.2f}",
                               "-i", r["file"], "-ac", "1", "-ar", "16000", "-f", "wav", "-"], capture_output=True).stdout
         return self._send(200, _fix_wav(wav), "audio/wav")

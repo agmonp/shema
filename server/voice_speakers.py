@@ -31,4 +31,4 @@ def chunks_of(words):
         cur.append(w)
     if cur:
         out.append(cur)
-    return [{"t0": c[0][0], "t1": c[-1][1], "text": "".join(x[2] for x in c).strip()} for c in out]
+    return [{"t0": c[0][0], "t1": c[-1][1], "text": "".join(x[2] for x in c).strip(), "words": c} for c in out]
