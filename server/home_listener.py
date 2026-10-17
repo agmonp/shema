@@ -12,6 +12,8 @@ r"""home_listener.py -- Shema's PC side (server).
     utterance's voice vector goes to the voice bank; every unnamed utterance of the last
     RESCORE_DAYS days is re-scored at once, and new recordings use the bank from then on
   * keeps raw audio by config.json "audio_policy" (default "archive"), text + numbers forever
+  * records on the PC itself too (pc_record.py: microphone / system audio / both, POST /home/api/pc_rec, this PC
+    only): its chunks join the same queue as device "pc"
   * serves the screen: GET /home (ui/home.html), /home/api/..., /home/app.apk
 
     python -X utf8 home_listener.py                 # serve on :8770
@@ -1105,6 +1107,50 @@ def set_optout(pid, on=True):
         with db() as c:
             n = c.execute("DELETE FROM utterances WHERE speaker=?", (pid,)).rowcount
     return {"ok": True, "optout": sorted(lst), "deleted": n}
+
+
+# ------------------------------------------------------------------ recording on the PC itself (pc_record.py)
+PC_DEVICE = "pc"
+PCREC = None
+_PC_DEV = {"t": 0, "v": None}
+
+
+def pcrec():
+    """The one recorder of this server. Its chunks go into the same queue as a phone's (device "pc", at home)."""
+    global PCREC
+    if PCREC is None:
+        import pc_record
+        PCREC = pc_record.Recorder(
+            store=lambda raw, st: store_chunk(raw, PC_DEVICE, iso(st), "wav", "speech", {"role": "home", "home": "1"}),
+            folder=HOME / "pc_rec", max_s=float(config().get("pc_rec_max_hours") or pc_record.MAX_HOURS) * 3600, log=log)
+    return PCREC
+
+
+def pc_rec_status():
+    return PCREC.status() if PCREC else {"state": "idle"}
+
+
+def pc_devices(fresh=False):
+    """Microphone / speakers of this PC, cached 30 s (the status call is polled every few seconds)."""
+    if fresh or _PC_DEV["v"] is None or time.time() - _PC_DEV["t"] > 30:
+        import pc_record
+        _PC_DEV["v"], _PC_DEV["t"] = pc_record.devices(), time.time()
+    return _PC_DEV["v"]
+
+
+def pc_rec_action(b):
+    """POST /home/api/pc_rec {action: start|pause|resume|stop|probe, source: mic|system|both, consent: true}."""
+    a, src = str(b.get("action") or ""), str(b.get("source") or "")
+    r = pcrec()
+    if a == "start":
+        if not b.get("consent"):
+            return {"state": r.state, "error": "צריך לאשר שכל הנוכחים יודעים שמקליטים"}
+        return r.start(src)
+    if a == "probe":
+        return r.probe(src)
+    if a in ("pause", "resume", "stop"):
+        return getattr(r, a)()
+    return {"state": r.state, "error": "פעולה לא מוכרת"}
 
 
 MARK_MINUTES = 10
@@ -2803,7 +2849,8 @@ def api(path, qs):
             n = {r["status"]: r["n"] for r in c.execute("SELECT status, count(*) AS n FROM chunks GROUP BY status")}
             last = c.execute("SELECT max(received) FROM chunks").fetchone()[0]
             return {"chunks": n, "last_received": last, "worker_busy": WORKER.busy if WORKER else None,
-                    "paused_until": config().get("paused_until"), "phones": phones(), "pc_has_mic": False,
+                    "paused_until": config().get("paused_until"), "phones": phones(), "pc_has_mic": pc_devices()["mic"] is not None,
+                    "pc_rec": pc_rec_status(),
                     "audio_policy": config().get("audio_policy", "archive"),
                     "audio_kept": c.execute("SELECT count(*) FROM chunks WHERE file IS NOT NULL").fetchone()[0],
                     "audio_mb": round(sum(f.stat().st_size for f in AUDIO.rglob("*") if f.is_file()) / 1e6, 1),
@@ -2811,6 +2858,8 @@ def api(path, qs):
                     "owner_enrolled": owner_enrolled(c, clean_device(qs["device"][0])) if "device" in qs else None,
                     "digest": digest() if "device" in qs else None,
                     "meetings_done": meetings_done(c, clean_device(qs["device"][0])) if "device" in qs else None}
+        if path == "/home/api/pc_rec":                    # the PC's own recording + what it can record from
+            return {"rec": pc_rec_status(), "devices": pc_devices(fresh="fresh" in qs)}
         if path == "/home/api/coverage":
             return coverage(c, (qs.get("day") or [None])[0])
         if path == "/home/api/health":
@@ -2969,7 +3018,8 @@ class Handler(BaseHTTPRequestHandler):
                       "/home/api/delete_audio", "/home/api/task", "/home/api/optout", "/home/api/place", "/home/api/import_dirs",
                       "/home/api/privacy_set", "/home/api/gold", "/home/api/asr_check", "/home/api/teach_skip",
                       "/home/api/asr_settings", "/home/api/asr_glossary", "/home/api/asr_rollback", "/home/api/asr_install",
-                      "/home/api/asr_nominate", "/home/api/forget_phone", "/home/api/split", "/home/api/unsplit"):
+                      "/home/api/asr_nominate", "/home/api/forget_phone", "/home/api/split", "/home/api/unsplit",
+                      "/home/api/pc_rec"):
             phone_ok = u.path in ("/home/api/label", "/home/api/task", "/home/api/teach_skip", "/home/api/split", "/home/api/unsplit")       # teaching + task checking also from the paired phone
             if not (self._authed() if phone_ok else self._local()):
                 return self._send(403, {"error": "only from this PC" if not phone_ok else "bad token"})
@@ -2992,6 +3042,8 @@ class Handler(BaseHTTPRequestHandler):
                     return self._send(200, unsplit_utterance(int(b.get("utt_id", 0))))
                 if u.path == "/home/api/forget_phone":
                     return self._send(200, forget_phone(clean_device(b.get("device"))))
+                if u.path == "/home/api/pc_rec":            # recording on this PC: started / stopped only at this PC
+                    return self._send(200, pc_rec_action(b))
                 if u.path == "/home/api/gold":
                     with db() as c:
                         return self._send(200, add_gold(c, int(b.get("utt_id", 0)), b.get("text"), b.get("condition")))
@@ -3156,8 +3208,10 @@ class Handler(BaseHTTPRequestHandler):
                     log(f"timeline store failed {exc!r}")
         try:
             out = api(u.path, qs)
+            if u.path == "/home/api/pc_rec" and isinstance(out, dict):
+                out["local"] = self._local()                # start / stop only at this PC; elsewhere the screen only shows it
             if u.path == "/home/api/status" and not authed and isinstance(out, dict):
-                out = dict(out, digest=None, owner_enrolled=None, phones=[], meetings_done=None)        # no codes -> only the clock and counts
+                out = dict(out, digest=None, owner_enrolled=None, phones=[], meetings_done=None, pc_rec=None)  # no codes -> only the clock and counts
         except Exception as exc:  # noqa: BLE001
             return self._send(500, {"error": repr(exc)})
         return self._send(200, out) if out is not None else self._send(404, {"error": "not found"})
@@ -3246,6 +3300,10 @@ def main():
                 if gate_conversation(r["id"]):
                     finish_conversation(r["id"])
         return
+    try:
+        pcrec().recover()                             # a PC recording cut by a crash / power cut -> normal chunks
+    except Exception as exc:  # noqa: BLE001
+        log(f"pc_rec recover failed {exc!r}")
     WORKER = Worker()
     WORKER.start()
     log(f"Shema server on :{PORT}  (data in {HOME})")

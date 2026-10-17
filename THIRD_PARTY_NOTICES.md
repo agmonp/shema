@@ -25,6 +25,7 @@ not restrict rights granted by the legacy MIT code or third-party licenses.
 | PyTorch / torchaudio | BSD-style | https://github.com/pytorch/pytorch / https://github.com/pytorch/audio |
 | transformers / huggingface_hub, Hugging Face | Apache-2.0 | https://github.com/huggingface/transformers / https://github.com/huggingface/huggingface_hub |
 | librosa / SoundFile | ISC / BSD-3-Clause | https://github.com/librosa/librosa / https://github.com/bastibe/python-soundfile |
+| SoundCard (recording on the PC) | BSD-3-Clause | https://github.com/bastibe/SoundCard |
 | Ollama | MIT | https://github.com/ollama/ollama |
 | FFmpeg (Gyan build; separate executable) | GPL-3.0 build, with other notices | https://www.gyan.dev/ffmpeg/builds/ / https://ffmpeg.org/legal.html |
 

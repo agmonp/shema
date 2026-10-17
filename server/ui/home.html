@@ -267,14 +267,44 @@ mark{background:rgba(234,164,94,.3);color:inherit;border-radius:3px}
 .asr .gl input{width:100%}
 .asr select,.asr textarea,.asr input{max-width:100%}
 .asr .kv>*{min-width:0;overflow-wrap:anywhere}
+/* 2026-10-17 recording on this PC (phase 4) */
+.recbtn{background:#e5484d;color:#fff;border-radius:10px;padding:5px 12px;font-weight:700}
+.recbtn:hover{filter:brightness(1.08)}
+.recbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:12px;padding:10px 14px;border-radius:var(--r);
+  background:rgba(229,72,77,.13);border:1px solid rgba(229,72,77,.55)}
+.recbar .dot{width:12px;height:12px;border-radius:50%;background:#e5484d;flex:none;animation:pulse 1.8s infinite}
+.recbar.paused{background:var(--surface);border-color:var(--line2)} .recbar.paused .dot{background:var(--accent);animation:none}
+.recbar .tm{font-variant-numeric:tabular-nums;direction:ltr;unicode-bidi:isolate;font-weight:700;font-size:17px}
+.recbar .sub{color:var(--dim);font-size:13px}
+.recbar .lv{display:inline-flex;align-items:center;gap:4px;font-size:13px}
+.recbar .lv i{display:block;width:70px;height:6px;border-radius:3px;background:var(--surface3);overflow:hidden;direction:ltr}
+.recbar .lv b{display:block;height:100%;background:var(--sage);transition:width .3s}
+.recbar .acts{display:flex;gap:6px;margin-inline-start:auto}
+.recbar .acts button{border:1px solid var(--line2);border-radius:16px;padding:4px 12px;font-size:14px;background:var(--surface2);min-height:34px}
+.recbar .acts .stop{background:#e5484d;border-color:#e5484d;color:#fff;font-weight:700}
+.recsheet .ropt{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border:1px solid var(--line2);border-radius:12px;margin:6px 0;cursor:pointer}
+.recsheet .ropt:has(input:checked){border-color:var(--accent);background:rgba(234,164,94,.08)}
+.recsheet .ropt.off{opacity:.5;cursor:default}
+.recsheet .ropt input{margin-top:4px;accent-color:var(--accent)}
+.recsheet .ropt b{display:block}
+.recsheet .ropt small{display:block;color:var(--faint);font-size:12px}
+.recsheet .ropt .why{color:var(--rose)}
+.recsheet .probe{font-size:13px;color:var(--dim);margin:6px 0;min-height:20px}
+.recsheet .consent{display:flex;gap:8px;align-items:flex-start;margin:10px 0;font-size:14px}
+.recsheet .consent input{margin-top:4px;accent-color:var(--accent)}
+.recsheet .go{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px}
+.recsheet .go .ok:disabled{opacity:.45;cursor:default}
+.recsheet .btn2{border:1px solid var(--line2);border-radius:10px;padding:6px 12px;font-size:14px}
+@media (max-width:600px){ .recbar .acts{margin-inline-start:0;width:100%} .recbar .acts button{flex:1} }
 @media (max-width:600px){ .asr .gl{grid-template-columns:1fr 1fr} .asr .gl .x2{grid-column:span 2}
   .asr .kv{grid-template-columns:1fr;gap:0} .asr .kv>span:nth-child(odd){margin-top:6px;font-size:12px} .asr .kv select{width:100%} }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <div class="top"><img class="logo" src="/home/icon.svg" alt=""><h1>שמע</h1><button class="pairbtn" id="pairbtn">📱 חבר טלפון</button><button class="store" id="store" title="מקום בדיסק">📦 …</button><span class="status" id="status"></span></div>
+  <div class="top"><img class="logo" src="/home/icon.svg" alt=""><h1>שמע</h1><button class="recbtn" id="recbtn" hidden title="להקליט ישירות במחשב: מיקרופון, שמע המחשב או שניהם">🎙 הקלטה חדשה</button><button class="pairbtn" id="pairbtn">📱 חבר טלפון</button><button class="store" id="store" title="מקום בדיסק">📦 …</button><span class="status" id="status"></span></div>
   <div id="alarm"></div>
+  <div id="recbar"></div>
   <div id="phones"></div>
   <nav class="tabs" id="tabs">
     <a href="#" data-t="day">היום ושיחות</a>
@@ -368,14 +398,14 @@ function source(s){
   PHONES = ph;
   $("#pairbtn").hidden = ph.length > 0;          // once a phone is paired the QR is a secondary action (phone details)
   if (!ph.length) {
-    $("#phones").innerHTML = `<div class="pcards"><div class="pcard"><h3><span class="dot"></span>אין טלפון מחובר</h3><div class="legend">ההקלטה נעשית רק בטלפון (אפליקציית "שמע"). המחשב רק מנתח ואין בו מיקרופון.</div>
+    $("#phones").innerHTML = `<div class="pcards"><div class="pcard"><h3><span class="dot"></span>אין טלפון מחובר</h3><div class="legend">הטלפון (אפליקציית "שמע") מקליט כל היום. אפשר גם להקליט ישירות במחשב: שיחה בחדר, שיחת וידאו או סרטון.</div>
       <div style="margin-top:8px"><button class="pairbtn" onclick="showPair()">📱 חבר טלפון</button></div></div></div>`;
   } else {
     const open = PH_OPEN;
     $("#phones").innerHTML = `<button class="phline${open ? " open" : ""}" id="phtoggle" title="${open ? "סגור" : "פרטי הטלפונים: כיסוי ההקלטה היום, סוללה, חיבור"}">
         ${ph.map(phoneChip).join("")}<span class="phmore">${open ? "סגור ▴" : "פרטים ▾"}</span></button>
       ${open ? `<div class="pcards">${ph.map(phoneCard).join("")}</div>
-      <div class="legend2">${LEG.map(([k, c, t]) => `<span><b style="background:${c}"></b>${t}</span>`).join("")}<span style="margin-inline-start:auto">🖥 המחשב רק מנתח · אין בו מיקרופון</span></div>
+      <div class="legend2">${LEG.map(([k, c, t]) => `<span><b style="background:${c}"></b>${t}</span>`).join("")}<span style="margin-inline-start:auto">🖥 ${s.pc_has_mic ? "המחשב מנתח, ואפשר להקליט גם בו" : "המחשב מנתח · מקליט בו רק את שמע המחשב (אין מיקרופון)"}</span></div>
       <div class="phacts"><button id="phnew">📱 חבר טלפון נוסף או מחליף</button><button id="phshare">💌 שתף את שמע עם חבר</button></div>` : ""}`;
     $("#phtoggle").onclick = () => { PH_OPEN = !PH_OPEN; try { localStorage.setItem("shema_ph_open", PH_OPEN ? "1" : ""); } catch (e) {} source(s); };
     if (open) {
@@ -409,6 +439,7 @@ async function covHealth(){
 }
 async function status(){
   const s = await J("/home/api/status");
+  if (s.pc_rec) recBar(s.pc_rec);
   source(s);
   const n = s.chunks || {};
   $("#status").innerHTML = `קטעים: ${n.done || 0} נותחו${n.new ? `, ${n.new} בתור` : ""}${n.failed ? `, ${n.failed} נכשלו` : ""}`;
@@ -930,6 +961,104 @@ async function showStorage(){
   };
 }
 document.addEventListener("DOMContentLoaded", () => {});
+// ---------------------------------------------------------------- recording on this PC (phase 4): the server records, the screen only steers
+let REC = {state: "idle"}, REC_T = null, REC_LOCAL = false;
+const clock = s => { s = Math.floor(s || 0); const h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60, x = s % 60;
+  return (h ? h + ":" + String(m).padStart(2, "0") : m) + ":" + String(x).padStart(2, "0"); };
+const lvl = d => d == null ? 0 : Math.max(2, Math.min(100, (d + 60) / 60 * 100));     // dBFS -60..0 -> 0..100%
+const SRC_IC = {mic: "🎙", system: "🔊"};
+function recBar(r){
+  const prev = REC.state;
+  REC = r || {state: "idle"};
+  $("#recbtn").hidden = !REC_LOCAL || REC.state !== "idle";
+  const box = $("#recbar");
+  if (!REC.state || REC.state === "idle") {
+    box.innerHTML = "";
+    if (REC_T) { clearInterval(REC_T); REC_T = null; }
+    if (prev && prev !== "idle" && (REC.error || REC.note)) toast(REC.error || REC.note);
+    return;
+  }
+  if (!REC_T) REC_T = setInterval(() => J("/home/api/pc_rec").then(x => recBar(x.rec)).catch(() => {}), 1000);
+  const paused = REC.state === "paused";
+  const saved = REC.chunks ? `${REC.chunks} קטעים נשמרו` : `נשמר כל ${REC.chunk_s || 30} שנ׳`;
+  const bar = box.querySelector(".recbar");
+  if (bar && bar.dataset.st === REC.state + (REC.error || "")) {      // same state: only the clock, meters and count (a rebuilt button can lose a click)
+    bar.querySelector(".tm").textContent = clock(REC.seconds);
+    bar.querySelector(".saved").textContent = saved;
+    bar.querySelectorAll(".lv").forEach(e => e.querySelector("b").style.width = (paused ? 0 : lvl((REC.levels || {})[e.dataset.k])) + "%");
+    return;
+  }
+  const meters = Object.entries(REC.devices || {}).map(([k, n]) => `<span class="lv" data-k="${k}" title="${esc(n)}">${SRC_IC[k] || ""}<i><b style="width:${paused ? 0 : lvl((REC.levels || {})[k])}%"></b></i></span>`).join("");
+  box.innerHTML = `<div class="recbar ${paused ? "paused" : "on"}" role="status" data-st="${esc(REC.state + (REC.error || ""))}"><span class="dot"></span>
+    <b>${paused ? "ההקלטה מושהית" : "מקליט במחשב"}</b><span class="tm">${clock(REC.seconds)}</span>
+    <span class="sub">${esc(REC.source_name || "")} · <span class="saved">${saved}</span></span>${meters}
+    ${REC_LOCAL ? `<span class="acts">${paused ? `<button data-a="resume">▶ המשך</button>` : `<button data-a="pause">⏸ השהה</button>`}<button data-a="stop" class="stop">⏹ עצור</button></span>`
+      : `<span class="sub">עוצרים במחשב עצמו</span>`}</div>
+    ${REC.error ? `<div class="legend" style="color:var(--rose)">${esc(REC.error)}</div>` : ""}`;
+  box.querySelectorAll("[data-a]").forEach(b => b.onclick = async () => {
+    box.querySelectorAll("button").forEach(x => x.disabled = true);
+    const r2 = await POST("/home/api/pc_rec", {action: b.dataset.a}).catch(() => null);
+    if (!r2) return toast("המחשב לא ענה. נסה שוב.");
+    if (b.dataset.a === "stop") toast(`ההקלטה נשמרה: ⁦${clock(r2.seconds)}⁩, ${r2.chunks} קטעים. התמלול יופיע ב"היום ושיחות" בדקות הקרובות.`);
+    else if (r2.error) toast(r2.error);
+    REC.state = r2.state;          // no second toast for the same stop
+    recBar(r2);
+  });
+}
+async function showRecord(){
+  const sh = document.createElement("div");
+  sh.className = "sheet";
+  sh.innerHTML = `<div class="box recsheet"><button class="x">×</button><h3>🎙 הקלטה חדשה במחשב</h3>
+    <div id="recbody"><div class="legend">בודק ממה המחשב יכול להקליט…</div></div></div>`;
+  document.body.appendChild(sh);
+  const close = () => sh.remove();
+  sh.querySelector(".x").onclick = close;
+  sh.onclick = e => { if (e.target === sh) close(); };
+  let P;
+  try { P = await J("/home/api/pc_rec?fresh=1"); } catch (e) {
+    $("#recbody").innerHTML = `<div class="legend">לא הצלחנו לבדוק את ההתקנים (${esc(e.message)}). סגור ונסה שוב.</div>`; return; }
+  if (P.error) { $("#recbody").innerHTML = `<div class="legend">לא הצלחנו לבדוק את ההתקנים (${esc(P.error)}). סגור ונסה שוב.</div>`; return; }
+  if (!P.local) { $("#recbody").innerHTML = `<div class="legend">מתחילים הקלטה רק במחשב עצמו (פתח שם את <code>http://localhost:8770/home</code>).</div>`; return; }
+  const D = P.devices || {};
+  const why = {
+    mic: D.error ? "חסרה ספריית ההקלטה: להריץ שוב את ההתקנה" : !D.mic ? "אין מיקרופון מחובר למחשב. חבר מיקרופון או אוזניות ופתח שוב את החלון."
+      : D.privacy === "denied" ? "Windows חוסם את המיקרופון: הגדרות > פרטיות ואבטחה > מיקרופון > לאפשר לאפליקציות שולחן עבודה" : "",
+    system: D.error ? "חסרה ספריית ההקלטה: להריץ שוב את ההתקנה" : !D.system ? "לא נמצא פלט שמע (רמקולים / אוזניות) במחשב" : ""};
+  why.both = why.mic || why.system;
+  const OPTS = [
+    ["mic", "🎙 מיקרופון", "מה שנאמר בחדר", D.mic],
+    ["system", "🔊 שמע המחשב", "מה שהמחשב משמיע: שיחת וידאו, סרטון, הקלטה שמתנגנת", D.system],
+    ["both", "🎙 + 🔊 שניהם", "שיחת וידאו: הקול שלך והצד השני, כל אחד נשמר בערוץ משלו", D.mic && D.system ? `${D.mic} + ${D.system}` : ""]];
+  const def = (OPTS.find(o => !why[o[0]]) || [null])[0];
+  $("#recbody").innerHTML = `<div class="q">ממה להקליט?</div>
+    ${OPTS.map(([k, t, d, dev]) => `<label class="ropt ${why[k] ? "off" : ""}"><input type="radio" name="rsrc" value="${k}" ${why[k] ? "disabled" : ""} ${k === def ? "checked" : ""}>
+      <span><b>${t}</b><small>${esc(d)}</small>${why[k] ? `<small class="why">${esc(why[k])}</small>` : dev ? `<small>${esc(dev)}</small>` : ""}</span></label>`).join("")}
+    <div class="go"><button class="btn2" id="rprobe" ${def ? "" : "disabled"}>בדיקת שמע (2 שנ׳)</button><span class="probe" id="rprobed"></span></div>
+    <label class="consent"><input type="checkbox" id="rconsent"><span>כל מי שבחדר או בשיחה יודע שמקליטים</span></label>
+    <div class="go"><button class="ok" id="rgo" disabled>⏺ התחל להקליט</button><button class="btn2" id="rcancel">ביטול</button></div>
+    <div class="legend">ההקלטה נשמרת בדיסק כל 30 שניות, וממשיכה גם אם סוגרים את הדפדפן. בזמן ההקלטה יש פס אדום למעלה, ושם משהים או עוצרים. נעצרת לבד אחרי 4 שעות.
+      התמלול, הדוברים והסיכום נעשים כמו בהקלטה מהטלפון.</div>`;
+  const pick = () => (sh.querySelector("input[name=rsrc]:checked") || {}).value;
+  const ready = () => { $("#rgo").disabled = !(pick() && $("#rconsent").checked); };
+  sh.querySelectorAll("input").forEach(i => i.onchange = () => { ready(); if (i.name === "rsrc") $("#rprobed").textContent = ""; });
+  $("#rcancel").onclick = close;
+  $("#rprobe").onclick = async () => {
+    const src = pick(); if (!src) return;
+    $("#rprobe").disabled = true; $("#rprobed").textContent = src === "mic" ? "מקשיב… דבר משהו" : src === "system" ? "מקשיב… הפעל משהו במחשב" : "מקשיב… דבר והפעל משהו";
+    const r = await POST("/home/api/pc_rec", {action: "probe", source: src}).catch(() => null);
+    $("#rprobe").disabled = false;
+    if (!r || !r.sources) { $("#rprobed").textContent = (r && r.error) || "הבדיקה לא הצליחה"; return; }
+    $("#rprobed").innerHTML = Object.entries(r.sources).map(([k, x]) => `${SRC_IC[k]} ${!x.ok ? `<span style="color:var(--rose)">${esc(x.error)}</span>`
+      : x.db == null || x.db < -55 ? `שקט${k === "mic" ? ": המיקרופון לא שמע כלום (מושתק?)" : ": שום דבר לא התנגן"}`
+      : `<span style="color:var(--sage)">שומע ✓</span> <span class="num" dir="ltr">${x.db} dB</span>`}`).join(" · ");
+  };
+  $("#rgo").onclick = async () => {
+    $("#rgo").disabled = true;
+    const r = await POST("/home/api/pc_rec", {action: "start", source: pick(), consent: $("#rconsent").checked}).catch(() => null);
+    if (!r || r.error) { toast((r && r.error) || "המחשב לא ענה"); ready(); return; }
+    close(); recBar(r); toast("מקליט. עוצרים בפס האדום למעלה.");
+  };
+}
 // ---------------------------------------------------------------- connect a phone (QR made here, nothing leaves the PC)
 async function showPair(){
   const sh = document.createElement("div");
@@ -1230,6 +1359,8 @@ function route(soft){
 window.onhashchange = () => route();
 $("#store").onclick = showStorage;
 $("#pairbtn").onclick = showPair;
+$("#recbtn").onclick = showRecord;
+J("/home/api/pc_rec").then(x => { REC_LOCAL = !!x.local; recBar(x.rec); }).catch(() => {});
 if (location.hash === "#pair") showPair();
 route();
 covHealth();
