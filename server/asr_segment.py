@@ -105,6 +105,20 @@ def split_regions(audio, regions, embed, thr):
     return out
 
 
+def turn_cuts(turns, region, min_gap=0.0):
+    """Change points (samples) inside one region from diarization turns [(t0 s, t1 s, speaker), ...] sorted by start:
+    wherever the next turn belongs to another speaker, cut half way between them (overlaps cut at the next start)."""
+    a, b = int(region[0]), int(region[1])
+    cuts = []
+    for (s0, e0, k0), (s1, e1, k1) in zip(turns, turns[1:]):
+        if k0 == k1:
+            continue
+        t = int(((e0 + s1) / 2 if s1 >= e0 else s1) * SR)
+        if a + int(0.3 * SR) < t < b - int(0.3 * SR):
+            cuts.append(t)
+    return sorted(set(cuts))
+
+
 def windows(regions, n, s):
     """Regions -> decode windows: {"a0", "b0"} = the audio slice handed to the model, {"lo", "hi"} = the span whose
     words this window owns (seconds; None = keep everything, the legacy behaviour), {"a", "b"} = the speech region."""

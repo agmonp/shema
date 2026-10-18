@@ -35,6 +35,8 @@ BEAM = int(os.getenv("SHEMA_ASR_BEAM") or 5)
 KEEP_LOGPROB = float(os.getenv("SHEMA_ASR_KEEP_LP") or -1.2)       # a segment below this mean log-probability is dropped
 KEEP_NOSPEECH = float(os.getenv("SHEMA_ASR_NOSPEECH") or 0.6)      # ... or above this no-speech probability
 SPKCUT = float(os.getenv("SHEMA_ASR_SPKCUT") or 0)    # >0: cut speech regions where the voice changes (asr_segment)
+DIAR = float(os.getenv("SHEMA_ASR_DIAR") or 0)        # >0: cut at speaker changes from pyannote segmentation (sherpa-onnx);
+#                                                       the value is the clustering threshold
 MODES = ("legacy", "large_only", "dual_test", "adaptive")
 
 # Whisper writes these on silence / noise (subtitle credits in its training data).
@@ -81,6 +83,23 @@ class Engine:
             self._spk = lambda wave: VE.embed(ex, wave)
         return self._spk
 
+    def _diarize(self, audio):
+        """pyannote segmentation 3.0 + eres2netv2 vectors + clustering (sherpa-onnx) -> [(t0, t1, speaker)]."""
+        if getattr(self, "_sd", None) is None:
+            import sherpa_onnx
+            from paths import MODELS
+            seg = next(MODELS.glob("**/sherpa-onnx-pyannote-segmentation-3-0/model.onnx"))
+            cfg = sherpa_onnx.OfflineSpeakerDiarizationConfig(
+                segmentation=sherpa_onnx.OfflineSpeakerSegmentationModelConfig(
+                    pyannote=sherpa_onnx.OfflineSpeakerSegmentationPyannoteModelConfig(model=str(seg))),
+                embedding=sherpa_onnx.SpeakerEmbeddingExtractorConfig(
+                    model=str(MODELS / "3dspeaker_speech_eres2netv2_sv_zh-cn_16k-common.onnx")),
+                clustering=sherpa_onnx.FastClusteringConfig(num_clusters=-1, threshold=DIAR),
+                min_duration_on=0.3, min_duration_off=0.5)
+            self._sd = sherpa_onnx.OfflineSpeakerDiarization(cfg)
+        res = self._sd.process(np.ascontiguousarray(audio, dtype=np.float32)).sort_by_start_time()
+        return [(r.start, r.end, r.speaker) for r in res]
+
     def mask(self, audio):
         import voice_embed as VE
         if self._vad_cfg is None:
@@ -122,6 +141,13 @@ class Engine:
         regions = S.regions_from_mask(mask, st["seg"]["merge_gap"], st["seg"]["max_merge"])
         if SPKCUT > 0:
             regions = S.split_regions(audio, regions, self._spk_embed(), SPKCUT)
+        if DIAR > 0:
+            turns = self._diarize(audio)
+            out = []
+            for r in regions:
+                pts = [int(r[0])] + S.turn_cuts(turns, r) + [int(r[1])]
+                out += [[pts[i], pts[i + 1]] for i in range(len(pts) - 1)]
+            regions = out
         wins = S.windows(regions, len(audio), st["seg"])
         first = self.model_name
         words, trace = [], {"mode": mode, "segmentation": st["seg_name"], "primary": first, "windows": [],

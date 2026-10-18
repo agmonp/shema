@@ -287,3 +287,21 @@ point was 0.04–0.66 at real changes, 0.17–0.50 inside one speaker, and as lo
 **Not enabled.** The gain exists (perfect boundaries) but needs a detector trained for speaker change (e.g. a
 frame-level segmentation model), or re-decoding by the speaker assignment production already makes after ASR;
 neither is built. The switch stays off by default (SPKCUT = 0); production behaviour is unchanged.
+
+**Trained speaker-change detector (same day):** pyannote segmentation 3.0 through sherpa-onnx 1.13.8 (k2-fsa release
+`sherpa-onnx-pyannote-segmentation-3-0`, 6 MB, in lifegraph `voice_models/dl_pyannote_seg/`), eres2netv2 vectors,
+fast clustering; regions cut wherever the next turn has another speaker (`asr_segment.turn_cuts`, bench `+diar=THR`,
+env `SHEMA_ASR_DIAR`). It finds more of the real changes (6–9 of 12 at the join) but also cuts inside one speaker:
+15–22 cuts inside the 40 single sentences.
+
+| | production | diar 0.5 | diar 0.9 |
+|---|---|---|---|
+| different, gap 0.3 s | **32.0 %** | 35.0 % | 32.5 % |
+| different, no gap | **35.0 %** | 39.1 % | 35.5 % |
+| same speaker, 0.3 s / none | **35.6 / 39.7 %** | 40.6 / 48.4 % | 38.4 / 42.9 % |
+| 40 single sentences | **33.9 %** | 37.0 % | 35.8 % |
+| time (RTF) | 0.04–0.05 | 0.09–0.18 | 0.08–0.16 |
+
+Worse everywhere: the false cuts inside one speaker cost more context than the true cuts save. **Not enabled.**
+What is left of the per-turn idea: re-decode only where production's own post-ASR speaker assignment already puts two
+named speakers in one window (not built), or a detector that is much more conservative than any tested here.
