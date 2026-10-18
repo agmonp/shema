@@ -123,18 +123,25 @@ class FixTextTests(unittest.TestCase):
                       "(50, 5, '2026-10-17T10:00:01', '2026-10-17T10:00:04', 3, 'תמר', 'נדבר על הדוד שמש', '[[0,1,\"x\"]]')")
         H.index_conversation(5)
 
-    def fts(self, q):
-        with H.db() as c:
-            return c.execute("SELECT count(*) FROM conv_fts WHERE conv_fts MATCH ?", (q,)).fetchone()[0]
+    def fts(self, q, want=None):
+        """Count of matches; with `want`, waits (up to 3 s) for the background re-index to reach it."""
+        import time
+        for _ in range(30):
+            with H.db() as c:
+                n = c.execute("SELECT count(*) FROM conv_fts WHERE conv_fts MATCH ?", (q,)).fetchone()[0]
+            if want is None or n == want:
+                return n
+            time.sleep(.1)
+        return n
 
     def test_fix_changes_text_and_search_and_undo_restores(self):
         r = H.fix_text(50, "  נדבר על  דוד השמש  ")
         self.assertEqual((r["ok"], r["changed"], r["text"]), (True, True, "נדבר על דוד השמש"))
         with H.db() as c:
             self.assertEqual(tuple(c.execute("SELECT text, words FROM utterances WHERE id=50").fetchone()), ("נדבר על דוד השמש", None))
-        self.assertEqual(self.fts('"השמש"'), 1)
+        self.assertEqual(self.fts('"השמש"', 1), 1)
         self.assertEqual(H.fix_text(50, undo=True)["text"], "נדבר על הדוד שמש")
-        self.assertEqual(self.fts('"השמש"'), 0)
+        self.assertEqual(self.fts('"השמש"', 0), 0)
         self.assertFalse(H.fix_text(50, undo=True)["ok"])            # nothing left to undo
 
     def test_same_text_is_no_edit_and_gold_without_audio_says_why(self):

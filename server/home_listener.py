@@ -3271,8 +3271,10 @@ def fix_text(utt_id, text=None, gold=False, undo=False):
                 out.update(gold=g.get("ok", False), gold_items=g.get("gold_items"), msg=g.get("msg"))
         done = c.execute("SELECT status FROM conversations WHERE id=?", (u["conv_id"],)).fetchone()
     if out["changed"] and done and done["status"] == "done":
-        index_conversation(u["conv_id"])
-        index_meaning(u["conv_id"])
+        def reindex(cid=u["conv_id"]):
+            index_conversation(cid)
+            index_meaning(cid)                  # the embedding model may take seconds to load: not on the click
+        threading.Thread(target=reindex, daemon=True).start()
     return out
 
 
