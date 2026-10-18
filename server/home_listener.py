@@ -1280,6 +1280,8 @@ class Worker(threading.Thread):
             with db() as c:
                 c.execute("UPDATE chunks SET status='failed', error=? WHERE id=?", (repr(exc)[:500], row["id"]))
             log(f"chunk {row['id']} failed {exc!r}")
+            import traceback       # 2026-10-18: 35 chunks failed overnight with only "NameError: sys" in the log
+            log("".join(traceback.format_exc().splitlines(True)[-12:]))
         finally:
             self.busy = False
         return True
