@@ -3239,6 +3239,43 @@ def add_gold(c, utt_id, text, condition=None):
     return {"ok": True, "gold_items": len(list(gold.glob("*.txt")))}
 
 
+def fix_text(utt_id, text=None, gold=False, undo=False):
+    """2026-10-18: correct the words of one line (from "ללמד קולות"). The line's text changes everywhere (transcript,
+    full-text and meaning search); the original is kept in utt_edits (kind 'text') so undo brings it back. Word times
+    no longer fit the new words, so they are dropped (a later split estimates by length). gold=True also puts the
+    corrected line into the gold set the transcription is measured on."""
+    with db() as c:
+        u = c.execute("SELECT id, conv_id, text FROM utterances WHERE id=?", (utt_id,)).fetchone()
+        if not u:
+            return {"ok": False, "msg": "המשפט לא נמצא"}
+        if undo:
+            e = c.execute("SELECT id, original FROM utt_edits WHERE utt_id=? AND kind='text' ORDER BY id DESC LIMIT 1",
+                          (utt_id,)).fetchone()
+            if not e:
+                return {"ok": False, "msg": "אין תיקון לבטל"}
+            c.execute("UPDATE utterances SET text=? WHERE id=?", (e["original"], utt_id))
+            c.execute("DELETE FROM utt_edits WHERE id=?", (e["id"],))
+            out = {"ok": True, "changed": True, "text": e["original"]}
+        else:
+            text = " ".join(str(text if text is not None else u["text"] or "").split())[:2000]
+            if not text:
+                return {"ok": False, "msg": "אין טקסט"}
+            changed = text != " ".join((u["text"] or "").split())
+            if changed:
+                c.execute("INSERT INTO utt_edits (utt_id, kind, original, at) VALUES (?, 'text', ?, ?)",
+                          (utt_id, u["text"], iso(datetime.now())))
+                c.execute("UPDATE utterances SET text=?, words=NULL WHERE id=?", (text, utt_id))
+            out = {"ok": True, "changed": changed, "text": text}
+            if gold:
+                g = add_gold(c, utt_id, text)
+                out.update(gold=g.get("ok", False), gold_items=g.get("gold_items"), msg=g.get("msg"))
+        done = c.execute("SELECT status FROM conversations WHERE id=?", (u["conv_id"],)).fetchone()
+    if out["changed"] and done and done["status"] == "done":
+        index_conversation(u["conv_id"])
+        index_meaning(u["conv_id"])
+    return out
+
+
 def utt_condition(r):
     ctx = r["ctx"] or "home"
     if is_meet(ctx):
@@ -3562,7 +3599,7 @@ class Handler(BaseHTTPRequestHandler):
         qs = urllib.parse.parse_qs(u.query)
         if u.path in ("/home/api/label", "/home/api/summarize_day", "/home/api/summarize_conv", "/home/api/label_sound",
                       "/home/api/delete_audio", "/home/api/task", "/home/api/optout", "/home/api/place", "/home/api/import_dirs",
-                      "/home/api/privacy_set", "/home/api/gold", "/home/api/asr_check", "/home/api/teach_skip",
+                      "/home/api/privacy_set", "/home/api/gold", "/home/api/fix_text", "/home/api/asr_check", "/home/api/teach_skip",
                       "/home/api/asr_settings", "/home/api/asr_glossary", "/home/api/asr_rollback", "/home/api/asr_install",
                       "/home/api/asr_nominate", "/home/api/forget_phone", "/home/api/split", "/home/api/unsplit",
                       "/home/api/pc_rec"):
@@ -3590,6 +3627,8 @@ class Handler(BaseHTTPRequestHandler):
                     return self._send(200, forget_phone(clean_device(b.get("device"))))
                 if u.path == "/home/api/pc_rec":            # recording on this PC: started / stopped only at this PC
                     return self._send(200, pc_rec_action(b))
+                if u.path == "/home/api/fix_text":
+                    return self._send(200, fix_text(int(b.get("utt_id", 0)), b.get("text"), bool(b.get("gold")), bool(b.get("undo"))))
                 if u.path == "/home/api/gold":
                     with db() as c:
                         return self._send(200, add_gold(c, int(b.get("utt_id", 0)), b.get("text"), b.get("condition")))

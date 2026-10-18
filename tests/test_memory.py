@@ -109,6 +109,43 @@ class ItemsTests(unittest.TestCase):
         self.assertFalse(B[0]["who_sure"])                                                     # "כנראה" name stays a guess
 
 
+class FixTextTests(unittest.TestCase):
+    def setUp(self):
+        H.config()
+        H.migrate()
+        MI.embed = lambda texts, query=False: None
+        with H.db() as c:
+            for t in ("utterances", "conversations", "utt_edits", "conv_fts"):
+                c.execute(f"DELETE FROM {t}")
+            c.execute("INSERT INTO conversations (id, start, end, seconds, status) VALUES (5, '2026-10-17T10:00:00', "
+                      "'2026-10-17T10:01:00', 60, 'done')")
+            c.execute("INSERT INTO utterances (id, conv_id, t0, t1, seconds, name, text, words) VALUES "
+                      "(50, 5, '2026-10-17T10:00:01', '2026-10-17T10:00:04', 3, 'תמר', 'נדבר על הדוד שמש', '[[0,1,\"x\"]]')")
+        H.index_conversation(5)
+
+    def fts(self, q):
+        with H.db() as c:
+            return c.execute("SELECT count(*) FROM conv_fts WHERE conv_fts MATCH ?", (q,)).fetchone()[0]
+
+    def test_fix_changes_text_and_search_and_undo_restores(self):
+        r = H.fix_text(50, "  נדבר על  דוד השמש  ")
+        self.assertEqual((r["ok"], r["changed"], r["text"]), (True, True, "נדבר על דוד השמש"))
+        with H.db() as c:
+            self.assertEqual(tuple(c.execute("SELECT text, words FROM utterances WHERE id=50").fetchone()), ("נדבר על דוד השמש", None))
+        self.assertEqual(self.fts('"השמש"'), 1)
+        self.assertEqual(H.fix_text(50, undo=True)["text"], "נדבר על הדוד שמש")
+        self.assertEqual(self.fts('"השמש"'), 0)
+        self.assertFalse(H.fix_text(50, undo=True)["ok"])            # nothing left to undo
+
+    def test_same_text_is_no_edit_and_gold_without_audio_says_why(self):
+        r = H.fix_text(50, "נדבר על הדוד שמש", gold=True)
+        self.assertFalse(r["changed"])
+        self.assertFalse(r["gold"])                                  # this test line has no recording
+        self.assertTrue(r["msg"])
+        with H.db() as c:
+            self.assertEqual(c.execute("SELECT count(*) FROM utt_edits").fetchone()[0], 0)
+
+
 class MeaningTests(unittest.TestCase):
     def test_windows_share_one_line_and_cover_everything(self):
         U = [{"id": i, "t0": str(i), "name": "א", "text": " ".join(["מילה"] * 12)} for i in range(7)]

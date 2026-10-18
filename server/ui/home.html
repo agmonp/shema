@@ -36,6 +36,14 @@ button{font:inherit;color:inherit;cursor:pointer;background:none;border:0}
 .tcard{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:14px 16px;cursor:pointer}
 .tcard.cur{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent);cursor:default}
 .tcard .txt{font-size:16px;margin:4px 0 8px}
+.tcard .fixw{font-size:12px;color:var(--faint);border:1px solid var(--line);border-radius:12px;padding:1px 8px;margin-inline-start:6px;vertical-align:middle}
+.tcard .fixw:hover{color:var(--ink);border-color:var(--line2)}
+.tcard .fixbox{margin:0 0 8px}
+.tcard .fixbox textarea{width:100%;background:var(--surface2);color:var(--ink);border:1px solid var(--accent);border-radius:10px;padding:8px;font:inherit;font-size:16px}
+.tcard .fixbox label{display:flex;gap:8px;align-items:flex-start;font-size:13px;color:var(--dim);margin:6px 0}
+.tcard .fixbox label input{margin-top:3px;accent-color:var(--gold)}
+.tcard .fixbox .row{display:flex;gap:8px}
+.tcard .fixbox .ok{background:var(--accent);color:var(--accent-ink);border-radius:10px;padding:5px 14px;font-weight:700}
 .tcard audio{width:100%;height:34px}
 .tcard .opts{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
 .tcard .opts button{background:var(--surface2);border:1px solid var(--line2);border-radius:18px;padding:5px 12px;font-size:14px}
@@ -497,6 +505,14 @@ const HOW = {user: "סימנת", voice: "לפי הקול", context: "לפי הה
 const J0 = (s, d) => { try { return JSON.parse(s || "") ?? d; } catch { return d; } };
 let day = null, phoneOnline = false, TL_OPEN = null;
 function toast(t){ const e = document.createElement("div"); e.className = "toast"; e.textContent = t; document.body.appendChild(e); setTimeout(() => e.remove(), 4500); }
+// a toast with "בטל" (8 s); onUndo null = plain toast
+function toastUndo(t, onUndo){
+  if (!onUndo) return toast(t);
+  const e = document.createElement("div"); e.className = "toast";
+  e.innerHTML = `${esc(t)} <button style="color:var(--accent);margin-inline-start:10px;font-weight:700">בטל</button>`;
+  e.querySelector("button").onclick = () => { e.remove(); onUndo(); };
+  document.body.appendChild(e); setTimeout(() => e.remove(), 8000);
+}
 
 const ago = s => s < 60 ? `לפני ${s} שנ׳` : s < 3600 ? `לפני ${Math.round(s / 60)} דק׳` : `לפני ${Math.round(s / 3600)} שעות`;
 let COV = null, HEALTH = null, PHONES = [];
@@ -1100,7 +1116,10 @@ async function showTeach(){
       3-5 דוגמאות לכל אדם כבר משפרות מאוד.</span>${taught ? `<span class="chips" style="margin:0">${taught}</span>` : ""}</div>
     <div class="teach">${T.items.map((u, i) => `<div class="tcard ${i === tcur ? "cur" : ""}" data-i="${i}">
       <div class="when">${dmy(u.t0)} ${hms(u.t0)} · ${u.seconds.toFixed(1)} שנ׳${u.conv_id ? ` · <a href="#c${u.conv_id}" style="color:var(--faint)">לשיחה</a>` : ""}</div>
-      <div class="txt">״${esc(u.text)}״</div>
+      <div class="txt">״${esc(u.text)}״${i === tcur ? ` <button class="fixw" title="לתקן את המילים שנאמרו, ואם רוצים להוסיף לסט הזהב">✎ תקן מילים</button>` : ""}</div>
+      ${i === tcur ? `<div class="fixbox" hidden><textarea rows="2" aria-label="מה נאמר בפועל">${esc(u.text)}</textarea>
+        <label><input type="checkbox" class="goldchk"> ⭐ המשפט מדויק עכשיו, מילה במילה: הוסף לסט הזהב (בו נמדדת איכות התמלול)</label>
+        <div class="row"><button class="ok fixsave">שמור</button><button class="back fixcancel">ביטול</button></div></div>` : ""}
       ${i === tcur ? `<audio controls autoplay preload="auto" src="/home/audio/utt/${u.id}"></audio>` : ""}
       <div class="opts">${u.guess && u.guess_sim >= .25 ? `<button class="guess" data-s="${u.guess}">אולי ${esc(first(u.guess_name))}?<kbd>Enter</kbd></button>` : ""}
         ${HOUSE.map((p, k) => `<button data-s="${p.id}">${esc(first(p.name))}<kbd>${k + 1}</kbd></button>`).join("")}
@@ -1110,7 +1129,23 @@ async function showTeach(){
   $("#tmsmart")?.addEventListener("click", () => { TM = "smart"; showTeach(); });
   document.querySelectorAll(".tcard").forEach(card => {
     const u = T.items[+card.dataset.i];
-    card.onclick = e => { if (e.target.closest("button,audio,a") || +card.dataset.i === tcur) return; tcur = +card.dataset.i; showTeach(); };
+    card.onclick = e => { if (e.target.closest("button,audio,a,textarea,label,input") || +card.dataset.i === tcur) return; tcur = +card.dataset.i; showTeach(); };
+    // fix the words (and, if ticked, add the line to the gold set): the line changes everywhere; undo from the toast
+    const fx = card.querySelector(".fixbox");
+    if (fx) {
+      const ta = fx.querySelector("textarea");
+      card.querySelector(".fixw").onclick = () => { fx.hidden = false; card.querySelector(".fixw").hidden = true; ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); };
+      fx.querySelector(".fixcancel").onclick = () => { fx.hidden = true; card.querySelector(".fixw").hidden = false; };
+      fx.querySelector(".fixsave").onclick = async () => {
+        const r = await POST("/home/api/fix_text", {utt_id: u.id, text: ta.value, gold: fx.querySelector(".goldchk").checked});
+        if (!r.ok) return toast(r.msg || "לא נשמר");
+        u.text = r.text;
+        toastUndo([r.changed ? "המילים תוקנו" : "המילים לא השתנו", r.gold ? `נוסף לסט הזהב (${r.gold_items} משפטים)` : r.gold === false ? (r.msg || "לא נוסף לזהב") : ""].filter(Boolean).join(" · "),
+          r.changed ? async () => { const x = await POST("/home/api/fix_text", {utt_id: u.id, undo: true}); if (x.ok) { u.text = x.text; showTeach(); } } : null);
+        showTeach();
+      };
+      ta.onkeydown = e => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) fx.querySelector(".fixsave").click(); };
+    }
     card.querySelectorAll("button[data-s]").forEach(b => b.onclick = () => teachOne(u, {speaker: b.dataset.s}));
     card.querySelector("[data-other]").onclick = () => askWho(Object.assign({}, u, {name: null}));
     card.querySelector("[data-multi]").onclick = async () => { await POST("/home/api/teach_skip", {utt_id: u.id, reason: "multi"}); toast("סומן: לא נלמד ולא יוצג שוב"); showTeach(); };
@@ -1127,7 +1162,7 @@ async function teachOne(u, body){
 }
 function teachCount(n){ const e = $("#teachn"); if (n) { e.hidden = false; e.textContent = n > 99 ? "99+" : n; } else e.hidden = true; }
 document.addEventListener("keydown", e => {
-  if (!location.hash.startsWith("#teach") || !T || !T.items.length || document.querySelector(".sheet") || e.target.closest("input")) return;
+  if (!location.hash.startsWith("#teach") || !T || !T.items.length || document.querySelector(".sheet") || e.target.closest("input,textarea")) return;
   const u = T.items[tcur];
   if (e.key === "Enter" && u.guess && u.guess_sim >= .25) { e.preventDefault(); teachOne(u, {speaker: u.guess}); }
   else if (/^[1-9]$/.test(e.key) && HOUSE[+e.key - 1]) teachOne(u, {speaker: HOUSE[+e.key - 1].id});
