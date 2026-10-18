@@ -371,16 +371,91 @@ mark{background:rgba(234,164,94,.3);color:inherit;border-radius:3px}
   .nowbar .tp{max-width:100%} .askbox .ok{padding:6px 10px} }
 @media (max-width:600px){ .asr .gl{grid-template-columns:1fr 1fr} .asr .gl .x2{grid-column:span 2}
   .asr .kv{grid-template-columns:1fr;gap:0} .asr .kv>span:nth-child(odd){margin-top:6px;font-size:12px} .asr .kv select{width:100%} }
+/* 2026-10-18 UX phase 5: meetings on the PC (live view + results workspace) */
+.meetbtn{background:var(--surface2);color:var(--ink);border:1px solid #e5484d;border-radius:10px;padding:5px 12px;font-weight:700}
+.meetbtn:hover{background:rgba(229,72,77,.12)}
+.recbar .go2{color:var(--ink);text-decoration:none;border:1px solid var(--line2);border-radius:16px;padding:4px 12px;font-size:14px;background:var(--surface2)}
+.mlive{border:1px solid rgba(229,72,77,.45);border-radius:var(--r);background:var(--surface);margin:12px 0;overflow:hidden}
+.mlive .hd{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:12px 14px;background:rgba(229,72,77,.10)}
+.mlive .hd .dot{width:12px;height:12px;border-radius:50%;background:#e5484d;flex:none;animation:pulse 1.8s infinite}
+.mlive.paused .hd{background:var(--surface2)} .mlive.paused .hd .dot{background:var(--accent);animation:none}
+.mlive .hd .tm{font-variant-numeric:tabular-nums;direction:ltr;unicode-bidi:isolate;font-weight:800;font-size:20px}
+.mlive .hd .ttl{color:var(--dim);font-size:14px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+.mlive .now{padding:8px 14px;border-bottom:1px solid var(--line);font-size:14px;color:var(--dim);min-height:38px}
+.mlive .now b{color:var(--ink)}
+.mlive .acts{display:flex;gap:8px;flex-wrap:wrap;padding:10px 14px;border-bottom:1px solid var(--line)}
+.mlive .acts button{border:1px solid var(--line2);border-radius:18px;padding:6px 14px;background:var(--surface2);min-height:40px;font-size:15px}
+.mlive .acts .mark{border-color:var(--gold);color:var(--gold)}
+.mlive .acts .stop{background:#e5484d;border-color:#e5484d;color:#fff;font-weight:700;margin-inline-start:auto}
+.mlive .lines{max-height:56vh;overflow:auto;padding:4px 10px 10px}
+.mlive .note{padding:8px 14px;font-size:12px;color:var(--faint);border-top:1px solid var(--line)}
+.ml{display:flex;gap:8px;align-items:baseline;padding:6px 4px;border-bottom:1px solid var(--line);font-size:15px}
+.ml:last-child{border-bottom:0}
+.ml .t{flex:none;color:var(--faint);font-size:12px;font-variant-numeric:tabular-nums;direction:ltr;width:58px}
+.ml .who{flex:none;font-weight:700;font-size:14px;max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:start}
+.ml .who.unk{color:var(--faint);font-weight:500;border:1px dashed var(--line2);border-radius:10px;padding:0 7px}
+.ml .who.maybe{opacity:.75}
+.ml .sd{flex:none;font-size:12px;opacity:.75}
+.ml .tx{flex:1;min-width:0;cursor:pointer;text-align:right}   /* dir=auto: English keeps its punctuation, the column stays aligned */
+.ml .pl{flex:none;width:26px;height:26px;border-radius:50%;border:1px solid var(--line2);color:var(--accent);font-size:11px;line-height:24px;text-align:center}
+.ml .pl.on{background:var(--accent);color:var(--accent-ink)}
+.ml.focus{background:rgba(234,164,94,.10);border-radius:8px;box-shadow:inset -3px 0 0 var(--accent)}
+.ml.mk{color:var(--gold);font-size:13px;justify-content:center;border-bottom:1px dashed rgba(255,211,107,.35)}
+.mws .mhd h2{font-size:21px;margin:2px 0 4px}
+.mws .mhd .acts{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+.mws .mhd .acts button{border:1px solid var(--line2);border-radius:16px;padding:5px 12px;font-size:14px;background:var(--surface2);min-height:36px}
+.mws .ppl{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+.mws .ppl span{font-size:13px;padding:1px 10px;border-radius:12px;background:var(--surface3)}
+.mgrid{display:grid;grid-template-columns:minmax(0,1fr);gap:0 14px;align-items:start}
+@media (min-width:1000px){ .mgrid{grid-template-columns:minmax(0,1fr) minmax(0,1fr)} .mgrid .trc{position:sticky;top:8px} .mgrid .trc .lines{max-height:calc(100vh - 210px)} }
+.mgrid .card h2 .n{color:var(--faint);font-weight:500;font-size:13px}
+.mgrid .card .lines{max-height:70vh;overflow:auto}
+.mgrid .sub{font-size:12px;color:var(--faint);margin-top:4px}
+.mgrid ul{margin:4px 0;padding-inline-start:20px} .mgrid li{margin:3px 0}
+.mgrid .lbl{font-size:12px;color:var(--faint);font-weight:700;margin:10px 0 2px}
+.mgrid .tps{display:flex;gap:6px;flex-wrap:wrap}
+.mgrid .tps span{font-size:13px;padding:2px 10px;border-radius:12px;background:var(--surface3);color:var(--dim)}
+.mit{display:flex;gap:10px;align-items:flex-start;padding:9px 0;border-bottom:1px solid var(--line)}
+.mit:last-child{border-bottom:0}
+.mit input[type=checkbox]{width:20px;height:20px;margin-top:2px;accent-color:var(--sage);flex:none}
+.mit .bd{flex:1;min-width:0}
+.mit .wh{font-size:15px}
+.mit.done .wh{text-decoration:line-through;color:var(--faint)}
+.mit .meta{display:flex;gap:6px 12px;flex-wrap:wrap;font-size:12px;color:var(--faint);margin-top:3px;align-items:center}
+.mit .meta b{color:var(--dim);font-weight:600}
+.mit .meta .unset{color:var(--faint);font-style:italic}
+.mit .src{color:var(--accent);text-decoration:none;cursor:pointer}
+.mit .q{font-size:13px;color:var(--dim);margin-top:3px}
+.mit .x{flex:none;color:var(--faint);font-size:13px;border:1px solid var(--line);border-radius:12px;padding:1px 8px}
+.mit .x:hover{color:var(--rose);border-color:var(--rose)}
+.mflt{display:flex;gap:6px;flex-wrap:wrap;margin:4px 0 6px}
+.mflt select{flex:0 1 auto;min-width:0;background:var(--surface2);border:1px solid var(--line2);border-radius:10px;color:var(--ink);padding:4px 8px;font:inherit;font-size:13px}
+.mtl{position:relative;height:26px;border-radius:7px;background:var(--surface2);margin:4px 0 6px;overflow:hidden;cursor:pointer}
+.mtl i{position:absolute;top:4px;bottom:4px;border-radius:2px;min-width:2px;opacity:.85}
+.mtl .st{position:absolute;top:0;font-size:12px;line-height:26px;transform:translateX(50%)}
+.mtlx{display:flex;justify-content:space-between;font-size:11px;color:var(--faint);font-variant-numeric:tabular-nums}
+.msearch{width:100%;background:var(--surface2);border:1px solid var(--line2);border-radius:10px;color:var(--ink);padding:6px 10px;font:inherit;margin-bottom:4px}
+.mrow{display:flex;gap:10px;align-items:center;padding:10px 4px;border-bottom:1px solid var(--line);cursor:pointer}
+.mrow:hover{background:var(--surface2)}
+.mrow .bd{flex:1;min-width:0} .mrow .tt{font-weight:700} .mrow .sub{font-size:12px;color:var(--faint)}
+.mrow .chip{flex:none}
+.undo{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:var(--surface3);border:1px solid var(--line2);border-radius:12px;
+  padding:8px 14px;z-index:20;display:flex;gap:12px;align-items:center;box-shadow:0 6px 24px rgba(0,0,0,.4)}
+.undo button{color:var(--accent);font-weight:700}
+@media (max-width:600px){ .mlive .acts .stop{margin-inline-start:0;flex:1} .mlive .acts .mark{flex:1}
+  .ml .t{width:auto} .ml{flex-wrap:wrap;gap:2px 8px} .ml .tx{flex-basis:100%;order:5}
+  .mws .mhd .acts button{flex:1 1 40%} .mflt select{flex:1} }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <div class="top"><img class="logo" src="/home/icon.svg" alt=""><h1>שמע</h1><button class="recbtn" id="recbtn" hidden title="להקליט ישירות במחשב: מיקרופון, שמע המחשב או שניהם">🎙 הקלטה חדשה</button><button class="pairbtn" id="pairbtn">📱 חבר טלפון</button><button class="store" id="store" title="מקום בדיסק">📦 …</button><span class="status" id="status"></span></div>
+  <div class="top"><img class="logo" src="/home/icon.svg" alt=""><h1>שמע</h1><button class="meetbtn" id="meetbtn" hidden title="להקליט פגישה במחשב (שיחת וידאו או פגישה בחדר): תמלול תוך כדי, ובסוף סיכום, החלטות ומשימות">📋 הקלט פגישה</button><button class="recbtn" id="recbtn" hidden title="להקליט ישירות במחשב: מיקרופון, שמע המחשב או שניהם">🎙 הקלטה חדשה</button><button class="pairbtn" id="pairbtn">📱 חבר טלפון</button><button class="store" id="store" title="מקום בדיסק">📦 …</button><span class="status" id="status"></span></div>
   <div id="alarm"></div>
   <div id="recbar"></div>
   <div id="phones"></div>
   <nav class="tabs" id="tabs">
     <a href="#" data-t="day">היום ושיחות</a>
+    <a href="#meetings" data-t="meetings">פגישות</a>
     <a href="#teach" data-t="teach">ללמד קולות<span class="n" id="teachn" hidden></span></a>
     <a href="#sounds" data-t="sounds">צלילים</a>
     <a href="#people" data-t="people">אנשים</a>
@@ -417,7 +492,8 @@ const SND = {"דלת":"🚪","דלת הזזה":"🚪","טריקה":"💥","דפ�
   "נביחה":"🐶","מיאו":"🐱","ציפורים":"🐦","ציוץ":"🐦","גשם":"🌧","רעם":"⛈","רכב":"🚗","סירנה":"🚨","צליל לא מזוהה":"❔",
   "צחוק":"😂","בכי":"😢","צעקה":"📢","צעקות ילדים":"📢","מוזיקה":"🎵","שירה":"🎤","טלוויזיה":"📺","רדיו":"📻",
   "כלב":"🐶","חתול":"🐱","כלים":"🍽","דלת":"🚪","פעמון":"🔔","שואב אבק":"🧹","טלפון":"📱","מחיאות כפיים":"👏","משחק מחשב":"🎮","מלמול תינוק":"👶"};
-const HOW = {user: "סימנת", voice: "לפי הקול", context: "לפי ההקשר", conv: "כנראה · לחץ לתקן", call: "לפי השיחה · לחץ לתקן"};
+const HOW = {user: "סימנת", voice: "לפי הקול", context: "לפי ההקשר", conv: "כנראה · לחץ לתקן", call: "לפי השיחה · לחץ לתקן",
+  mic: "כנראה · מהמיקרופון"};
 const J0 = (s, d) => { try { return JSON.parse(s || "") ?? d; } catch { return d; } };
 let day = null, phoneOnline = false, TL_OPEN = null;
 function toast(t){ const e = document.createElement("div"); e.className = "toast"; e.textContent = t; document.body.appendChild(e); setTimeout(() => e.remove(), 4500); }
@@ -629,7 +705,7 @@ function uttRow(u){
   if (u.media) return `<div class="utt media"><button class="who" data-u="${u.id}" title="לחץ אם זה לא ${esc(u.media)}">${MEDIA_ICON[u.media] || "📺"} ${esc(u.media)}
       <small>${u.how === "user" ? "סימנת" : "ברקע · לא תומלל"}</small></button>
     <div class="body"><span class="t">${hms(u.t0)}</span> ${esc(u.media)} ברקע · ${Math.round(u.seconds)} שנ׳</div></div>`;
-  return `<div class="utt"><button class="who${u.how === "conv" || u.how === "call" ? " maybe" : ""}" data-u="${u.id}" style="color:${colorOf(u.name)}" title="לחץ כדי לומר מי זה">${esc(first(u.name))}${u.how === "conv" ? "?" : ""}
+  return `<div class="utt"><button class="who${u.how === "conv" || u.how === "call" || u.how === "mic" ? " maybe" : ""}" data-u="${u.id}" style="color:${colorOf(u.name)}" title="לחץ כדי לומר מי זה">${esc(first(u.name))}${u.how === "conv" ? "?" : ""}
       <small>${u.name ? (HOW[u.how] || "") : "מי זה? ✎"}</small></button>
     <div class="body"><span class="t">${hms(u.t0)}</span>${u.split_of ? `<span class="mk" title="פוצל מתוך שורה אחת · לחץ על השורה ← ⋯ עוד כדי לבטל">✂${u.overlap ? " בו-זמנית" : ""}</span>` : ""} ${esc(u.text)}${u.text ? `<button class="gold" data-g="${u.id}" title="הוסף לסט הזהב: מדידת איכות התמלול">⭐ זהב</button>` : ""}<div class="feel">${feel(u)}</div></div></div>`;
 }
@@ -938,7 +1014,7 @@ function feel(u){
 function meetBlock(m){
   const li = a => a.map(x => `<div class="moment">${esc(x)}</div>`).join("");
   const tasks = (m.tasks || []).map(t => `<div class="moment">${t.who && t.who !== "?" ? `<b>${esc(t.who)}</b>: ` : ""}${esc(t.what)}${t.due ? ` <span class="chip">${esc(t.due)}</span>` : ""}</div>`).join("");
-  return `<div class="chips"><span class="chip prov">📋 פגישה${m.title ? ": " + esc(m.title) : ""}</span></div>`
+  return `<div class="chips"><span class="chip prov">📋 פגישה${m.title ? ": " + esc(m.title) : ""}</span><a class="chip" href="${meetHref(m.id)}" style="color:var(--accent);text-decoration:none">פתח את סביבת הפגישה ›</a></div>`
     + (m.decisions.length ? `<h3>החלטות</h3>${li(m.decisions)}` : "")
     + (tasks ? `<h3>משימות</h3>${tasks}` : "")
     + (m.next_steps.length ? `<h3>הצעדים הבאים</h3>${li(m.next_steps)}` : "");
@@ -1146,7 +1222,7 @@ const SRC_IC = {mic: "🎙", system: "🔊"};
 function recBar(r){
   const prev = REC.state;
   REC = r || {state: "idle"};
-  $("#recbtn").hidden = !REC_LOCAL || REC.state !== "idle";
+  $("#recbtn").hidden = $("#meetbtn").hidden = !REC_LOCAL || REC.state !== "idle";
   const box = $("#recbar");
   if (!REC.state || REC.state === "idle") {
     box.innerHTML = "";
@@ -1155,6 +1231,7 @@ function recBar(r){
     return;
   }
   if (!REC_T) REC_T = setInterval(() => J("/home/api/pc_rec").then(x => recBar(x.rec)).catch(() => {}), 1000);
+  if (REC.meet && location.hash === meetHref(REC.meet)) { box.innerHTML = ""; meetTick(); return; }
   const paused = REC.state === "paused";
   const saved = REC.chunks ? `${REC.chunks} קטעים נשמרו` : `נשמר כל ${REC.chunk_s || 30} שנ׳`;
   const bar = box.querySelector(".recbar");
@@ -1166,8 +1243,9 @@ function recBar(r){
   }
   const meters = Object.entries(REC.devices || {}).map(([k, n]) => `<span class="lv" data-k="${k}" title="${esc(n)}">${SRC_IC[k] || ""}<i><b style="width:${paused ? 0 : lvl((REC.levels || {})[k])}%"></b></i></span>`).join("");
   box.innerHTML = `<div class="recbar ${paused ? "paused" : "on"}" role="status" data-st="${esc(REC.state + (REC.error || ""))}"><span class="dot"></span>
-    <b>${paused ? "ההקלטה מושהית" : "מקליט במחשב"}</b><span class="tm">${clock(REC.seconds)}</span>
+    <b>${paused ? "ההקלטה מושהית" : REC.meet ? "מקליט פגישה" : "מקליט במחשב"}</b><span class="tm">${clock(REC.seconds)}</span>
     <span class="sub">${esc(REC.source_name || "")} · <span class="saved">${saved}</span></span>${meters}
+    ${REC.meet ? `<a class="go2" href="${meetHref(REC.meet)}">לפגישה ›</a>` : ""}
     ${REC_LOCAL ? `<span class="acts">${paused ? `<button data-a="resume">▶ המשך</button>` : `<button data-a="pause">⏸ השהה</button>`}<button data-a="stop" class="stop">⏹ עצור</button></span>`
       : `<span class="sub">עוצרים במחשב עצמו</span>`}</div>
     ${REC.error ? `<div class="legend" style="color:var(--rose)">${esc(REC.error)}</div>` : ""}`;
@@ -1175,7 +1253,8 @@ function recBar(r){
     box.querySelectorAll("button").forEach(x => x.disabled = true);
     const r2 = await POST("/home/api/pc_rec", {action: b.dataset.a}).catch(() => null);
     if (!r2) return toast("המחשב לא ענה. נסה שוב.");
-    if (b.dataset.a === "stop") toast(`ההקלטה נשמרה: ⁦${clock(r2.seconds)}⁩, ${r2.chunks} קטעים. התמלול יופיע ב"היום ושיחות" בדקות הקרובות.`);
+    if (b.dataset.a === "stop" && r2.meet_ended) { toast(`הפגישה הסתיימה (⁦${clock(r2.seconds)}⁩). הסיכום ייכתב אחרי התמלול.`); location.hash = meetHref(r2.meet_ended).slice(1); }
+    else if (b.dataset.a === "stop") toast(`ההקלטה נשמרה: ⁦${clock(r2.seconds)}⁩, ${r2.chunks} קטעים. התמלול יופיע ב"היום ושיחות" בדקות הקרובות.`);
     else if (r2.error) toast(r2.error);
     REC.state = r2.state;          // no second toast for the same stop
     recBar(r2);
@@ -1234,6 +1313,344 @@ async function showRecord(){
     if (!r || r.error) { toast((r && r.error) || "המחשב לא ענה"); ready(); return; }
     close(); recBar(r); toast("מקליט. עוצרים בפס האדום למעלה.");
   };
+}
+// ---------------------------------------------------------------- meetings on the PC (UX phase 5): start, live view, results workspace
+// The server records (pc_record.py) and analyses as with a phone; this screen only steers and shows. Address: #meeting=<id>.
+const SIDE = {mic: ["🎙", "מהמיקרופון: הצד שלך"], system: ["🔊", "מהמחשב: הצד השני בשיחה"]};
+const M_ST = {recording: "מקליט", ended: "מתמלל", summarising: "מסכם", done: "מוכן", empty: "בלי דיבור"};
+const meetHref = id => "#meeting=" + encodeURIComponent(id);
+let MV = null, M_T = null, M_AUD = null, MFILT = {owner: "", state: "open"};
+function stopMeetPoll(){ if (M_T) { clearTimeout(M_T); M_T = null; } }
+async function copyText(t, msg){
+  try { await navigator.clipboard.writeText(t); }
+  catch { const ta = document.createElement("textarea"); ta.value = t; document.body.appendChild(ta); ta.select(); document.execCommand("copy"); ta.remove(); }
+  toast(msg);
+}
+function undoToast(msg, undo){
+  document.querySelector(".undo")?.remove();
+  const e = document.createElement("div"); e.className = "undo"; e.setAttribute("role", "status");
+  e.innerHTML = `<span>${esc(msg)}</span><button>בטל</button>`;
+  e.querySelector("button").onclick = () => { e.remove(); undo(); };
+  document.body.appendChild(e); setTimeout(() => e.remove(), 7000);
+}
+async function showMeetStart(){
+  const sh = document.createElement("div");
+  sh.className = "sheet";
+  sh.innerHTML = `<div class="box recsheet"><button class="x">×</button><h3>📋 הקלט פגישה</h3><div id="mbody"><div class="legend">בודק ממה המחשב יכול להקליט…</div></div></div>`;
+  document.body.appendChild(sh);
+  const close = () => sh.remove();
+  sh.querySelector(".x").onclick = close;
+  sh.onclick = e => { if (e.target === sh) close(); };
+  let P;
+  try { P = await J("/home/api/pc_rec?fresh=1"); } catch (e) { P = {error: e.message}; }
+  const body = $("#mbody");
+  if (P.error) { body.innerHTML = `<div class="legend">לא הצלחנו לבדוק את ההתקנים (${esc(P.error)}). סגור ונסה שוב.</div>`; return; }
+  if (!P.local) { body.innerHTML = `<div class="legend">מתחילים פגישה רק במחשב עצמו (פתח שם את <code>http://localhost:8770/home</code>).</div>`; return; }
+  const D = P.devices || {};
+  const why = {mic: D.error ? "חסרה ספריית ההקלטה: להריץ שוב את ההתקנה" : !D.mic ? "אין מיקרופון מחובר למחשב"
+      : D.privacy === "denied" ? "Windows חוסם את המיקרופון: הגדרות > פרטיות ואבטחה > מיקרופון" : "",
+    system: D.error ? "חסרה ספריית ההקלטה" : !D.system ? "לא נמצא פלט שמע (רמקולים / אוזניות)" : ""};
+  why.both = why.mic || why.system;
+  const OPTS = [["both", "🎙 + 🔊 שיחת וידאו", "הקול שלך מהמיקרופון והצד השני מהמחשב, כל אחד בערוץ משלו: כך יודעים מי בצד שלך"],
+    ["system", "🔊 רק מה שהמחשב משמיע", "כשאין מיקרופון: שומעים את הצד השני בלבד"],
+    ["mic", "🎙 רק מיקרופון", "פגישה בחדר, סביב המחשב"]];
+  const def = (OPTS.find(o => !why[o[0]]) || [null])[0];
+  body.innerHTML = `<input id="mtitle" placeholder="שם הפגישה (לא חובה)" maxlength="80" style="width:100%;margin:2px 0 8px">
+    ${OPTS.map(([k, t, d]) => `<label class="ropt ${why[k] ? "off" : ""}"><input type="radio" name="msrc" value="${k}" ${why[k] ? "disabled" : ""} ${k === def ? "checked" : ""}>
+      <span><b>${t}</b><small>${esc(d)}</small>${why[k] ? `<small class="why">${esc(why[k])}</small>` : ""}</span></label>`).join("")}
+    <div class="legend">שמע לא מתחבר ל-Zoom, Teams או Meet: פותחים את השיחה כרגיל, והוא מקליט את מה שהמחשב משמיע ואת המיקרופון. באוזניות הצדדים נשארים נפרדים יותר.</div>
+    <label class="consent"><input type="checkbox" id="mconsent"><span>כל המשתתפים יודעים שהפגישה מוקלטת (בשיחת וידאו: אמרתי להם בתחילתה)</span></label>
+    <div class="go"><button class="ok" id="mgo" disabled>⏺ התחל פגישה</button><button class="btn2" id="mcancel">ביטול</button></div>
+    <div class="legend">התמלול מופיע תוך כדי, באיחור של כחצי דקה עד דקה. בסוף: סיכום, החלטות ומשימות, כל אחת עם השורה שבה נאמרה. הכול נשאר במחשב.</div>`;
+  const pick = () => (sh.querySelector("input[name=msrc]:checked") || {}).value;
+  const ready = () => { $("#mgo").disabled = !(pick() && $("#mconsent").checked); };
+  sh.querySelectorAll("input").forEach(i => i.onchange = ready);
+  $("#mcancel").onclick = close;
+  $("#mgo").onclick = async () => {
+    $("#mgo").disabled = true;
+    const r = await POST("/home/api/pc_rec", {action: "start", meeting: true, source: pick(), consent: $("#mconsent").checked,
+                                             title: $("#mtitle").value}).catch(() => null);
+    if (!r || r.error) { toast((r && r.error) || "המחשב לא ענה"); ready(); return; }
+    close(); recBar(r); location.hash = meetHref(r.meet).slice(1);
+  };
+  $("#mtitle").focus();
+}
+function meetTick(){                 // the live view's clock, from the recorder poll (recBar, every second)
+  const e = document.querySelector(".mlive .tm");
+  if (e) e.textContent = clock(REC.seconds);
+}
+const M_MAYBE = ["conv", "call", "mic"];
+function lineHtml(u, play){
+  const sd = SIDE[u.side], maybe = u.name && M_MAYBE.includes(u.how);
+  return `<div class="ml" data-u="${u.id}">${play ? `<button class="pl" data-p="${u.id}" aria-label="השמע את השורה" title="השמע">▶</button>` : ""}<span class="t">${hms(u.t0)}</span>
+    <button class="who${u.name ? (maybe ? " maybe" : "") : " unk"}" data-w="${u.id}" ${u.name ? `style="color:${colorOf(u.name)}"` : ""}
+      title="${u.name ? esc((HOW[u.how] || "") + " · לחץ כדי לתקן") : "מי זה? לחץ כדי לומר"}">${u.name ? esc(first(u.name)) + (maybe ? "?" : "") : "מי זה?"}</button>
+    ${sd ? `<span class="sd" title="${sd[1]}">${sd[0]}</span>` : ""}<span class="tx" dir="auto">${esc(u.text)}</span></div>`;
+}
+const markHtml = m => `<div class="ml mk">⭐ רגע חשוב · ${hms(m.t)}${m.note ? " · " + esc(m.note) : ""}</div>`;
+function linesHtml(L, marks, play){
+  const M = (marks || []).slice().sort((a, b) => a.t < b.t ? -1 : 1);
+  let k = 0, out = "";
+  for (const u of L) { while (k < M.length && M[k].t <= u.t0) out += markHtml(M[k++]); out += lineHtml(u, play); }
+  while (k < M.length) out += markHtml(M[k++]);
+  return out;
+}
+function bindLines(box, L, results){
+  if (!box) return;
+  const by = {}; L.forEach(u => by[u.id] = u);
+  box.querySelectorAll("[data-w]").forEach(b => b.onclick = () => askWho(by[b.dataset.w]));
+  box.querySelectorAll(".ml[data-u] .tx").forEach(t => t.onclick = () => {
+    if (String(getSelection())) return;
+    const id = t.parentElement.dataset.u;
+    results ? playUtt(id, t.parentElement.querySelector(".pl")) : askWho(by[id]); });
+  box.querySelectorAll("[data-p]").forEach(b => b.onclick = () => playUtt(b.dataset.p, b));
+}
+function playUtt(id, btn){
+  const reset = () => document.querySelectorAll(".ml .pl.on").forEach(b => { b.classList.remove("on"); b.textContent = "▶"; });
+  if (M_AUD) { const same = M_AUD._id === String(id); M_AUD.pause(); M_AUD = null; reset(); if (same) return; }
+  const a = M_AUD = new Audio("/home/audio/utt/" + id); a._id = String(id);
+  if (btn) { btn.classList.add("on"); btn.textContent = "■"; }
+  a.onended = () => { if (M_AUD === a) M_AUD = null; reset(); };
+  a.onerror = () => { if (M_AUD === a) M_AUD = null; reset(); toast("ההקלטה של השורה הזו כבר לא שמורה (התמלול נשאר)."); };
+  a.play().catch(() => {});
+}
+function jumpTo(id, play){
+  const row = document.querySelector(`#mlines .ml[data-u="${id}"]`);
+  if (!row) return toast("השורה לא נמצאה בתמלול (אולי הוסרה).");
+  const s = $("#msearch"); if (s && s.value) { s.value = ""; s.oninput(); }
+  document.querySelectorAll("#mlines .ml.focus").forEach(e => e.classList.remove("focus"));
+  row.classList.add("focus");
+  row.scrollIntoView({block: "center", behavior: "smooth"});
+  if (play) playUtt(id, row.querySelector(".pl"));
+}
+function meetWhen(v){
+  const m = v.meeting;
+  return `${(m.started || "").slice(0, 10)} · ⁦${hm(m.started)}${m.ended ? "–" + hm(m.ended) : ""}⁩${v.seconds ? " · " + mins(v.seconds) : ""} · ${m.device === "pc" ? "🖥 הוקלט במחשב" : "📱 הוקלט בטלפון"}`;
+}
+async function showMeeting(id){
+  stopMeetPoll();
+  let v;
+  try { v = await J("/home/api/meeting?id=" + encodeURIComponent(id)); } catch { $("#main").innerHTML = `<div class="empty">המחשב לא ענה. נסה לרענן.</div>`; return; }
+  if (location.hash !== meetHref(id)) return;
+  if (!v.meeting) { $("#main").innerHTML = `<button class="back" onclick="location.hash='meetings'">→ כל הפגישות</button><div class="empty">הפגישה לא נמצאה.</div>`; return; }
+  renderMeeting(v);
+}
+const meetMode = v => v.live ? "live" : ["done", "empty"].includes(v.meeting.status) ? "done" : "wait";
+const meetSig = v => [v.meeting.status, JSON.stringify(v.progress), v.lines.map(u => u.id + (u.name || "")).join(), (v.marks || []).length].join("|");
+function renderMeeting(v){
+  MV = v;
+  const box = $("#main"), mode = meetMode(v);
+  if (mode === "live") meetLive(v, box); else if (mode === "wait") meetWaiting(v, box); else meetResults(v, box);
+  box.dataset.msig = meetSig(v);
+  if (mode !== "done") meetPoll(v.meeting.id, mode === "live" ? 3000 : 6000);
+}
+function meetPoll(id, ms){
+  stopMeetPoll();
+  M_T = setTimeout(async () => {
+    M_T = null;
+    if (location.hash !== meetHref(id)) return;
+    if (document.querySelector(".sheet")) return meetPoll(id, ms);        // "מי זה?" is open: don't redraw under it
+    let v; try { v = await J("/home/api/meeting?id=" + encodeURIComponent(id)); } catch { return meetPoll(id, ms); }
+    if (location.hash !== meetHref(id) || !v.meeting) return;
+    const mode = meetMode(v);
+    if (mode === "live" && meetMode(MV) === "live") { MV = v; liveUpdate(v); return meetPoll(id, ms); }
+    if (mode === meetMode(MV) && $("#main").dataset.msig === meetSig(v)) return meetPoll(id, ms);
+    renderMeeting(v);
+  }, ms);
+}
+function meetLive(v, box){
+  const L = v.live, paused = L.state === "paused";
+  box.innerHTML = `<div class="mlive${paused ? " paused" : ""}" role="region" aria-label="פגישה מוקלטת">
+    <div class="hd"><span class="dot"></span><b>${paused ? "הפגישה מושהית" : "מקליט פגישה"}</b><span class="tm">${clock(L.seconds)}</span>
+      <span class="ttl">${esc(v.meeting.title || "")}</span></div>
+    <div class="now" id="mnow" aria-live="polite"></div>
+    <div class="acts">${REC_LOCAL ? `<button class="mark" id="mmark">⭐ סמן רגע חשוב</button>
+      <button id="mpause">${paused ? "▶ המשך" : "⏸ השהה"}</button><button class="stop" id="mstop">⏹ סיים פגישה</button>`
+      : `<span class="legend" style="margin:0">מסיימים את הפגישה במחשב עצמו.</span>`}</div>
+    <div class="lines" id="mlines"></div>
+    <div class="note">🔴 מוקלט עכשיו: כל המשתתפים צריכים לדעת. התמלול מופיע באיחור של כחצי דקה עד דקה (המחשב מתמלל כל ${L.chunk_s || 15} שניות של הקלטה).
+      לחיצה על שם או על שורה = מי זה? ${L.source === "both" ? "· 🎙 הצד שלך · 🔊 הצד השני" : ""}</div></div>`;
+  liveUpdate(v, true);
+  if (!REC_LOCAL) return;
+  $("#mmark").onclick = async () => {
+    const r = await POST("/home/api/pc_rec", {action: "mark"}).catch(() => null);
+    if (!r || !r.ok) return toast((r && r.error) || "לא נשמר");
+    MV.marks = (MV.marks || []).concat([{id: "new" + Date.now(), t: r.t, note: null}]);
+    $("#mlines").dataset.sig = ""; liveUpdate(MV);
+    toast("⭐ סומן. הרגע יופיע בתמלול ובסיכום, וההקלטה שלו נשמרת.");
+  };
+  $("#mpause").onclick = async () => {
+    $("#mpause").disabled = true;
+    const r = await POST("/home/api/pc_rec", {action: paused ? "resume" : "pause"}).catch(() => null);
+    if (!r) toast("המחשב לא ענה"); else recBar(r);
+    showMeeting(v.meeting.id);
+  };
+  $("#mstop").onclick = async () => {
+    if (!confirm("לסיים את הפגישה? ההקלטה נעצרת, ואחרי התמלול ייכתבו הסיכום, ההחלטות והמשימות.")) return;
+    $("#mstop").disabled = true;
+    const r = await POST("/home/api/pc_rec", {action: "stop"}).catch(() => null);
+    if (!r) { $("#mstop").disabled = false; return toast("המחשב לא ענה. נסה שוב."); }
+    REC.state = r.state; recBar(r);
+    toast(`הפגישה הסתיימה (⁦${clock(r.seconds)}⁩). מתמלל את הסוף וכותב סיכום: זה יופיע כאן.`);
+    showMeeting(v.meeting.id);
+  };
+}
+function liveUpdate(v, init){
+  const box = $("#mlines"); if (!box) return;
+  const L = v.lines, last = L[L.length - 1];
+  $("#mnow").innerHTML = !last ? "השורות יופיעו כאן אחרי שהמחשב יתמלל את ההתחלה (כחצי דקה עד דקה)."
+    : `דיבר/ה לאחרונה: <b ${last.name ? `style="color:${colorOf(last.name)}"` : ""}>${esc(last.name ? first(last.name) : "לא מזוהה")}${last.name && M_MAYBE.includes(last.how) ? "?" : ""}</b>
+       ${SIDE[last.side] ? ` · ${SIDE[last.side][0]} ${SIDE[last.side][1]}` : ""} <span style="color:var(--faint);font-size:12px">(${hms(last.t0)})</span>`;
+  const sig = L.map(u => u.id + (u.name || "")).join() + "|" + (v.marks || []).length;
+  if (box.dataset.sig === sig) return;
+  const atEnd = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
+  box.dataset.sig = sig;
+  box.innerHTML = linesHtml(L, v.marks, false) || "";
+  bindLines(box, L, false);
+  if (init || atEnd) box.scrollTop = box.scrollHeight;
+}
+function meetWaiting(v, box){
+  const p = v.progress || {}, st = v.meeting.status;
+  const msg = st === "summarising" ? "כותב את הסיכום, ההחלטות והמשימות…"
+    : p.waiting ? `מתמלל: ${p.done} מתוך ${p.chunks} קטעים. אחר כך נכתב הסיכום.` : st === "recording" ? "מחכה לקטעים האחרונים של ההקלטה…" : "מתחיל לסכם…";
+  box.innerHTML = `<button class="back" onclick="location.hash='meetings'">→ כל הפגישות</button>
+    <div class="card"><div class="when">${meetWhen(v)}</div><h2 style="font-size:20px">${esc(v.meeting.title || v.topic || "פגישה")}</h2>
+      <div class="chips"><span class="chip prov">⏳ ${esc(msg)}</span>${p.failed ? `<span class="chip" style="color:var(--rose)">${p.failed} קטעים נכשלו</span>` : ""}</div>
+      <div class="legend">אפשר לסגור את הדף: הסיכום יחכה כאן. שם שתתקן עכשיו בתמלול ייכנס לסיכום.</div></div>
+    <div class="card"><h2>התמלול עד עכשיו <span class="n" style="color:var(--faint);font-weight:500;font-size:13px">${v.lines.length} שורות</span></h2>
+      <div class="lines" id="mlines" style="max-height:60vh;overflow:auto">${linesHtml(v.lines, v.marks, true) || `<div class="legend">עוד אין שורות.</div>`}</div></div>`;
+  bindLines($("#mlines"), v.lines, true);
+}
+const srcLink = (uid, t0) => uid ? `<a class="src" data-j="${uid}" role="button" tabindex="0" title="קפוץ לשורה בתמלול והשמע אותה">▶ ${hms(t0)} · לשורה ›</a>` : "";
+const itemSure = t => ["user", "voice", null, undefined].includes(t.who_how);
+function decRow(d){
+  return `<div class="mit"><div class="bd"><div class="wh" dir="auto">${esc(d.what)}</div>${d.quote ? `<div class="q" dir="auto">״${esc(d.quote)}״</div>` : ""}
+    <div class="meta">${d.said_by ? `<span>נאמר ע״י <b style="color:${colorOf(d.said_by)}">${esc(d.said_by)}</b>${itemSure(d) ? "" : "?"}</span>` : ""}${srcLink(d.utt_id, d.t0)}</div></div>
+    <button class="x" data-x="${d.id}" title="לא החלטה / לא נאמר כך: הסר (אפשר לבטל)" aria-label="הסר">✕</button></div>`;
+}
+function taskRow(t){
+  const done = t.state === "done", unset = `<span class="unset">לא נקבע</span>`;
+  return `<div class="mit${done ? " done" : ""}"><input type="checkbox" data-st="${t.id}" ${done ? "checked" : ""} aria-label="בוצע" title="סמן כבוצע">
+    <div class="bd"><div class="wh" dir="auto">${esc(t.what)}</div>
+    <div class="meta"><span>אחראי: ${t.owner ? `<b style="color:${colorOf(t.owner)}">${esc(t.owner)}</b>${t.owner === t.said_by && !itemSure(t) ? "?" : ""}` : unset}</span>
+      <span>מועד: ${t.due ? `<b>${esc(t.due)}</b>` : unset}</span>
+      <span>${esc(ITEM_K[t.kind] || "משימה")}${t.said_by && t.said_by !== t.owner ? ` · אמר/ה ${esc(first(t.said_by))}` : ""}</span>${srcLink(t.utt_id, t.t0)}</div>
+    ${t.quote ? `<div class="q" dir="auto">״${esc(t.quote)}״</div>` : ""}</div>
+    <button class="x" data-x="${t.id}" title="לא נכון: הסר (אפשר לבטל)" aria-label="הסר">✕</button></div>`;
+}
+function bindJumps(root){
+  root.querySelectorAll("[data-j]").forEach(a => { const go = () => jumpTo(a.dataset.j, a.classList.contains("src"));
+    a.onclick = go; a.onkeydown = e => { if (e.key === "Enter") go(); }; });
+}
+function bindDismiss(root){
+  root.querySelectorAll("[data-x]").forEach(b => b.onclick = async () => {
+    const id = +b.dataset.x, t = MV.tasks.concat(MV.decision_items || []).find(x => x.id === id), prev = t ? t.state : "open";
+    const r = await POST("/home/api/task", {id, state: "dismissed"}).catch(() => null);
+    if (!r || !r.ok) return toast("לא נשמר. נסה שוב.");
+    const mid = MV.meeting.id;
+    undoToast("הוסר מהרשימה.", async () => { await POST("/home/api/task", {id, state: prev}); showMeeting(mid); });
+    showMeeting(mid);
+  });
+}
+function drawTasks(v){
+  const box = $("#mtasks"); if (!box) return;
+  const T = v.tasks || [], owners = [...new Set(T.map(t => t.owner).filter(Boolean))];
+  if (MFILT.owner && MFILT.owner !== "-" && !owners.includes(MFILT.owner)) MFILT.owner = "";
+  const shown = T.filter(t => (MFILT.state === "all" || (MFILT.state === "done") === (t.state === "done"))
+    && (!MFILT.owner || (MFILT.owner === "-" ? !t.owner : t.owner === MFILT.owner)));
+  const open = T.filter(t => t.state !== "done").length;
+  box.innerHTML = `<h2>משימות <span class="n">${open} פתוחות מתוך ${T.length}</span></h2>
+    ${T.length ? `<div class="mflt"><select id="mfo" aria-label="סינון לפי אחראי"><option value="">כל האחראים</option>
+        ${owners.map(o => `<option value="${esc(o)}" ${MFILT.owner === o ? "selected" : ""}>${esc(o)}</option>`).join("")}
+        <option value="-" ${MFILT.owner === "-" ? "selected" : ""}>בלי אחראי</option></select>
+      <select id="mfs" aria-label="סינון לפי מצב">${[["open", "פתוחות"], ["done", "בוצעו"], ["all", "הכול"]].map(([k, n]) =>
+        `<option value="${k}" ${MFILT.state === k ? "selected" : ""}>${n}</option>`).join("")}</select></div>` : ""}
+    ${shown.map(taskRow).join("") || `<div class="legend">${T.length ? "אין משימות בסינון הזה." : "לא נמצאו משימות שנאמרו במפורש."}</div>`}
+    <div class="legend">אחראי ומועד מופיעים רק אם נאמרו בפגישה. "לא נקבע" = לא נאמר, ולא ניחשנו.</div>`;
+  const fo = $("#mfo"), fs = $("#mfs");
+  if (fo) fo.onchange = () => { MFILT.owner = fo.value; drawTasks(v); };
+  if (fs) fs.onchange = () => { MFILT.state = fs.value; drawTasks(v); };
+  box.querySelectorAll("[data-st]").forEach(c => c.onchange = async () => {
+    const t = T.find(x => x.id === +c.dataset.st), state = c.checked ? "done" : "confirmed";   // unchecked = a real task, not done yet
+    const r = await POST("/home/api/task", {id: t.id, state}).catch(() => null);
+    if (!r || !r.ok) { c.checked = !c.checked; return toast("לא נשמר. נסה שוב."); }
+    t.state = state; drawTasks(v);
+    toast(state === "done" ? "סומן כבוצע ✓" : "חזר לפתוחות");
+  });
+  bindJumps(box); bindDismiss(box);
+}
+function timelineHtml(v){
+  const L = v.lines; if (!L.length) return "";
+  const s0 = v.meeting.started && v.meeting.started < L[0].t0 ? v.meeting.started : L[0].t0;
+  const e0 = [L[L.length - 1].t1 || L[L.length - 1].t0, v.meeting.ended || ""].sort().pop();
+  const a = new Date(s0).getTime(), span = Math.max(1000, new Date(e0).getTime() - a);
+  const pct = t => Math.max(0, Math.min(100, (new Date(t).getTime() - a) / span * 100));
+  return `<div class="mtl" aria-label="ציר הזמן: מי דיבר מתי. לחיצה קופצת לשורה">${L.map(u => `<i data-j="${u.id}" title="${esc(u.name ? first(u.name) : "לא מזוהה")} ${hms(u.t0)}"
+      style="right:${pct(u.t0).toFixed(2)}%;width:${Math.max(.35, pct(u.t1 || u.t0) - pct(u.t0)).toFixed(2)}%;background:${colorOf(u.name)}"></i>`).join("")}
+    ${(v.marks || []).map(m => `<span class="st" style="right:${pct(m.t).toFixed(2)}%" title="רגע חשוב ${hms(m.t)}">⭐</span>`).join("")}</div>
+    <div class="mtlx"><span>${hm(s0)}</span><span>${hm(e0)}</span></div>`;
+}
+function meetResults(v, box){
+  const m = v.meeting, D = v.decision_items || [], li = a => `<ul>${a.map(x => `<li>${esc(x)}</li>`).join("")}</ul>`;
+  const n = x => `<span class="n">${x}</span>`;
+  box.innerHTML = `<button class="back" onclick="location.hash='meetings'">→ כל הפגישות</button>
+  <div class="mws"><div class="card mhd"><div class="when">${meetWhen(v)}</div>
+      <h2>${esc(m.title || v.topic || "פגישה")}</h2>
+      ${(v.people || []).length ? `<div class="ppl">${v.people.map(p => `<span style="color:${colorOf(p)}">${esc(p)}</span>`).join("")}</div>` : ""}
+      <div class="acts"><button id="mcopy">📋 העתק סיכום</button><button id="mcopyt">📄 העתק תמלול</button>
+        <button id="mdl">⬇ הורד כקובץ טקסט</button>${m.conv_id ? `<button id="mresum">↻ סכם מחדש</button>` : ""}</div></div>
+    <div class="mgrid"><div>
+      ${m.status === "empty" ? `<div class="card"><div class="legend" style="margin:0">לא נשמע דיבור בפגישה הזו.</div></div>` : ""}
+      <div class="card"><h2>תקציר</h2>
+        ${v.purpose ? `<div><b>מטרה:</b> ${esc(v.purpose)}</div>` : ""}
+        ${v.summary ? `<div class="sum">${esc(v.summary)}</div>` : `<div class="legend" style="margin:0">אין סיכום (המודל לא היה זמין או שהתמלול קצר מדי). אפשר ללחוץ "סכם מחדש".</div>`}
+        ${(v.topics || []).length ? `<div class="lbl">נושאים עיקריים</div><div class="tps">${v.topics.map(t => `<span>${esc(t)}</span>`).join("")}</div>` : ""}
+        ${(v.conclusions || []).length ? `<div class="lbl">מסקנות</div>${li(v.conclusions)}` : ""}
+        <div class="legend">נכתב אוטומטית מהתמלול. החלטות ומשימות נשמרות רק כשנמצא ציטוט מדויק בשורה שבה נאמרו.</div></div>
+      <div class="card" id="mdec"><h2>החלטות ${n(D.length)}</h2>${D.length ? D.map(decRow).join("") : `<div class="legend" style="margin:0">לא נמצאה החלטה שנאמרה במפורש.</div>`}</div>
+      <div class="card" id="mtasks"></div>
+      ${(v.open_questions || []).length || (v.next_steps || []).length ? `<div class="card"><h2>שאלות פתוחות וצעדים הבאים</h2>
+        ${(v.open_questions || []).length ? `<div class="lbl">שאלות פתוחות</div>${li(v.open_questions)}` : ""}
+        ${(v.next_steps || []).length ? `<div class="lbl">הצעדים הבאים</div>${li(v.next_steps)}` : ""}
+        <div class="legend">מתוך הסיכום האוטומטי, בלי ציטוט: כדאי לבדוק בתמלול.</div></div>` : ""}
+    </div><div class="trc"><div class="card"><h2>תמלול וציר זמן ${n(v.lines.length + " שורות")}</h2>
+      ${timelineHtml(v)}
+      ${v.lines.length ? `<input class="msearch" id="msearch" type="search" placeholder="חיפוש בתמלול…" aria-label="חיפוש בתמלול">` : ""}
+      <div class="lines" id="mlines">${linesHtml(v.lines, v.marks, true) || `<div class="legend">אין שורות.</div>`}</div>
+      <div class="legend">▶ משמיע את השורה · לחיצה על שם = מי זה?${v.source === "both" ? " · 🎙 הצד שלך · 🔊 הצד השני בשיחה" : ""}</div></div></div></div></div>`;
+  drawTasks(v);
+  bindLines($("#mlines"), v.lines, true);
+  bindJumps($("#mdec")); bindDismiss($("#mdec"));
+  bindJumps(box.querySelector(".trc"));                     // the timeline: jump to a line
+  const s = $("#msearch");
+  if (s) s.oninput = () => { const q = s.value.trim().toLowerCase();
+    document.querySelectorAll("#mlines .ml").forEach(r => r.hidden = !!q && (r.classList.contains("mk") || !r.textContent.toLowerCase().includes(q))); };
+  $("#mcopy").onclick = () => copyText(v.share_text, "הסיכום הועתק. אפשר להדביק בוואטסאפ או במייל.");
+  $("#mcopyt").onclick = () => copyText(v.transcript_text, "התמלול הועתק.");
+  $("#mdl").onclick = () => {
+    const blob = new Blob(["﻿" + v.share_text + "\n\n— תמלול —\n" + v.transcript_text], {type: "text/plain;charset=utf-8"});
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `meeting-${m.id}.txt`;
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 3000);
+  };
+  const rs = $("#mresum");
+  if (rs) rs.onclick = async () => { rs.disabled = true; rs.textContent = "מסכם… (דקה-שתיים)";
+    const r = await POST("/home/api/summarize_conv", {id: m.conv_id, final: true}).catch(() => null);
+    toast(r && r.ok ? "הסיכום עודכן." : "הסיכום נכשל: " + ((r && r.msg) || "המחשב לא ענה")); showMeeting(m.id); };
+}
+async function showMeetings(){
+  const L = await J("/home/api/meetings").catch(() => []);
+  if (location.hash !== "#meetings") return;
+  $("#main").innerHTML = `<div class="card"><h2>פגישות ${REC_LOCAL && REC.state === "idle" ? `<button class="act" id="mnew">📋 הקלט פגישה</button>` : ""}</h2>
+    <div class="legend" style="margin-top:0">פגישה במחשב: שמע מקליט את המיקרופון ואת מה שהמחשב משמיע (למשל שיחת Zoom / Teams / Meet), מתמלל תוך כדי,
+      ובסוף כותב סיכום, החלטות ומשימות, כל אחת עם השורה שבה נאמרה. גם פגישות שהוקלטו בטלפון מופיעות כאן.</div>
+    ${L.length ? L.map(m => { const ppl = J0(m.people, []);
+      return `<div class="mrow" data-m="${esc(m.id)}" role="link" tabindex="0"><div class="bd"><div class="tt">${esc(m.title || m.topic || "פגישה")}</div>
+        <div class="sub">${(m.started || "").slice(0, 10)} · ${hm(m.started)} · ${m.device === "pc" ? "🖥 מחשב" : "📱 טלפון"}${m.seconds ? " · " + mins(m.seconds) : ""}${ppl.length ? " · " + ppl.map(p => esc(first(p))).join(", ") : ""}</div></div>
+        ${m.open_tasks ? `<span class="chip">${m.open_tasks} משימות פתוחות</span>` : ""}<span class="chip ${m.status === "done" ? "sig" : "prov"}">${esc(M_ST[m.status] || m.status || "")}</span></div>`; }).join("")
+      : `<div class="empty">עוד אין פגישות.</div>`}</div>`;
+  document.querySelectorAll(".mrow[data-m]").forEach(r => { r.onclick = () => location.hash = meetHref(r.dataset.m).slice(1);
+    r.onkeydown = e => { if (e.key === "Enter") r.onclick(); }; });
+  const nb = $("#mnew"); if (nb) nb.onclick = showMeetStart;
 }
 // ---------------------------------------------------------------- connect a phone (QR made here, nothing leaves the PC)
 async function showPair(){
@@ -1527,13 +1944,16 @@ async function showPrivacy(){
 function route(soft){
   status();
   live();
+  stopMeetPoll();
   const h = location.hash;
-  const tab = h.startsWith("#teach") ? "teach" : h.startsWith("#people") ? "people" : h.startsWith("#sounds") ? "sounds"
+  const tab = h.startsWith("#meeting") ? "meetings" : h.startsWith("#teach") ? "teach" : h.startsWith("#people") ? "people" : h.startsWith("#sounds") ? "sounds"
     : h.startsWith("#search") ? "search" : h.startsWith("#me") ? "me" : h.startsWith("#privacy") ? "privacy" : h.startsWith("#system") ? "system"
     : h.startsWith("#asr") ? "asr" : "day";
   document.querySelectorAll("#tabs a").forEach(a => a.classList.toggle("on", a.dataset.t === tab));
   const m = h.match(/^#c(\d+)(?:u(\d+))?/);          // #c<conversation>u<line>: open at that line (a source link)
-  if (m) showConv(+m[1], null, false, m[2] ? +m[2] : null); else if (tab === "teach") showTeach(); else if (tab === "people") showPeople();
+  const mt = h.match(/^#meeting=(.+)/);              // #meeting=<id>: one meeting (live while it records, then its workspace)
+  if (mt) showMeeting(decodeURIComponent(mt[1])); else if (tab === "meetings") showMeetings();
+  else if (m) showConv(+m[1], null, false, m[2] ? +m[2] : null); else if (tab === "teach") showTeach(); else if (tab === "people") showPeople();
   else if (tab === "search") showSearch(); else if (tab === "me") showMe(); else if (tab === "privacy") showPrivacy(); else if (tab === "system") showSystem();
   else if (tab === "sounds") showSounds(); else if (tab === "asr") showAsr(); else showDay();
   J("/home/api/teach").then(t => teachCount(t.left)).catch(() => {});
@@ -1544,6 +1964,7 @@ window.onhashchange = () => route();
 $("#store").onclick = showStorage;
 $("#pairbtn").onclick = showPair;
 $("#recbtn").onclick = showRecord;
+$("#meetbtn").onclick = showMeetStart;
 J("/home/api/pc_rec").then(x => { REC_LOCAL = !!x.local; recBar(x.rec); }).catch(() => {});
 if (location.hash === "#pair") showPair();
 route();

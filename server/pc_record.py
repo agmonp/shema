@@ -157,9 +157,10 @@ class Recorder:
         self.chunks, self.levels, self.names = [], {}, {}
         self._thread, self._want = None, None   # _want: "run" / "pause" / "stop"
         self._part = None                   # (path, meta) of the chunk being written
+        self.meet = None                    # meeting id (UX phase 5): every chunk of this recording belongs to it
 
     # ------------------------------------------------------------- control (called from the HTTP threads)
-    def start(self, source):
+    def start(self, source, meet=None):
         if source not in SOURCES:
             return self.status(error="מקור לא מוכר")
         with self.lock:
@@ -170,7 +171,7 @@ class Recorder:
                 opened = [self.factory(k) for k in kinds]
             except Exception as exc:  # noqa: BLE001
                 return self.status(error=_why(exc, source))
-            self.source, self.error, self.note = source, None, None
+            self.source, self.error, self.note, self.meet = source, None, None, meet
             self.started, self.recorded_s, self.chunks, self.levels = datetime.now(), 0.0, [], {}
             self.names = {k: getattr(s, "name", k) for k, s in zip(kinds, opened)}
             self.state, self._want = "recording", "run"
@@ -210,7 +211,7 @@ class Recorder:
         return {"state": self.state, "source": self.source, "source_name": NAMES.get(self.source),
                 "devices": self.names, "started": self.started.isoformat(timespec="seconds") if self.started else None,
                 "seconds": round(self.recorded_s, 1), "chunks": len(self.chunks), "levels": dict(self.levels),
-                "error": error or self.error, "note": self.note, "chunk_s": self.chunk_s}
+                "error": error or self.error, "note": self.note, "chunk_s": self.chunk_s, "meet": self.meet}
 
     # ------------------------------------------------------------- capture thread
     def _run(self, kinds, opened):
@@ -263,7 +264,7 @@ class Recorder:
         if self._part is None:
             st = datetime.now() - timedelta(seconds=BLOCK_S)      # the first block was recorded just before now
             p = self.folder / f"partial_{st.strftime('%Y%m%dT%H%M%S_%f')}.pcm"
-            meta = {"start": st.isoformat(), "channels": channels, "source": self.source, "frames": 0}
+            meta = {"start": st.isoformat(), "channels": channels, "source": self.source, "frames": 0, "meet": self.meet}
             p.with_suffix(".json").write_text(json.dumps(meta), encoding="utf-8")
             self._part = (p, meta)
         p, meta = self._part
@@ -289,7 +290,8 @@ class Recorder:
         pcm = pcm[:len(pcm) - len(pcm) % (2 * ch)]
         cid = None
         if len(pcm) >= 2 * ch * SR // 2:                          # under half a second: nothing worth analysing
-            cid = self.store(wav_bytes(pcm, ch), _parse_iso(meta.get("start")) or datetime.now())
+            args = (wav_bytes(pcm, ch), _parse_iso(meta.get("start")) or datetime.now())
+            cid = self.store(*args, meta["meet"]) if meta.get("meet") else self.store(*args)   # a crash keeps the meeting too
         p.unlink(missing_ok=True)
         p.with_suffix(".json").unlink(missing_ok=True)
         return cid
@@ -332,6 +334,50 @@ class Recorder:
             finally:
                 s.close()
         return {"ok": all(r["ok"] for r in res.values()), "sources": res}
+
+
+SIDE_SILENT_DB = -50         # RMS dBFS under which a channel counts as silent during a line
+SIDE_MIC_OVER = 10           # the microphone this much louder than the system audio: the user's side of the call
+SIDE_SYS_NEAR = 3            # the system audio at most this much quieter than the microphone: the other side
+
+
+def _rms_db(a):
+    if not len(a):
+        return None
+    r = float(np.sqrt(np.mean(np.square(a.astype(np.float64)))))
+    return 20 * math.log10(r) if r > 1e-6 else -120.0
+
+
+def channel_sides(path, spans):
+    """UX phase 5: for a "both" recording (left = microphone, right = system audio), which side each line came from.
+    spans = [(s0, s1) seconds in the file] -> ["mic" | "system" | None, ...]. The system channel is a clean copy of what
+    the PC played (the other people on a call); the user's own voice reaches only the microphone. With loudspeakers the
+    microphone also hears the other side, but weaker than the clean copy, so: system silent -> "mic"; system about as
+    loud as the microphone or louder -> "system"; both loud and the microphone clearly louder -> "mic"; in between
+    (talking over each other) -> None, not decided. A mono file -> all None."""
+    try:
+        with wave.open(str(path), "rb") as w:
+            if w.getnchannels() != 2 or w.getsampwidth() != 2:
+                return [None] * len(spans)
+            sr = w.getframerate()
+            a = np.frombuffer(w.readframes(w.getnframes()), "<i2").reshape(-1, 2).astype(np.float32) / 32768
+    except (OSError, wave.Error, EOFError, ValueError):
+        return [None] * len(spans)
+    out = []
+    for s0, s1 in spans:
+        seg = a[max(0, int(float(s0) * sr)):max(0, int(float(s1) * sr))]
+        mic, sysd = _rms_db(seg[:, 0]), _rms_db(seg[:, 1])
+        if mic is None:
+            out.append(None)
+        elif sysd < SIDE_SILENT_DB:
+            out.append("mic" if mic >= SIDE_SILENT_DB else None)
+        elif mic < SIDE_SILENT_DB or sysd >= mic - SIDE_SYS_NEAR:
+            out.append("system")
+        elif mic - sysd >= SIDE_MIC_OVER:
+            out.append("mic")
+        else:
+            out.append(None)
+    return out
 
 
 def _why(exc, source):

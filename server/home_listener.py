@@ -13,7 +13,8 @@ r"""home_listener.py -- Shema's PC side (server).
     RESCORE_DAYS days is re-scored at once, and new recordings use the bank from then on
   * keeps raw audio by config.json "audio_policy" (default "archive"), text + numbers forever
   * records on the PC itself too (pc_record.py: microphone / system audio / both, POST /home/api/pc_rec, this PC
-    only): its chunks join the same queue as device "pc"
+    only): its chunks join the same queue as device "pc". "הקלט פגישה" there (meeting: true) makes it a meeting:
+    shorter chunks, the call's two sides told apart (utterances.side), summary + decisions + tasks with their lines
   * serves the screen: GET /home (ui/home.html), /home/api/..., /home/app.apk
 
     python -X utf8 home_listener.py                 # serve on :8770
@@ -151,6 +152,10 @@ MIGRATIONS = [   # columns added after the first version (2026-10-06 afternoon)
     # 2026-10-17 (phase 5): what kind of item (promise / agreed / request / decision; NULL = an older task), the line it
     # was said in, how sure that line's name is, and which model proposed it
     ("tasks", "kind", "TEXT"), ("tasks", "utt_id", "INTEGER"), ("tasks", "who_how", "TEXT"), ("tasks", "model", "TEXT"),
+    # 2026-10-18 (UX phase 5, meetings on the PC): which side of a call a line came from ("mic" = the user's side,
+    # "system" = what the PC played, NULL = not a two-channel recording / not decided); a meeting item's owner, only when
+    # it was said (tasks.who stays the line's speaker, as for every other item); what a PC meeting recorded from
+    ("utterances", "side", "TEXT"), ("tasks", "owner", "TEXT"), ("meetings", "source", "TEXT"),
 ]
 
 
@@ -649,12 +654,14 @@ def label(utt_id, speaker=None, new_name=None):
         since = iso(datetime.now() - timedelta(days=RESCORE_DAYS))
         changed = 0
         if len(cands) >= 1:
-            rows = c.execute("SELECT id, speaker, emb FROM utterances WHERE t0>=? AND emb IS NOT NULL "
+            rows = c.execute("SELECT id, speaker, emb, side FROM utterances WHERE t0>=? AND emb IS NOT NULL "
                              "AND coalesce(how,'') != 'user' AND media IS NULL", (since,)).fetchall()
             for r in rows:
                 x = np.frombuffer(r["emb"], dtype=np.float32)
                 best, s1, s2 = best_two(x, cands)
                 new = best if (s1 >= SIM_MIN and s1 - s2 >= MARGIN) else None
+                if new == owner_id() and r["side"] == "system":
+                    new = None                             # the user's own voice never comes from the other side of a call
                 if new == TV:
                     c.execute("UPDATE utterances SET speaker=NULL, name=NULL, how='voice', media='טלוויזיה', "
                               "media_text=text, text='' WHERE id=?", (r["id"],))
@@ -1122,6 +1129,8 @@ def set_optout(pid, on=True):
 PC_DEVICE = "pc"
 PCREC = None
 _PC_DEV = {"t": 0, "v": None}
+PC_MEET_CHUNK_S = 15          # a meeting on the PC: shorter chunks, so its transcript appears sooner (still ~15-60 s behind)
+_PC_MEET_LOCK = threading.Lock()
 
 
 def pcrec():
@@ -1130,13 +1139,63 @@ def pcrec():
     if PCREC is None:
         import pc_record
         PCREC = pc_record.Recorder(
-            store=lambda raw, st: store_chunk(raw, PC_DEVICE, iso(st), "wav", "speech", {"role": "home", "home": "1"}),
+            store=lambda raw, st, meet=None: store_chunk(raw, PC_DEVICE, iso(st), "wav", "speech",
+                                                         {"role": "home", "home": "1", "meet": meet}),
             folder=HOME / "pc_rec", max_s=float(config().get("pc_rec_max_hours") or pc_record.MAX_HOURS) * 3600, log=log)
+        PCREC.normal_chunk_s = PCREC.chunk_s
     return PCREC
 
 
 def pc_rec_status():
+    if PCREC and PCREC.meet and PCREC.state == "idle":    # stopped by itself (device unplugged, the 4 h limit): the meeting ends too
+        pc_meeting_end()
     return PCREC.status() if PCREC else {"state": "idle"}
+
+
+def pc_meeting_start(r, src, title=None):
+    """"הקלט פגישה" on the PC: a meetings row (device "pc") and a recording whose every chunk carries its id, so the
+    phone's meeting flow does the rest (one conversation, analysed first, summarised when it ends). It records what the
+    PC plays and / or the microphone; it does not join or read Zoom / Teams / Meet."""
+    if r.state != "idle":
+        return r.status(error="כבר מקליט")
+    now = datetime.now()
+    mid = "pc-" + now.strftime("%Y%m%d-%H%M%S")
+    title = str(title or "").strip()[:80] or None
+    with db() as c:
+        c.execute("INSERT OR REPLACE INTO meetings (id, device, title, started, status, updated, source) "
+                  "VALUES (?,?,?,?,'recording',?,?)", (mid, PC_DEVICE, title, iso(now), iso(now), src))
+    r.chunk_s = int(config().get("pc_meet_chunk_s") or PC_MEET_CHUNK_S)
+    out = r.start(src, meet=mid)
+    if out.get("error"):
+        r.chunk_s = getattr(r, "normal_chunk_s", r.chunk_s)
+        with db() as c:
+            c.execute("DELETE FROM meetings WHERE id=? AND status='recording'", (mid,))
+        return out
+    log(f"meeting {mid} started on the PC ({src})")
+    return out
+
+
+def pc_meeting_end():
+    """The PC meeting's recording stopped -> the meeting ended (summarised once its last chunks are analysed).
+    Once per meeting, whichever thread sees it first. -> the meeting id or None."""
+    r = PCREC
+    with _PC_MEET_LOCK:
+        mid = r.meet if r else None
+        if not mid:
+            return None
+        r.meet = None
+        r.chunk_s = getattr(r, "normal_chunk_s", r.chunk_s)
+    meeting_end(PC_DEVICE, mid, t1=datetime.now())
+    return mid
+
+
+def pc_meetings_orphaned():
+    """At server start: a PC meeting still "recording" lost its recorder with the old process -> ended."""
+    with db() as c:
+        ids = [r["id"] for r in c.execute("SELECT id FROM meetings WHERE device=? AND status='recording'", (PC_DEVICE,))]
+    for mid in ids:
+        meeting_end(PC_DEVICE, mid)
+    return ids
 
 
 def pc_devices(fresh=False):
@@ -1154,10 +1213,19 @@ def pc_rec_action(b):
     if a == "start":
         if not b.get("consent"):
             return {"state": r.state, "error": "צריך לאשר שכל הנוכחים יודעים שמקליטים"}
-        return r.start(src)
+        return pc_meeting_start(r, src, b.get("title")) if b.get("meeting") else r.start(src)
     if a == "probe":
         return r.probe(src)
-    if a in ("pause", "resume", "stop"):
+    if a == "stop":
+        out = r.stop()
+        return dict(out, meet_ended=pc_meeting_end())
+    if a == "mark":                                       # "סמן רגע חשוב": a star now (its recording is kept)
+        if r.state == "idle":
+            return {"ok": False, "error": "אין הקלטה עכשיו"}
+        t = datetime.now()
+        add_mark(PC_DEVICE, t, str(b.get("note") or "").strip()[:200] or None, minutes=2)
+        return {"ok": True, "t": iso(t), "meet": r.meet}
+    if a in ("pause", "resume"):
         return getattr(r, a)()
     return {"state": r.state, "error": "פעולה לא מוכרת"}
 
@@ -1266,7 +1334,8 @@ class Worker(threading.Thread):
             res = home_analyze.analyse(self.B, row["file"], year=st.year, bank=bk, names=names, sound_bank=sb,
                                        kind=kind, when=st.timestamp(),
                                        songs=config().get("song_lookup", False) and not row["away"] and not is_meet(row["ctx"]),
-                                       away=bool(row["away"]) or is_meet(row["ctx"]))      # a meeting: English is people, not TV
+                                       away=bool(row["away"]) or is_meet(row["ctx"]),      # a meeting: English is people, not TV
+                                       people_only=row["device"] == PC_DEVICE and is_meet(row["ctx"]))  # a PC meeting: no TV at all
             if kind == "enroll":
                 enrol_owner(row, res)
             else:
@@ -1349,12 +1418,26 @@ def save_analysis(row, st, res):
     at = lambda s: iso(st + timedelta(seconds=float(s)))  # noqa: E731
     out_opt = optout_set()
     skipped = 0
+    if device == PC_DEVICE and row["file"] and res["utterances"]:
+        try:                                              # "both" on the PC: left = microphone, right = system audio
+            import pc_record
+            for u, sd in zip(res["utterances"], pc_record.channel_sides(row["file"], [(u["t0"], u["t1"]) for u in res["utterances"]])):
+                u["side"] = sd
+        except Exception as exc:  # noqa: BLE001
+            log(f"chunk {chunk_id} sides failed {exc!r}")
+    oid = owner_id()
     with db() as c:
         place, _ = place_of(c, row["lat"], row["lon"])
         place = place or ("בית" if not away else None)
+        oname = name_of(c, oid)
         for u in res["utterances"]:
             if not u["text"].strip() and not (u.get("media") and (u.get("media_text") or "").strip()):
                 continue
+            side = u.get("side")
+            if side == "system" and u.get("speaker") == oid:      # the user's own voice never comes from the other side
+                u["speaker"], u["name"], u["how"] = None, None, None
+            elif side == "mic" and not u.get("speaker") and not u.get("media"):
+                u["speaker"], u["name"], u["how"] = oid, oname, "mic"   # the user's side of the call: probably the user
             if u.get("speaker") in out_opt:                   # asked not to be recorded
                 skipped += 1
                 continue
@@ -1391,8 +1474,8 @@ def save_analysis(row, st, res):
             emb = u.get("emb")
             c.execute("""INSERT INTO utterances (chunk_id,conv_id,t0,t1,seconds,speaker,name,text,f0_hz,f0_range_st,
                          intensity_db,syll_per_s,voiced_share,emotion,emotion_p,emotion_scores,arousal,dominance,valence,
-                         emb,how,media,media_text,device,alt_db,alt_device,lang,text_raw,asr,words)
-                         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                         emb,how,media,media_text,device,alt_db,alt_device,lang,text_raw,asr,words,side)
+                         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                       (chunk_id, conv, t0, t1, round(u["t1"] - u["t0"], 2), u["speaker"], u["name"],
                        u["text"].strip(), p.get("f0_hz"), p.get("f0_range_st"), p.get("intensity_db"),
                        p.get("syll_per_s"), p.get("voiced_share"), e.get("label"), e.get("p"),
@@ -1400,7 +1483,7 @@ def save_analysis(row, st, res):
                        emb.astype(np.float32).tobytes() if emb is not None else None, u.get("how"),
                        u.get("media"), u.get("media_text"), device, alt_db, alt_dev, u.get("lang"),
                        u.get("text_raw"), json.dumps(u["asr"], ensure_ascii=False) if u.get("asr") else None,
-                       words_json(u)))
+                       words_json(u), u.get("side")))
         for s in res["sounds"]:
             if away:
                 break                                         # away from home: only the speech of the owner's conversations
@@ -1762,6 +1845,12 @@ def finish_meetings():
                 c.execute("UPDATE meetings SET status='empty', updated=? WHERE id=?", (iso(now), m["id"]))
                 continue
             c.execute("UPDATE meetings SET status='summarising', conv_id=?, updated=? WHERE id=?", (conv["id"], iso(now), m["id"]))
+            try:
+                n = rescore_conv(c, conv["id"])
+                if n:
+                    log(f"meeting {m['id']}: {n} lines re-named before the summary")
+            except Exception as exc:  # noqa: BLE001
+                log(f"meeting {m['id']} rescore failed {exc!r}")
         try:
             finish_conversation(conv["id"])
         except Exception as exc:  # noqa: BLE001
@@ -1772,126 +1861,194 @@ def finish_meetings():
                       ("empty" if st == "empty" else "done", iso(datetime.now()), m["id"]))
 
 
-MEETING_TASK = """אתה מסכם פגישה שהוקלטה. התמלול אוטומטי, בעברית, ויש בו שגיאות. "?" הוא דובר שלא זוהה.
+MEETING_TASK = """אתה מסכם פגישה שהוקלטה. התמלול אוטומטי, בעברית (לפעמים מילים באנגלית), ויש בו שגיאות.
+כל שורה מתחילה במספר: [12] שם: טקסט. "?" = דובר לא מזוהה.
 כתוב בעברית, ענייני ותמציתי, רק לפי מה שנאמר. אל תמציא שמות, מספרים, תאריכים, החלטות או משימות.
 החזר JSON בלבד:
 {"topic": "2-6 מילים",
+ "purpose": "משפט אחד: לשם מה נפגשו, רק אם זה עולה מהשיחה, אחרת null",
  "summary": "3-6 משפטים: על מה דיברו ולמה הגיעו",
- "decisions": ["רק החלטות שסוכמו במפורש, כל אחת בשורה קצרה"],
- "tasks": [{"who": "מי אחראי (שם כפי שמופיע בתמלול), או ? אם לא ברור", "what": "מה צריך לעשות, קצר",
-            "when": "מתי, רק אם נאמר, אחרת null", "quote": "ציטוט מילה במילה מהתמלול, עד 12 מילים"}],
- "next_steps": ["מה נשאר פתוח או הצעד הבא, עד 4"],
+ "topics": ["נושא עיקרי, 2-5 מילים, עד 6"],
+ "conclusions": ["מסקנה או הבנה שעלתה, עד 4"],
+ "open_questions": ["שאלה שנשארה פתוחה, עד 4"],
+ "next_steps": ["הצעד הבא, עד 4"],
+ "items": [{"type": "decision|promise|agreed|request", "line": 12, "quote": "ציטוט מילה במילה מהשורה, 5-15 מילים",
+            "what": "תיאור קצר", "owner": "מי יבצע: רק אם נאמר בשמו או שהדובר התחייב בעצמו, אחרת null",
+            "when": "המועד במילים שנאמרו, בשפה שבה נאמרו (למשל \"עד יום חמישי\" או \"by Friday\"), רק אם נאמר, אחרת null"}],
  "per_person": {"שם": "משפט אחד: מה האדם הזה אמר או רצה בפגישה"}}
-אם אין החלטות, משימות או צעדים, החזר רשימה ריקה."""
+decision = החלטה שהתקבלה ונאמרה כהחלטה. promise = מישהו מתחייב לעשות משהו בעצמו. agreed = משימה שסוכם שתתבצע.
+request = מישהו מבקש מאדם אחר לעשות משהו. רעיון, אפשרות ("אולי", "אפשר"), רצון, תנאי או שאלה אינם פריט.
+אם אין, החזר רשימה ריקה. עדיף לא להחזיר פריט מאשר לנחש."""
 
-MEETING_PART_TASK = """אתה מסכם חלק אחד מתוך פגישה ארוכה שהוקלטה. התמלול אוטומטי, בעברית, ויש בו שגיאות. "?" הוא דובר שלא זוהה.
-כתוב בעברית, רק לפי מה שנאמר בחלק הזה. אל תמציא.
+MEETING_PART_TASK = """אתה מסכם חלק אחד מתוך פגישה ארוכה שהוקלטה. התמלול אוטומטי, בעברית, ויש בו שגיאות.
+כל שורה מתחילה במספר: [12] שם: טקסט. "?" = דובר לא מזוהה. כתוב בעברית, רק לפי מה שנאמר בחלק הזה. אל תמציא.
 החזר JSON בלבד:
-{"summary": "2-4 משפטים על החלק הזה",
- "decisions": ["החלטות שסוכמו במפורש"],
- "tasks": [{"who": "מי אחראי או ?", "what": "מה צריך לעשות", "when": "מתי, רק אם נאמר, אחרת null",
-            "quote": "ציטוט מילה במילה מהתמלול, עד 12 מילים"}],
- "next_steps": ["מה נשאר פתוח"]}"""
+{"summary": "2-4 משפטים על החלק הזה", "topics": ["נושא"], "conclusions": ["מסקנה"], "open_questions": ["שאלה פתוחה"],
+ "next_steps": ["מה נשאר פתוח"],
+ "items": [{"type": "decision|promise|agreed|request", "line": 12, "quote": "ציטוט מילה במילה, 5-15 מילים", "what": "תיאור קצר",
+            "owner": "מי יבצע רק אם נאמר, אחרת null", "when": "המועד במילים ובשפה שבהן נאמר, רק אם נאמר, אחרת null"}]}
+decision = החלטה שהתקבלה. promise = התחייבות של הדובר. agreed = משימה שסוכמה. request = בקשה מאדם אחר. אם אין: רשימה ריקה."""
 
 MEETING_JOIN_TASK = """לפניך סיכומים של חלקי פגישה אחת, לפי הסדר. אחד אותם לסיכום אחד של כל הפגישה, בעברית.
 אל תוסיף דבר שלא מופיע בחלקים. החזר JSON בלבד:
-{"topic": "2-6 מילים", "summary": "3-6 משפטים על כל הפגישה",
- "decisions": ["ההחלטות, בלי כפילויות"], "next_steps": ["מה נשאר פתוח, עד 4"]}"""
+{"topic": "2-6 מילים", "purpose": "לשם מה נפגשו, או null", "summary": "3-6 משפטים על כל הפגישה",
+ "topics": ["עד 6, בלי כפילויות"], "conclusions": ["עד 4"], "open_questions": ["עד 4"], "next_steps": ["מה נשאר פתוח, עד 4"]}"""
+MEETING_LISTS = {"topics": 6, "conclusions": 4, "open_questions": 4, "next_steps": 4}
 
 
-def _meeting_lines(U):
-    out, last = [], None
-    for u in U:
-        hm = u["t0"][11:16]
-        out.append((f"[{hm}] " if hm != last else "") + f"{u['name'] or '?'}: {u['text']}")
-        last = hm
-    return out
+def _meeting_lines(L):
+    """[n] name: text, numbered over the whole meeting (the items point at these numbers)."""
+    return [f"[{i + 1}] {u['name'] or '?'}: {u['text']}" for i, u in enumerate(L)]
 
 
 def _str_list(v, n):
     return [s.strip() for s in (v if isinstance(v, list) else []) if isinstance(s, str) and s.strip()][:n]
 
 
-def _meeting_tasks(tasks, text):
-    """Only tasks whose quote was really said (the same rule as extract_tasks, with room for a word the model fixed)."""
-    norm, words = " ".join(text.split()), set(_norm_words(text))
+OWNER_SELF = {"אני", "אנוכי", "i", "me"}
+
+
+def meeting_owner(owner, kind, L, i):
+    """Who does a meeting item: only when it was said. A promise is its speaker's; an agreement / request names someone
+    only when that name is in the line or the next one ("דנה, תשלחי את זה"), or the model's owner is the speaker of a
+    promise / agreement. A decision has no owner. Anything else -> None ("לא נקבע")."""
+    from he_text import he_variants
+    if kind == "decision":
+        return None
+    sp = L[i]["name"]
+    o = " ".join(str(owner).split()) if isinstance(owner, str) else ""
+    if o.lower() in ("", "?", "null", "none", "לא ידוע", "לא נקבע"):
+        return sp if kind == "promise" and sp else None
+    if o.lower() in OWNER_SELF:
+        return sp if kind in ("promise", "agreed") and sp else None
+    if sp and kind in ("promise", "agreed") and _qwords(o)[:1] == _qwords(sp)[:1]:
+        return sp
+    w = _qwords(o)[:1]
+    if not w:
+        return None
+    near = set()
+    for x in _qwords(" ".join(u["text"] for u in L[i:i + 2])):
+        near |= set(he_variants(x)) | {x}
+    return o[:40] if (set(he_variants(w[0])) | {w[0]}) & near else None
+
+
+def meeting_items(L, raw, model=None):
+    """The model's meeting items -> checked rows: the quote must really be in a line (check_items, the same path as every
+    conversation's items), the due time must be said, the owner only as meeting_owner() allows."""
     out, seen = [], set()
-    for t in tasks if isinstance(tasks, list) else []:
-        if not isinstance(t, dict) or not isinstance(t.get("what"), str) or not t["what"].strip():
+    for t in raw if isinstance(raw, list) else []:
+        rows = check_items(L, [t], model)
+        if not rows or (rows[0]["utt_id"], rows[0]["kind"]) in seen:
             continue
-        quote = " ".join(str(t.get("quote") or "").split())
-        qw = [w for w in _norm_words(quote) if len(w) > 1]
-        if len(quote) < 8 or not (quote[:14] in norm or (len(qw) >= 3 and sum(w in words for w in qw) / len(qw) >= 0.7)):
-            continue
-        keys = {" ".join(_norm_words(t["what"]))[:60], " ".join(_norm_words(quote))[:40]}
-        if keys & seen:                                       # the same task from two parts of a long meeting
-            continue
-        seen |= keys
-        when = t.get("when")
-        out.append({"who": str(t.get("who") or "?").strip()[:40] or "?", "what": t["what"].strip()[:200],
-                    "when": str(when).strip()[:40] if when not in (None, "", "null") else None, "quote": quote[:200]})
-    return out[:12]
+        r = rows[0]
+        seen.add((r["utt_id"], r["kind"]))
+        i = next(k for k, u in enumerate(L) if u["id"] == r["utt_id"])
+        r["owner"] = meeting_owner(t.get("owner"), r["kind"], L, i)
+        out.append(r)
+    return out[:30]
 
 
 def summarise_meeting(U, dyn):
-    """Meeting summary: topic, summary, decisions, tasks, next steps (+ per person when it fits one call)."""
-    empty = {"topic": None, "summary": None, "moments": [], "decisions": [], "tasks": [], "next_steps": []}
-    text = " ".join(u["text"] for u in U)
+    """Meeting summary: topic, purpose, summary, topics, conclusions, open questions, next steps (model text, shown as a
+    summary) + decisions and action items, each tied to the line it was said in (kept only when its quote was said)."""
+    empty = {"topic": None, "summary": None, "moments": [], "decisions": [], "tasks": [], "next_steps": [], "items": []}
+    L = [{"id": u["id"], "name": u["name"], "how": u["how"], "text": u["text"]} for u in U if (u["text"] or "").strip()]
+    text = " ".join(u["text"] for u in L)
     if len(text) < 40:
         return empty
     names = {u["name"] for u in U if u["name"]}
     talk = ("\n\nזמן דיבור (שניות): " + ", ".join(f"{k}={v}" for k, v in dyn["talk_seconds"].items())) if dyn else ""
     parts, cur, size = [], [], 0
-    for ln in _meeting_lines(U):
+    for ln in _meeting_lines(L):
         if cur and size + len(ln) > MEETING_CHARS:
             parts.append(cur)
             cur, size = [], 0
         cur.append(ln)
         size += len(ln) + 1
     parts.append(cur)
+    items = []
     if len(parts) == 1:
         out = _ollama_json(MEETING_TASK, "\n".join(parts[0]) + talk, num_ctx=12288)
         if "error" in out:
             return empty
-        tasks = out.get("tasks")
+        items = meeting_items(L, out.get("items"), out.get("model"))
     else:
-        notes, tasks = [], []
+        notes = []
         for i, p in enumerate(parts):
             o = _ollama_json(MEETING_PART_TASK, f"חלק {i + 1} מתוך {len(parts)}:\n" + "\n".join(p), num_ctx=12288)
             if "error" in o:
                 continue
-            tasks += o.get("tasks") if isinstance(o.get("tasks"), list) else []
-            notes.append(f"חלק {i + 1}: " + json.dumps({k: o.get(k) for k in ("summary", "decisions", "next_steps")},
+            items += [r for r in meeting_items(L, o.get("items"), o.get("model"))
+                      if (r["utt_id"], r["kind"]) not in {(x["utt_id"], x["kind"]) for x in items}]
+            notes.append(f"חלק {i + 1}: " + json.dumps({k: o.get(k) for k in ("summary",) + tuple(MEETING_LISTS)},
                                                        ensure_ascii=False))
         if not notes:
             return empty
         out = _ollama_json(MEETING_JOIN_TASK, "\n".join(notes)[:14000] + talk, num_ctx=12288)
         if "error" in out:                                    # the parts are still worth showing
-            out = {"topic": None, "summary": " ".join(json.loads(n.split(": ", 1)[1]).get("summary") or "" for n in notes)[:1500],
-                   "decisions": [], "next_steps": []}
+            out = {"topic": None, "summary": " ".join(json.loads(n.split(": ", 1)[1]).get("summary") or "" for n in notes)[:1500]}
         out["per_person"] = {}
     pp = out.get("per_person") if isinstance(out.get("per_person"), dict) else {}
-    out.update(tasks=_meeting_tasks(tasks, text), decisions=_str_list(out.get("decisions"), 10),
-               next_steps=_str_list(out.get("next_steps"), 6), moments=[], signals=[], mood=None,
+    out.update({k: _str_list(out.get(k), n) for k, n in MEETING_LISTS.items()})
+    out.update(items=items[:30], decisions=[r["what"] for r in items if r["kind"] == "decision"],
+               tasks=[r for r in items if r["kind"] != "decision"], moments=[], signals=[], mood=None,
                per_person={k: v for k, v in pp.items() if k in names and isinstance(v, str)})
-    for k in ("topic", "summary"):
-        if not isinstance(out.get(k), str):
+    for k in ("topic", "summary", "purpose"):
+        if not isinstance(out.get(k), str) or out[k].strip().lower() in ("", "null"):
             out[k] = None
     return out
 
 
 def save_meeting(mid, cid, summ):
-    """The meeting's own parts -> meetings.result; its tasks also go to the task list (open ones are replaced)."""
-    res = {k: summ.get(k) or [] for k in ("decisions", "next_steps", "tasks")}
-    res["model"] = summ.get("model")
+    """The meeting's own parts -> meetings.result; its decisions and tasks go to the item list with their line (open
+    ones are replaced; ones the user already marked done / dismissed / confirmed are kept and not added again)."""
+    res = {k: summ.get(k) or [] for k in ("decisions",) + tuple(MEETING_LISTS)}
+    res["purpose"], res["model"] = summ.get("purpose"), summ.get("model")
     now = iso(datetime.now())
     with db() as c:
+        handled = {(r["utt_id"], r["kind"]) for r in c.execute("SELECT utt_id, kind FROM tasks WHERE conv_id=? AND state!='open' "
+                                                              "AND utt_id IS NOT NULL", (cid,))}
         c.execute("DELETE FROM tasks WHERE conv_id=? AND state='open'", (cid,))
-        for t in res["tasks"]:
-            c.execute("INSERT INTO tasks (conv_id, who, what, due, quote, created) VALUES (?,?,?,?,?,?)",
-                      (cid, t["who"], t["what"], t["when"], t["quote"], now))
+        for r in summ.get("items") or []:
+            if (r["utt_id"], r["kind"]) in handled:
+                continue
+            c.execute("INSERT INTO tasks (conv_id, who, what, due, quote, created, kind, utt_id, who_how, model, owner) "
+                      "VALUES (?,?,?,?,?,?,?,?,?,?,?)", (cid, r["who"] or "?", r["what"], r["due"], r["quote"], now,
+                                                         r["kind"], r["utt_id"], r["who_how"], r["model"], r.get("owner")))
         c.execute("UPDATE meetings SET result=?, conv_id=?, updated=? WHERE id=?",
                   (json.dumps(res, ensure_ascii=False), cid, now, mid))
+
+
+def rescore_conv(c, cid):
+    """Before a meeting's summary: its machine-named / unnamed lines against the voices as taught now (names fixed
+    during the meeting). The same rule as label(); the user's own voice is never put on the call's other side."""
+    from home_analyze import SIM_MIN, MARGIN, best_two
+    cands = current_cands(c)
+    if not cands:
+        return 0
+    n = 0
+    for r in c.execute("SELECT id, speaker, emb, side FROM utterances WHERE conv_id=? AND emb IS NOT NULL "
+                       "AND coalesce(how,'') != 'user' AND media IS NULL", (cid,)).fetchall():
+        best, s1, s2 = best_two(np.frombuffer(r["emb"], dtype=np.float32), cands)
+        new = best if (s1 >= SIM_MIN and s1 - s2 >= MARGIN) else None
+        if not new or new == TV or new == r["speaker"] or (new == owner_id() and r["side"] == "system"):
+            continue
+        c.execute("UPDATE utterances SET speaker=?, name=?, how='voice', score=? WHERE id=?",
+                  (new, name_of(c, new), round(s1, 3), r["id"]))
+        n += 1
+    return n
+
+
+def _meeting_task(t, lines_by_id):
+    """A task row as the meeting screens show it: who = the owner ("?" = not said), said_by = the line's speaker."""
+    t = dict(t)
+    said = t.get("who")
+    t["owner"] = t.get("owner") if t.get("kind") else (said if said and said != "?" else None)   # older rows: who was the owner
+    t["said_by"] = said if t.get("kind") and said != "?" else None
+    t["who"] = t["owner"] or "?"
+    u = lines_by_id.get(t.get("utt_id"))
+    t["t0"] = u["t0"] if u else None
+    return t
 
 
 def meeting_view(c, mid):
@@ -1903,11 +2060,14 @@ def meeting_view(c, mid):
     ctx = MEET_PREFIX + m["id"]
     n = {r["status"]: r["n"] for r in c.execute("SELECT status, count(*) AS n FROM chunks WHERE ctx=? GROUP BY status", (ctx,))}
     conv = c.execute("SELECT * FROM conversations WHERE ctx=? ORDER BY id LIMIT 1", (ctx,)).fetchone()
-    U = c.execute("SELECT t0, name, text, how FROM utterances WHERE conv_id=? AND media IS NULL AND text!='' ORDER BY t0",
-                  (conv["id"],)).fetchall() if conv else []
+    U = c.execute("SELECT id, t0, t1, seconds, speaker, name, text, how, side FROM utterances WHERE conv_id=? AND media IS NULL "
+                  "AND text!='' ORDER BY t0", (conv["id"],)).fetchall() if conv else []
     res = json.loads(m["result"]) if m["result"] else {}
-    tasks = [dict(r) for r in c.execute("SELECT id, who, what, due, quote, state FROM tasks WHERE conv_id=? "
-                                        "AND state!='dismissed' ORDER BY id", (conv["id"],))] if conv else []
+    by_id = {u["id"]: u for u in U}
+    rows = [_meeting_task(r, by_id) for r in c.execute(
+        "SELECT id, who, owner, what, due, quote, state, kind, utt_id, who_how FROM tasks WHERE conv_id=? "
+        "AND state!='dismissed' ORDER BY id", (conv["id"],))] if conv else []
+    tasks = [t for t in rows if t["kind"] != "decision"]
     secs = None
     if m["started"] and m["ended"]:
         secs = max(0, (datetime.fromisoformat(m["ended"]) - datetime.fromisoformat(m["started"])).total_seconds())
@@ -1919,7 +2079,18 @@ def meeting_view(c, mid):
          "people": json.loads(conv["people"] or "[]") if conv else [],
          "per_person": json.loads(conv["per_person"] or "{}") if conv and conv["per_person"] else {},
          "decisions": res.get("decisions") or [], "next_steps": res.get("next_steps") or [], "tasks": tasks,
-         "lines": [{"t0": u["t0"], "name": u["name"], "text": u["text"], "how": u["how"]} for u in U]}
+         "lines": [{"id": u["id"], "t0": u["t0"], "t1": u["t1"], "seconds": u["seconds"], "speaker": u["speaker"],
+                    "name": u["name"], "text": u["text"], "how": u["how"], "side": u["side"]} for u in U]}
+    # 2026-10-18 (UX phase 5): the workspace's parts. decision_items: decisions tied to their line (the checked-quote
+    # path); purpose / topics / conclusions / open questions are the model's summary text; marks = "סמן רגע חשוב"
+    v.update(decision_items=[t for t in rows if t["kind"] == "decision"], purpose=res.get("purpose"),
+             topics=res.get("topics") or [], conclusions=res.get("conclusions") or [],
+             open_questions=res.get("open_questions") or [], source=m["source"] if "source" in m.keys() else None,
+             owner_name=name_of(c, owner_id()))
+    until = m["ended"] or iso(datetime.now())
+    v["marks"] = [dict(r) for r in c.execute("SELECT id, t, note FROM marks WHERE device=? AND t>=? AND t<=? ORDER BY t",
+                                             (m["device"], m["started"] or until, until))] if m["device"] == PC_DEVICE else []
+    v["live"] = PCREC.status() if PCREC and PCREC.meet == m["id"] else None
     v["share_text"], v["transcript_text"] = meeting_texts(v)
     return v
 
@@ -1937,8 +2108,11 @@ def meeting_texts(v):
     if v["decisions"]:
         out += ["", "*החלטות*"] + [f"• {d}" for d in v["decisions"]]
     if v["tasks"]:
-        out += ["", "*משימות*"] + [f"• {(t['who'] + ': ') if t['who'] and t['who'] != '?' else ''}{t['what']}"
+        out += ["", "*משימות*"] + [f"• {'✓ ' if t.get('state') == 'done' else ''}"
+                                   f"{(t['who'] + ': ') if t['who'] and t['who'] != '?' else ''}{t['what']}"
                                    f"{(' (' + t['due'] + ')') if t['due'] else ''}" for t in v["tasks"]]
+    if v.get("open_questions"):
+        out += ["", "*שאלות פתוחות*"] + [f"• {q}" for q in v["open_questions"]]
     if v["next_steps"]:
         out += ["", "*הצעדים הבאים*"] + [f"• {s}" for s in v["next_steps"]]
     out += ["", "— סוכם בשמע · התמלול נעשה במחשב בבית, בלי ענן"]
@@ -1947,7 +2121,9 @@ def meeting_texts(v):
 
 
 def meetings_list(c, device=None, limit=30):
-    q = "SELECT m.id, m.device, m.title, m.started, m.ended, m.status, k.topic FROM meetings m " \
+    q = "SELECT m.id, m.device, m.title, m.started, m.ended, m.status, k.topic, k.seconds, k.people, " \
+        "(SELECT count(*) FROM tasks t WHERE t.conv_id=m.conv_id AND t.state IN ('open','confirmed') " \
+        "AND coalesce(t.kind,'')!='decision') AS open_tasks FROM meetings m " \
         "LEFT JOIN conversations k ON k.id=m.conv_id" + (" WHERE m.device=?" if device else "") + " ORDER BY m.started DESC LIMIT ?"
     return [dict(r) for r in c.execute(q, ((clean_device(device), limit) if device else (limit,)))]
 
@@ -1966,8 +2142,9 @@ def meeting_of_conv(c, cid):
     res = json.loads(m["result"]) if m and m["result"] else {}
     return {"id": mid, "title": m["title"] if m else None, "status": m["status"] if m else None,
             "decisions": res.get("decisions") or [], "next_steps": res.get("next_steps") or [],
-            "tasks": [dict(r) for r in c.execute("SELECT id, who, what, due, state FROM tasks WHERE conv_id=? "
-                                                 "AND state!='dismissed' ORDER BY id", (cid,))]}
+            "tasks": [_meeting_task(r, {}) for r in c.execute("SELECT id, who, owner, what, due, state, kind, utt_id FROM tasks "
+                                                              "WHERE conv_id=? AND state!='dismissed' AND coalesce(kind,'')!='decision' "
+                                                              "ORDER BY id", (cid,))]}
 
 
 DAY_TASK = """אתה כותב סיכום יום של מה שנשמע, לפי סיכומי השיחות של היום בלבד. כל שיחה מתחילה במספר בסוגריים, למשל [3].
@@ -2642,7 +2819,8 @@ ITEMS_TASK = """אתה קורא תמלול אוטומטי (עם שגיאות) ש
 החזר JSON: {"items": [{"type": "promise|agreed|request|decision", "line": 12, "quote": "...", "what": "תיאור קצר",
 "when": "המועד רק אם נאמר במפורש, אחרת null"}]}. אם אין: {"items": []}. עדיף לא להחזיר כלום מאשר לנחש."""
 ITEM_KINDS = ("promise", "agreed", "request", "decision")
-WHEN_STOP = {"עד", "ב", "ל", "של", "את", "ה", "ו", "לפני", "אחרי"}
+WHEN_STOP = {"עד", "ב", "ל", "של", "את", "ה", "ו", "לפני", "אחרי",
+             "by", "before", "until", "till", "on", "at", "in", "the"}   # 2026-10-18: English meetings
 
 
 def _qwords(t):
@@ -3672,6 +3850,10 @@ def main():
         pcrec().recover()                             # a PC recording cut by a crash / power cut -> normal chunks
     except Exception as exc:  # noqa: BLE001
         log(f"pc_rec recover failed {exc!r}")
+    try:
+        pc_meetings_orphaned()                        # ... and a PC meeting it belonged to has ended: summarise it
+    except Exception as exc:  # noqa: BLE001
+        log(f"pc meetings at start failed {exc!r}")
     WORKER = Worker()
     WORKER.start()
     log(f"Shema server on :{PORT}  (data in {HOME})")

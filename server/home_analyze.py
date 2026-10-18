@@ -245,10 +245,11 @@ def best_two(x, cands):
     return sims[0][1], sims[0][0], (sims[1][0] if len(sims) > 1 else -1.0)
 
 
-def utterances(B, audio, words, cands, names=None, raw=None, away=False):
+def utterances(B, audio, words, cands, names=None, raw=None, away=False, people_only=False):
     """words -> chunks (pause >= 0.35 s / 3 s max) -> speaker per chunk -> merged utterances.
     audio = what voices / prosody / emotion are read from (music removed when there was music);
-    raw   = the recording as heard (the TV / music / song decision needs the music)."""
+    raw   = the recording as heard (the TV / music / song decision needs the music);
+    people_only = a meeting recorded on the PC: what the PC plays IS the other side of the call, so nothing is TV."""
     raw = audio if raw is None else raw
     import voice_speakers as VS
     ch = VS.chunks_of(words)
@@ -269,7 +270,11 @@ def utterances(B, audio, words, cands, names=None, raw=None, away=False):
             if c["s1"] >= SIM_MIN and c["s1"] - c["s2"] >= MARGIN:
                 c["speaker"] = c["best"]
     for c in ch:
-        if c["speaker"] == TV_SPEAKER:      # matches voices the user marked "this is the TV"
+        if people_only:                     # a PC meeting: call audio is compressed and often sounds like a broadcast
+            c["media"] = None
+            if c["speaker"] == TV_SPEAKER:
+                c["speaker"] = None
+        elif c["speaker"] == TV_SPEAKER:    # matches voices the user marked "this is the TV"
             c["speaker"], c["media"] = None, "טלוויזיה"
             c["media_scores"] = {"taught": round(c["s1"], 2)}
         else:
@@ -391,7 +396,7 @@ SONG_TAGS = {"מוזיקה", "שירה", "שיר", "שירי ילדים", "גי�
 
 
 def analyse(B, path, year=None, people=None, bank=None, names=None, sound_bank=None, kind="speech", when=None,
-            songs=True, away=False):
+            songs=True, away=False, people_only=False):
     import voice_embed as VE
     t = time.time()
     audio = VE.read_audio(path, max_s=100000)
@@ -404,7 +409,7 @@ def analyse(B, path, year=None, people=None, bank=None, names=None, sound_bank=N
     voice_audio = B.unmusic(audio) if music else audio
     words, lang = B.transcribe(voice_audio, raw=audio if music else None)
     cands = B.candidates(year, people, bank)
-    U = utterances(B, voice_audio, words, cands, names, raw=audio, away=away) if words else []
+    U = utterances(B, voice_audio, words, cands, names, raw=audio, away=away, people_only=people_only) if words else []
     asr_annotate(U, getattr(B.asr, "trace", None) if hasattr(B, "asr") else None)
     events += unknown_sounds(audio, words, events, vecs, starts)
     # which song: an ONLINE signature lookup (Shazam), so it is off unless config.json "song_lookup": true
