@@ -237,3 +237,22 @@ never into the hint.
 * **The whole upgrade:** deploy the previous server release. The two new DB columns are nullable and ignored by
   old code; no existing row was changed.
 * **Phone fix:** reinstall the previous APK/AAB (no data format change).
+
+## 10. On the owner's own sentences (2026-10-18)
+
+First measurement on real home speech: the 40-sentence gold set (416 reference words, corrected by the owner from
+the turbo transcript), production pipeline `legacy+seg=overlap+vadnorm`, RTX 5070 Ti, live server on the same card.
+
+| System | WER | Δ vs production [95 % CI] | RTF |
+|---|---|---|---|
+| production (turbo, overlap+vadnorm) | 33.9 % | — | 0.049 |
+| large_only (ivrit-ai large-v3) | 39.2 % | **+5.3 [+0.2, +10.7]** | 0.106 |
+| beam 10 | 34.1 % | +0.2 [−1.9, +3.0] | 0.090 |
+| keep log-prob > −1.0 / > −1.5, no-speech < 0.8 | 33.9 % | 0.0 (identical text) | 0.048 |
+
+No system wrote words on silence or noise. **Conclusions:** large-v3 is worse on this household's speech (it was
+0.3–1.1 points better on read FLEURS speech), so it stays off; a wider beam buys nothing at twice the time; the
+keep-filter thresholds never bind on these sentences. Caveat: the references were corrected from turbo output, which
+may favour turbo's spelling choices; and 40 sentences is small. The decoding knobs (`+beam=`, `+keeplp=`, `+nsp=` in
+a bench system name; `SHEMA_ASR_*` environment) exist for experiments only; the server never sets them.
+Benchmark needs `SHEMA_MODELS` pointing at a folder with silero_vad.onnx (lifegraph: `voice_models`).

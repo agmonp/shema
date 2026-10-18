@@ -296,6 +296,9 @@ def parse_system(name):
             s["terms"] = [t for t in part[6:].split("|") if t]     # Whisper hint words (asr_terms) for this system
         elif part.startswith("lp="):
             s["logprob"] = float(part[3:])     # adaptive calibration: flag windows below this mean log-probability
+        elif part.startswith(("beam=", "keeplp=", "nsp=")):          # decoding knobs (asr_engine BEAM / KEEP_*)
+            k, v = part.split("=", 1)
+            s.setdefault("env", {})[{"beam": "SHEMA_ASR_BEAM", "keeplp": "SHEMA_ASR_KEEP_LP", "nsp": "SHEMA_ASR_NOSPEECH"}[k]] = v
         elif part == "demucsall":
             s["demucs"] = "all"            # experiment: Demucs vocals on every recording
         elif part:
@@ -305,6 +308,7 @@ def parse_system(name):
 
 def run_system(system, manifest, out_path, device=None):
     import torch  # noqa: F401  (cublas for CTranslate2)
+    os.environ.update(parse_system(system).get("env") or {})        # before asr_engine reads its knobs
     import asr_engine
     import home_analyze as HA
     from paths import device as _device

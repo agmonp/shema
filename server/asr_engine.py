@@ -19,6 +19,7 @@ config.json "asr" (every key optional; nothing set = the behaviour before ASR 2.
 
 The words are always [[start s, end s, text], ...]; the trace says, per window, which model's reading was kept and why.
 """
+import os
 import time
 
 import numpy as np
@@ -28,6 +29,11 @@ import asr_segment as S
 from asr_models import PRIMARY, SECONDARY, Models, is_oom, log
 
 SR = 16000
+# Decoding knobs. The defaults are production; the environment overrides exist for asr_bench experiments only
+# ("+beam=8", "+keeplp=-1.0", "+nsp=0.8" in a bench system name) and are never set by the server.
+BEAM = int(os.getenv("SHEMA_ASR_BEAM") or 5)
+KEEP_LOGPROB = float(os.getenv("SHEMA_ASR_KEEP_LP") or -1.2)       # a segment below this mean log-probability is dropped
+KEEP_NOSPEECH = float(os.getenv("SHEMA_ASR_NOSPEECH") or 0.6)      # ... or above this no-speech probability
 MODES = ("legacy", "large_only", "dual_test", "adaptive")
 
 # Whisper writes these on silence / noise (subtitle credits in its training data).
@@ -75,7 +81,7 @@ class Engine:
 
     def _decode(self, model_name, clip, prompt):
         m = self.models.get(model_name)
-        segs, _ = m.transcribe(clip, vad_filter=False, beam_size=5, word_timestamps=True,
+        segs, _ = m.transcribe(clip, vad_filter=False, beam_size=BEAM, word_timestamps=True,
                                condition_on_previous_text=False, language="he", initial_prompt=prompt)
         return list(segs)          # the generator decodes lazily: materialise here so errors surface here
 
@@ -86,7 +92,7 @@ class Engine:
         off = a0 / SR
         words = []
         for s in segs:
-            if s.no_speech_prob < 0.6 and s.avg_logprob > -1.2 and not hallucination(s.text):
+            if s.no_speech_prob < KEEP_NOSPEECH and s.avg_logprob > KEEP_LOGPROB and not hallucination(s.text):
                 for w in (s.words or []):
                     ww = [round(w.start + off, 2), round(w.end + off, 2), w.word]
                     if S.owns(win, ww):
