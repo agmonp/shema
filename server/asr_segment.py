@@ -64,6 +64,47 @@ def regions_from_mask(mask, merge_gap=0.4, max_merge=15.0):
     return regions
 
 
+def speaker_cuts(audio, region, embed, thr, win=1.5, hop=0.25, edge=1.0, max_cuts=3):
+    """Points (samples) inside one speech region where the voice before differs from the voice after: a 1.5 s
+    voice vector every 0.25 s; at each point, the window ending there vs the window starting there. Cut at the
+    least similar point when its cosine is below thr, then look again on both sides (at most max_cuts).
+    embed(wave) -> unit vector. Experiment (2026-10-18): asr_engine uses it only with SHEMA_ASR_SPKCUT set."""
+    a, b = int(region[0]), int(region[1])
+    w, h, e = int(win * SR), int(hop * SR), int(edge * SR)
+    if b - a < 2 * e + h:
+        return []
+    starts = list(range(a, b - w + 1, h))
+    if len(starts) < 2:
+        return []
+    vec = {s: embed(audio[s:s + w]) for s in starts}
+
+    def best(lo, hi):
+        cand = []
+        for t in range(lo + e, hi - e + 1, h):
+            left, right = t - w, t
+            if left in vec and right in vec and left >= lo and right + w <= hi:
+                cand.append((float(vec[left] @ vec[right]), t))
+        return min(cand) if cand else None
+
+    cuts, spans = [], [(a, b)]
+    while spans and len(cuts) < max_cuts:
+        lo, hi = spans.pop(0)
+        x = best(lo, hi)
+        if x and x[0] < thr:
+            cuts.append(x[1])
+            spans += [(lo, x[1]), (x[1], hi)]
+    return sorted(cuts)
+
+
+def split_regions(audio, regions, embed, thr):
+    """Regions cut at speaker changes (speaker_cuts): each piece is then decoded on its own."""
+    out = []
+    for r in regions:
+        pts = [int(r[0])] + speaker_cuts(audio, r, embed, thr) + [int(r[1])]
+        out += [[pts[i], pts[i + 1]] for i in range(len(pts) - 1)]
+    return out
+
+
 def windows(regions, n, s):
     """Regions -> decode windows: {"a0", "b0"} = the audio slice handed to the model, {"lo", "hi"} = the span whose
     words this window owns (seconds; None = keep everything, the legacy behaviour), {"a", "b"} = the speech region."""

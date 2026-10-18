@@ -256,3 +256,34 @@ keep-filter thresholds never bind on these sentences. Caveat: the references wer
 may favour turbo's spelling choices; and 40 sentences is small. The decoding knobs (`+beam=`, `+keeplp=`, `+nsp=` in
 a bench system name; `SHEMA_ASR_*` environment) exist for experiments only; the server never sets them.
 Benchmark needs `SHEMA_MODELS` pointing at a folder with silero_vad.onnx (lifegraph: `voice_models`).
+
+## 11. Decoding each speaker turn separately (2026-10-18)
+
+Production decodes whole windows (speech joined across pauses < 0.8 s, up to 28 s) and splits words between
+speakers afterwards. The gold sentences are single lines (one speaker each), so the test joins pairs of them: 12
+pairs of different speakers (the owner + someone else) and 8 same-speaker controls, with a 0.3 s gap (production
+merges it into one window) and with no gap. "Each turn" = the two sentences decoded alone (perfect boundaries).
+
+| | whole window (production) | each turn, perfect boundaries |
+|---|---|---|
+| different speakers, gap 0.3 s (197 words) | 32.0 % | **25.9 %** (whole worse in 6/12 pairs, better in 0) |
+| different speakers, no gap | 35.0 % | **25.9 %** (worse in 9/12, better in 1) |
+| same speaker, gap 0.3 s / none (219 words) | **35.6 % / 39.7 %** | 41.1 % |
+
+So cutting at a change of speaker could remove about a fifth of the errors, while cutting one speaker's speech
+costs context. **Automatic cutting** (`asr_segment.speaker_cuts`: eres2netv2 vectors of 1.5 s every 0.25 s, cut where
+the window before vs after is least similar and below a threshold; bench `+spkcut=THR`, env `SHEMA_ASR_SPKCUT`):
+
+| | production | spkcut 0.15 | spkcut 0.2 |
+|---|---|---|---|
+| different, gap 0.3 s | 32.0 % | 33.0 % | 34.5 % |
+| different, no gap | 35.0 % | 32.5 % | 33.0 % |
+| same speaker, 0.3 s / none | 35.6 / 39.7 % | 35.6 / 39.7 % | 35.6 / 41.6 % |
+| 40 single sentences | 33.9 % | 33.9 % | 35.6 % |
+| time (RTF) | 0.04 | 0.11–0.14 | 0.11–0.14 |
+
+The voice vectors on 1.5 s of home audio do not separate a change of speaker from one speaker: the least similar
+point was 0.04–0.66 at real changes, 0.17–0.50 inside one speaker, and as low as 0.17 inside single sentences.
+**Not enabled.** The gain exists (perfect boundaries) but needs a detector trained for speaker change (e.g. a
+frame-level segmentation model), or re-decoding by the speaker assignment production already makes after ASR;
+neither is built. The switch stays off by default (SPKCUT = 0); production behaviour is unchanged.

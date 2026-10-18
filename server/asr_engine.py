@@ -34,6 +34,7 @@ SR = 16000
 BEAM = int(os.getenv("SHEMA_ASR_BEAM") or 5)
 KEEP_LOGPROB = float(os.getenv("SHEMA_ASR_KEEP_LP") or -1.2)       # a segment below this mean log-probability is dropped
 KEEP_NOSPEECH = float(os.getenv("SHEMA_ASR_NOSPEECH") or 0.6)      # ... or above this no-speech probability
+SPKCUT = float(os.getenv("SHEMA_ASR_SPKCUT") or 0)    # >0: cut speech regions where the voice changes (asr_segment)
 MODES = ("legacy", "large_only", "dual_test", "adaptive")
 
 # Whisper writes these on silence / noise (subtitle credits in its training data).
@@ -72,6 +73,13 @@ class Engine:
     @property
     def model_name(self):
         return self.st["secondary"] if self.st["mode"] == "large_only" else self.st["primary"]
+
+    def _spk_embed(self):
+        if getattr(self, "_spk", None) is None:
+            import voice_embed as VE
+            ex = VE.load_extractors(["eres2netv2"])["eres2netv2"]
+            self._spk = lambda wave: VE.embed(ex, wave)
+        return self._spk
 
     def mask(self, audio):
         import voice_embed as VE
@@ -112,6 +120,8 @@ class Engine:
         if mask is None:
             mask = self.mask(S.vad_view(audio) if st["seg"]["vad_norm"] else audio)
         regions = S.regions_from_mask(mask, st["seg"]["merge_gap"], st["seg"]["max_merge"])
+        if SPKCUT > 0:
+            regions = S.split_regions(audio, regions, self._spk_embed(), SPKCUT)
         wins = S.windows(regions, len(audio), st["seg"])
         first = self.model_name
         words, trace = [], {"mode": mode, "segmentation": st["seg_name"], "primary": first, "windows": [],

@@ -296,9 +296,10 @@ def parse_system(name):
             s["terms"] = [t for t in part[6:].split("|") if t]     # Whisper hint words (asr_terms) for this system
         elif part.startswith("lp="):
             s["logprob"] = float(part[3:])     # adaptive calibration: flag windows below this mean log-probability
-        elif part.startswith(("beam=", "keeplp=", "nsp=")):          # decoding knobs (asr_engine BEAM / KEEP_*)
+        elif part.startswith(("beam=", "keeplp=", "nsp=", "spkcut=")):    # decoding knobs (asr_engine BEAM / KEEP_* / SPKCUT)
             k, v = part.split("=", 1)
-            s.setdefault("env", {})[{"beam": "SHEMA_ASR_BEAM", "keeplp": "SHEMA_ASR_KEEP_LP", "nsp": "SHEMA_ASR_NOSPEECH"}[k]] = v
+            s.setdefault("env", {})[{"beam": "SHEMA_ASR_BEAM", "keeplp": "SHEMA_ASR_KEEP_LP", "nsp": "SHEMA_ASR_NOSPEECH",
+                                     "spkcut": "SHEMA_ASR_SPKCUT"}[k]] = v
         elif part == "demucsall":
             s["demucs"] = "all"            # experiment: Demucs vocals on every recording
         elif part:
