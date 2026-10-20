@@ -1025,7 +1025,7 @@ def phones():
 
 # ------------------------------------------------------------------ ingest
 KINDS = ("speech", "sound", "enroll", "import")
-OWNER_MIN_SAMPLES = 3         # wearer phone: owner voice samples needed before it records away from home
+OWNER_MIN_SAMPLES = 3         # wearer phone: owner voice samples needed before it records away from home (only with owner_gate)
 OWNER_MIN_SECONDS = 1.5       # away conversations without this much of the owner's own speech are dropped
 
 
@@ -1542,7 +1542,8 @@ def gate_conversation(cid):
     if mute:
         drop_conversation(cid, "mute-place")
         return False
-    if not marked and (owner["s"] or 0) < cfg.get("owner_min_seconds", OWNER_MIN_SECONDS):
+    # off by default (no voice reading needed to start): the user turns it on in "פרטיות"
+    if cfg.get("owner_gate", False) and not marked and (owner["s"] or 0) < cfg.get("owner_min_seconds", OWNER_MIN_SECONDS):
         drop_conversation(cid, "owner-not-in-conversation")
         return False
     # bystanders: unnamed voices much quieter than the owner are people talking elsewhere, not to the owner
@@ -2226,7 +2227,8 @@ def brief(c, day):
         ph = ",".join("?" * len(convs))
         for r in c.execute(f"SELECT m.conv_id, m.title, m.result FROM meetings m WHERE m.conv_id IN ({ph}) AND m.result IS NOT NULL",
                            list(convs)):
-            for d in (json.loads(r["result"]).get("decisions") or [])[:3]:
+            res = json.loads(r["result"])
+            for d in [d for d in (res.get("decisions") or []) if d not in (res.get("done") or [])][:3]:    # "בוצע" hides it
                 items.append({"kind": "decision", "text": d, "conv_id": r["conv_id"], "src": "meeting", "sure": True,
                               "t0": convs[r["conv_id"]]["start"]})
         # extracted items: a candidate (state open) until the user confirms it; both point at the line it was said in
@@ -2252,6 +2254,32 @@ def brief(c, day):
     if unk >= 5:
         items = items[:BRIEF_MAX - 1] + [{"kind": "teach", "n": unk, "text": f"{unk} משפטים בלי שם", "src": "teach"}]
     return {"day": day, "items": items[:BRIEF_MAX]}
+
+
+def decision_state(cid, text, state):
+    """A meeting decision from "what matters today": "done" keeps it in the meeting summary but off the list,
+    "deleted" takes it out of the summary (kept aside for undo), "open" undoes either."""
+    with db() as c:
+        m = c.execute("SELECT id, result FROM meetings WHERE conv_id=? AND result IS NOT NULL", (cid,)).fetchone()
+        if not m:
+            return {"ok": False, "msg": "הפגישה לא נמצאה"}
+        res = json.loads(m["result"])
+        dec, done, gone = res.get("decisions") or [], res.get("done") or [], res.get("deleted") or []
+        if state == "done" and text in dec:
+            if text not in done:
+                done.append(text)
+        elif state == "deleted" and text in dec:
+            dec.remove(text); gone.append(text)
+            done = [d for d in done if d != text]
+        elif state == "open":
+            done = [d for d in done if d != text]
+            if text in gone:
+                gone.remove(text); dec.append(text)
+        else:
+            return {"ok": False, "msg": "ההחלטה לא נמצאה"}
+        res.update(decisions=dec, done=done, deleted=gone)
+        c.execute("UPDATE meetings SET result=?, updated=? WHERE id=?", (json.dumps(res, ensure_ascii=False), iso(datetime.now()), m["id"]))
+    return {"ok": True}
 
 
 def daily_summaries():
@@ -3028,7 +3056,7 @@ def privacy_state(c):
             "places": [dict(r) for r in c.execute("SELECT id, name, lat, lon, r_m, mute FROM places ORDER BY name")],
             "dropped_14d": dropped, "owner_min_seconds": cfg.get("owner_min_seconds", OWNER_MIN_SECONDS),
             "bystander_db": cfg.get("bystander_db", 12), "import_dirs": cfg.get("import_dirs") or [],
-            "min_samples": OWNER_MIN_SAMPLES}
+            "min_samples": OWNER_MIN_SAMPLES, "owner_gate": bool(cfg.get("owner_gate", False))}
 
 
 def conv_context(c, cid):
@@ -3434,7 +3462,12 @@ def api(path, qs):
                     "audio_kept": c.execute("SELECT count(*) FROM chunks WHERE file IS NOT NULL").fetchone()[0],
                     "audio_mb": round(sum(f.stat().st_size for f in AUDIO.rglob("*") if f.is_file()) / 1e6, 1),
                     "now_ms": int(time.time() * 1000), "owner_min_samples": OWNER_MIN_SAMPLES,
-                    "owner_enrolled": owner_enrolled(c, clean_device(qs["device"][0])) if "device" in qs else None,
+                    "owner_gate": bool(config().get("owner_gate", False)),
+                    # apps before 1.0.14 block away-from-home recording below OWNER_MIN_SAMPLES on their own, so with
+                    # the gate off they are told "enough"; the real count goes in owner_samples (1.0.14+ shows that)
+                    "owner_enrolled": (owner_enrolled(c, clean_device(qs["device"][0])) if config().get("owner_gate", False)
+                                       else max(OWNER_MIN_SAMPLES, owner_enrolled(c, clean_device(qs["device"][0])))) if "device" in qs else None,
+                    "owner_samples": owner_enrolled(c, clean_device(qs["device"][0])) if "device" in qs else None,
                     "digest": digest() if "device" in qs else None,
                     "meetings_done": meetings_done(c, clean_device(qs["device"][0])) if "device" in qs else None}
         if path == "/home/api/pc_rec":                    # the PC's own recording + what it can record from
@@ -3604,8 +3637,8 @@ class Handler(BaseHTTPRequestHandler):
                       "/home/api/privacy_set", "/home/api/gold", "/home/api/fix_text", "/home/api/asr_check", "/home/api/teach_skip",
                       "/home/api/asr_settings", "/home/api/asr_glossary", "/home/api/asr_rollback", "/home/api/asr_install",
                       "/home/api/asr_nominate", "/home/api/forget_phone", "/home/api/split", "/home/api/unsplit",
-                      "/home/api/pc_rec"):
-            phone_ok = u.path in ("/home/api/label", "/home/api/task", "/home/api/teach_skip", "/home/api/split", "/home/api/unsplit")       # teaching + task checking also from the paired phone
+                      "/home/api/pc_rec", "/home/api/decision"):
+            phone_ok = u.path in ("/home/api/label", "/home/api/task", "/home/api/decision","/home/api/teach_skip", "/home/api/split", "/home/api/unsplit")       # teaching + task checking also from the paired phone
             if not (self._authed() if phone_ok else self._local()):
                 return self._send(403, {"error": "only from this PC" if not phone_ok else "bad token"})
             b = self._body()
@@ -3615,6 +3648,8 @@ class Handler(BaseHTTPRequestHandler):
                         c.execute("UPDATE tasks SET state=? WHERE id=?", (b.get("state") if b.get("state") in ("open", "done", "dismissed", "confirmed") else "open",
                                                                           int(b.get("id", 0))))
                     return self._send(200, {"ok": True})
+                if u.path == "/home/api/decision":
+                    return self._send(200, decision_state(int(b.get("conv_id", 0)), str(b.get("text") or ""), b.get("state")))
                 if u.path == "/home/api/teach_skip":        # "several people talk / unclear": never ask about it again
                     with db() as c:
                         c.execute("INSERT OR REPLACE INTO teach_skips (utt_id, reason, at) VALUES (?,?,?)",
@@ -3687,6 +3722,8 @@ class Handler(BaseHTTPRequestHandler):
                     for k, lo, hi in (("owner_min_seconds", 0, 30), ("bystander_db", 3, 40)):
                         if k in b:
                             cfg[k] = max(lo, min(hi, float(b[k])))
+                    if "owner_gate" in b:
+                        cfg["owner_gate"] = bool(b["owner_gate"])
                     json.dump(cfg, open(CONFIG, "w", encoding="utf-8"), indent=1, ensure_ascii=False)
                     return self._send(200, {"ok": True})
                 if u.path == "/home/api/label":
@@ -3798,7 +3835,7 @@ class Handler(BaseHTTPRequestHandler):
             if u.path == "/home/api/pc_rec" and isinstance(out, dict):
                 out["local"] = self._local()                # start / stop only at this PC; elsewhere the screen only shows it
             if u.path == "/home/api/status" and not authed and isinstance(out, dict):
-                out = dict(out, digest=None, owner_enrolled=None, phones=[], meetings_done=None, pc_rec=None)  # no codes -> only the clock and counts
+                out = dict(out, digest=None, owner_enrolled=None, owner_samples=None, phones=[], meetings_done=None, pc_rec=None)  # no codes -> only the clock and counts
         except Exception as exc:  # noqa: BLE001
             return self._send(500, {"error": repr(exc)})
         return self._send(200, out) if out is not None else self._send(404, {"error": "not found"})

@@ -231,7 +231,7 @@ if ($LASTEXITCODE -ne 0) { Fail "כתיבת ההגדרות נכשלה." }
 # ------------------------------------------------------------------ 9. import check (Smart App Control shows up here) + model download
 Step "9/11 Checking that Windows lets the Python libraries load"
 $stArgs = @("-X", "utf8", "$App\selftest.py")
-if (-not $SkipModels) { $stArgs += "--prefetch"; Write-Host "(also downloading the speech and emotion models, a few GB the first time)" }
+if (-not $SkipModels) { $stArgs += "--prefetch"; Write-Host "(also downloading the speech models, a few GB the first time)" }
 $st = (& $vpy @stArgs 2>&1 | Out-String)
 $stJson = $null
 if ($st -match 'SELFTEST (\{.*\})') { try { $stJson = $Matches[1] | ConvertFrom-Json } catch { } }

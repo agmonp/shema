@@ -340,6 +340,10 @@ mark{background:rgba(234,164,94,.3);color:inherit;border-radius:3px}
 .brief .tx small{display:block;color:var(--faint);font-size:12px}
 .brief .src{flex:none;font-size:12px;color:var(--faint);white-space:nowrap}
 .brief .it:hover .src{color:var(--accent)}
+.brief .acts{flex:none;display:flex;gap:6px;align-self:center}
+.brief .acts button{font-size:12px;padding:3px 10px;border-radius:999px;border:1px solid var(--line);background:none;color:var(--dim);cursor:pointer}
+.brief .acts button:hover{color:var(--ink);border-color:var(--accent)}
+.brief .acts button[data-a="done"]:hover{color:var(--sage);border-color:var(--sage)}
 .askbox{display:flex;gap:6px}
 .askbox input{flex:1;min-width:0;background:var(--surface2);border:1px solid var(--line2);border-radius:10px;color:var(--ink);padding:8px 12px;font:inherit}
 .askbox input:focus{border-color:var(--accent);outline:none}
@@ -375,7 +379,7 @@ mark{background:rgba(234,164,94,.3);color:inherit;border-radius:3px}
 .stats>summary::-webkit-details-marker{display:none}
 .stats>summary::before{content:"▸ ";} .stats[open]>summary::before{content:"▾ ";}
 .utt.focus{background:rgba(234,164,94,.09);border-radius:8px;box-shadow:inset 3px 0 0 var(--accent)}
-@media (max-width:600px){ .brief .it{flex-wrap:wrap;gap:4px 8px} .brief .src{width:100%;padding-inline-start:70px}
+@media (max-width:600px){ .brief .it{flex-wrap:wrap;gap:4px 8px} .brief .src{width:100%;padding-inline-start:70px} .brief .acts{width:100%;padding-inline-start:70px}
   .nowbar .tp{max-width:100%} .askbox .ok{padding:6px 10px} }
 @media (max-width:600px){ .asr .gl{grid-template-columns:1fr 1fr} .asr .gl .x2{grid-column:span 2}
   .asr .kv{grid-template-columns:1fr;gap:0} .asr .kv>span:nth-child(odd){margin-top:6px;font-size:12px} .asr .kv select{width:100%} }
@@ -656,12 +660,28 @@ async function showBrief(d){
   let B; try { B = await J("/home/api/brief?d=" + d); } catch (e) { return; }
   if (d !== day || !B.items.length) { el.innerHTML = ""; return; }
   el.innerHTML = `<div class="card"><h2>${d === todayLocal() ? "חשוב היום" : "חשוב ביום הזה"}</h2><div class="brief">${B.items.map((i, k) =>
-    `<button class="it" data-k="${k}"><span class="k ${i.kind}${i.sure === false ? " cand" : ""}" title="${i.sure === false ? "הצעה של המחשב: לאשר או לדחות ברשימה" : ""}">${ITEM_K[i.item_kind] || BRIEF_K[i.kind]}${i.sure === false ? "?" : ""}</span>
+    `<div class="it" role="button" tabindex="0" data-k="${k}"><span class="k ${i.kind}${i.sure === false ? " cand" : ""}" title="${i.sure === false ? "הצעה של המחשב: לאשר או לדחות ברשימה" : ""}">${ITEM_K[i.item_kind] || BRIEF_K[i.kind]}${i.sure === false ? "?" : ""}</span>
       <span class="tx">${i.who ? `<b>${esc(i.who)}${i.who_sure === false ? "?" : ""}</b>: ` : ""}${esc(i.text)}${i.due ? ` <span class="chip">${esc(i.due)}</span>` : ""}
         ${i.t0 ? `<small>${hm(i.t0)}${i.quote ? ` · ״${esc(i.quote)}״` : ""}</small>` : i.kind === "teach" ? "<small>לזהות אותם משפר את הסיכומים והחיפוש</small>" : ""}</span>
-      <span class="src">${BRIEF_SRC[i.src] || ""}</span></button>`).join("")}</div></div>`;
-  el.querySelectorAll(".it").forEach(b => b.onclick = () => { const i = B.items[+b.dataset.k];
-    location.hash = i.kind === "teach" ? "teach" : convHref(i.conv_id, i.utt_id).slice(1); });
+      <span class="src">${BRIEF_SRC[i.src] || ""}</span>
+      ${i.id || i.src === "meeting" ? `<span class="acts"><button data-a="done" title="סמן שזה נעשה">✓ בוצע</button><button data-a="del" title="הסר מהרשימה">✕ מחק</button></span>` : ""}</div>`).join("")}</div></div>`;
+  el.querySelectorAll(".it").forEach(b => {
+    const i = B.items[+b.dataset.k];
+    b.onclick = e => { if (e.target.closest(".acts")) return;
+      location.hash = i.kind === "teach" ? "teach" : convHref(i.conv_id, i.utt_id).slice(1); };
+    b.onkeydown = e => { if (e.key === "Enter" && e.target === b) b.onclick(e); };
+    b.querySelectorAll(".acts button").forEach(x => x.onclick = () => briefAct(i, x.dataset.a, d));
+  });
+}
+// "✓ בוצע" / "✕ מחק" on a promise (tasks table) or a meeting decision (the meeting's summary), with undo
+async function briefAct(i, a, d){
+  const set = s => i.id ? POST("/home/api/task", {id: i.id, state: s})
+                        : POST("/home/api/decision", {conv_id: i.conv_id, text: i.text, state: s});
+  const was = i.id ? (i.sure ? "confirmed" : "open") : "open";
+  const r = await set(a === "done" ? "done" : i.id ? "dismissed" : "deleted").catch(() => null);
+  if (!r || r.ok === false) { toast((r && r.msg) || "לא הצליח"); return; }
+  showBrief(d);
+  undoToast(a === "done" ? "סומן כבוצע." : "נמחק מהרשימה.", async () => { await set(was); showBrief(d); });
 }
 // ▶ buttons (data-play = line id): one clip at a time, press again to pause
 function bindPlays(root){
@@ -1056,12 +1076,11 @@ async function showConv(id, box, quiet, focusUtt){
       ${pp.length ? `<div class="pp">${pp.map(([n, t]) => `<b style="color:${colorOf(n)}">${esc(first(n))}</b><span>${esc(t)}</span>`).join("")}</div>` : ""}
       ${D.meeting ? meetBlock(D.meeting) : ""}${moments}<div class="chips">${c.media_note ? `<span class="chip media">📺 ברקע: ${esc(c.media_note)}</span>` : ""}${sig}${sounds}${intr}<span class="chip">${c.turns ?? 0} חילופי דוברים</span></div></div>
     <div class="card" id="ctxcard" hidden></div>
-    <div class="card"><h2>טון השיחה</h2>${toneChart(U) || '<div class="legend">מעט מדי משפטים לגרף.</div>'}</div>
+    ${toneChart(U) ? `<div class="card"><h2>טון השיחה</h2>${toneChart(U)}</div>` : ""}
     <div class="card"><h2>מי אמר מה</h2>
       ${unknown ? `<div class="legend" style="margin:0 0 6px">${unknown} משפטים לא זוהו. לחץ על "מי זה? ✎" ליד משפט, הקשב ובחר מי מדבר: המחשב לומד את הקול ומזהה מחדש את השאר.</div>` : ""}
       <div id="utts">${U.map(uttRow).join("")}</div>
-      <div class="legend">"מהרגיל" = לעומת הקול הרגיל של אותו אדם ב-30 הימים האחרונים (מופיע אחרי שנאספו מספיק משפטים שלו/ה).
-      רגש מהקול מוצג רק כשהמודל בטוח מאוד, וגם אז הוא הערכה ולא קביעה.</div></div>`;
+      <div class="legend">"מהרגיל" = לעומת הקול הרגיל של אותו אדם ב-30 הימים האחרונים (מופיע אחרי שנאספו מספיק משפטים שלו/ה).</div></div>`;
   bindWho($("#utts"), U);
   if (focusUtt) {
     const row = document.querySelector(`#utts .who[data-u="${focusUtt}"]`)?.closest(".utt");
@@ -1223,7 +1242,7 @@ async function showStorage(){
   sh.className = "sheet";
   sh.innerHTML = `<div class="box"><button class="x">×</button><h3>📦 מקום בדיסק</h3>
     <div class="kv"><span>הקלטות שמורות</span><b>${fmtMB(S.audio_mb)} · ${S.files} קטעים · ${S.audio_hours.toFixed(1)} שעות דיבור</b>
-      <span>מסד הנתונים</span><span>${fmtMB(S.db_mb)} (תמלול, טון, רגשות, צלילים)</span>
+      <span>מסד הנתונים</span><span>${fmtMB(S.db_mb)} (תמלול, דוברים, צלילים)</span>
       <span>קצב</span><span>כ-${fmtMB(S.per_day_mb)} ליום</span>
       <span>מדיניות</span><span>${esc(pol)}</span>
       <span>הערכה לשנה</span><span>${S.est_gb_year} GB (${S.speech_min_per_day} דקות דיבור ביום · יעד ${S.est_gb_year_target} GB)</span>
@@ -1232,7 +1251,7 @@ async function showStorage(){
     <div class="meter" title="הדיסק: תפוס / פנוי"><i style="width:${Math.min(100, (total - free) / total * 100).toFixed(1)}%"></i></div>
     <div class="legend" style="margin:0">החלק של שמע: ${(used / total * 100).toFixed(3)}% מהדיסק</div>
     ${months.length ? `<div class="grp" style="margin-top:12px">לפי חודש</div><div class="kv">${months.map(([m, mb]) => `<span>${m.slice(5)}/${m.slice(0, 4)}</span><span>${fmtMB(mb)}</span>`).join("")}</div>` : ""}
-    <div class="grp" style="margin-top:12px">פינוי מקום (רק השמע; התמלול, הטון והרגשות נשארים)</div>
+    <div class="grp" style="margin-top:12px">פינוי מקום (רק השמע; התמלול והדוברים נשארים)</div>
     <div class="new"><span style="align-self:center">מחק הקלטות מלפני</span><input type="date" id="delbefore" style="flex:0 0 auto"><button class="ok" id="dodel">מחק</button></div>
     <div class="legend">משפטים שהשמע שלהם נמחק עדיין אפשר לשייך לאדם (לפי החתימה הקולית ששמורה), רק בלי להאזין.</div></div>`;
   document.body.appendChild(sh);
@@ -1751,11 +1770,11 @@ async function showSystem(){
       <div class="legend">קטע שנכשל בגלל המחשב (חסימה, קובץ ארוך מדי) חוזר לתור לבד, עד 3 פעמים.</div></div>
     <div class="card"><h2>אחסון</h2>
       <div class="kv"><span>ארכיון שמע</span><b>${fmtMB(S.audio_mb)} · ${S.files} קטעים · ${S.audio_hours.toFixed(1)} שעות</b>
-        <span>מסד נתונים</span><span>${fmtMB(S.db_mb)} (תמלול, דוברים, טון, צלילים)</span>
+        <span>מסד נתונים</span><span>${fmtMB(S.db_mb)} (תמלול, דוברים, צלילים)</span>
         <span>הערכה לשנה</span><span>${S.est_gb_year} GB · ${S.speech_min_per_day} דקות דיבור ביום · יעד ${S.est_gb_year_target} GB</span>
         <span>מדיניות</span><span>${esc(pol)}</span>
         <span>דיסק פנוי</span><span>${S.disk_free_gb} GB מתוך ${S.disk_total_gb} GB</span></div>
-      <div class="legend">נשמרים לצמיתות: תמלול, דוברים, טון, רגש, תגי צלילים, חתימות קול ושיחות. שמע של צלילים ושל לימוד קול נמחק.</div></div>
+      <div class="legend">נשמרים לצמיתות: תמלול, דוברים, תגי צלילים, חתימות קול ושיחות. שמע של צלילים ושל לימוד קול נמחק.</div></div>
     <div class="card"><h2>מודל תמלול</h2>
       <div class="kv"><span>מודל נוכחי</span><b style="direction:ltr;display:inline-block">${esc(A.model)}</b>
         <span>בדיקה אחרונה</span><span>${A.last ? A.last.slice(0, 10) : "עוד לא נבדק"} · הבאה: ${esc(A.next)}</span>
@@ -1953,7 +1972,12 @@ async function showPrivacy(){
   const own = Object.entries(P.owner_samples).map(([d, n]) => `<span class="chip ${n >= P.min_samples ? "sig" : ""}">${esc(d)}: ${n} דגימות ${n >= P.min_samples ? "✓" : "(עוד לא מספיק)"}</span>`).join("") || '<span class="chip">אף טלפון עוד לא למד את הקול שלך (באפליקציה: "ללמד את הקול שלי")</span>';
   $("#main").innerHTML = `
     <div class="card"><h2>הכלל מחוץ לבית</h2>
-      <div class="sum">הטלפון האישי שומר רק שיחות שהקול שלך נשמע בהן (לפחות ${P.owner_min_seconds} שנ׳). כל שיחה אחרת, וגם הקלטות שנשארו ממנה, נמחקות מהמחשב אחרי הניתוח. דוברים לא מזוהים שקטים ב-${P.bystander_db} דציבל ויותר מהקול שלך נחשבים עוברי אורח ונמחקים. שיחה שסימנת ⭐ נשמרת תמיד.</div>
+      <label style="display:flex;gap:8px;align-items:center;cursor:pointer"><input type="checkbox" id="ogate" ${P.owner_gate ? "checked" : ""}>
+        <b>לשמור מחוץ לבית רק שיחות שהקול שלך נשמע בהן</b></label>
+      <div class="sum">${P.owner_gate
+        ? `פועל: כל שיחה בחוץ בלי לפחות ${P.owner_min_seconds} שנ׳ של הקול שלך נמחקת מהמחשב אחרי הניתוח, והטלפון האישי מקליט בחוץ רק אחרי שלמד את הקול שלך (${P.min_samples} דגימות). שיחה שסימנת ⭐ נשמרת תמיד.`
+        : "כבוי (ברירת המחדל): הטלפון האישי מקליט גם בחוץ מהרגע הראשון, בלי ללמד קודם את הקול. האחריות להקליט רק שיחות שאתה משתתף בהן ולקבל הסכמה היא שלך."}
+        דוברים לא מזוהים שקטים ב-${P.bystander_db} דציבל ויותר מהקול שלך נחשבים עוברי אורח ונמחקים.</div>
       <div class="chips" style="margin-top:8px">${own}</div>
       <div class="grp" style="margin-top:12px;color:var(--faint);font-size:12px">נמחק ב-14 הימים האחרונים</div>${dropped}
       <div class="new" style="display:flex;gap:6px;margin-top:10px"><span style="align-self:center">שיחה צריכה לפחות</span><input id="oms" type="number" value="${P.owner_min_seconds}" style="flex:0 0 70px"><span style="align-self:center">שנ׳ שלך · עוברי אורח מעל</span><input id="bdb" type="number" value="${P.bystander_db}" style="flex:0 0 70px"><span style="align-self:center">dB</span><button class="ok" id="savepv">שמור</button></div></div>
@@ -1967,6 +1991,7 @@ async function showPrivacy(){
       <div class="legend">תיקיות במחשב (אחת בכל שורה) שמסתנכרנות מהטלפון: הודעות קוליות מוואטסאפ, הקלטות שיחה. כל קובץ חדש נקרא כשיחה נפרדת. מהטלפון אפשר גם: שיתוף ← שמע.</div>
       <textarea id="dirs" rows="3" style="width:100%;margin-top:6px;background:var(--surface2);color:var(--ink);border:1px solid var(--line2);border-radius:10px;padding:8px;direction:ltr;font:inherit">${esc(P.import_dirs.join("\n"))}</textarea>
       <div class="new" style="margin-top:6px"><button class="ok" id="savedirs">שמור</button></div></div>`;
+  $("#ogate").onchange = async e => { await POST("/home/api/privacy_set", {owner_gate: e.target.checked}); toast("נשמר"); showPrivacy(); };
   $("#savepv").onclick = async () => { await POST("/home/api/privacy_set", {owner_min_seconds: +$("#oms").value, bystander_db: +$("#bdb").value}); toast("נשמר"); };
   $("#addopt").onclick = async () => { const id = $("#optsel").value, nm = $("#optsel").selectedOptions[0].textContent;
     if (!confirm(`למחוק לצמיתות את כל מה ש${nm} אמר/ה עד היום, ולא להקליט אותו/ה יותר?`)) return;
