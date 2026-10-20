@@ -157,7 +157,10 @@ class DayActivity : Activity() {
         tl.onView = { rng.text = TimelineView.ltr("${TimelineView.hm(tl.viewStart)}–${TimelineView.hm(tl.viewStart + tl.viewSpan)}") }
         tl.onView?.invoke()
         body.addView(zoomRow); body.addView(tl)
-        body.addView(text("צבע השיחה = מצב הרוח בקול (ירוק רגוע · כתום ביניים · אדום מתוח). צבוט להגדלה, גרור כדי לזוז, הקש כדי לפתוח.", 12f, col.faint).apply { setPadding(0, px(6), 0, px(12)) })
+        // the mood colour only where the PC measures it (Shema Pro does not analyse tone)
+        val hasMood = (0 until convs.length()).any { !convs.getJSONObject(it).isNull("mood_valence") }
+        body.addView(text((if (hasMood) "צבע השיחה = מצב הרוח בקול (ירוק רגוע · כתום ביניים · אדום מתוח). " else "") +
+            "צבוט להגדלה, גרור כדי לזוז, הקש כדי לפתוח.", 12f, col.faint).apply { setPadding(0, px(6), 0, px(12)) })
         // the day's conversations, newest first
         for (i in convs.length() - 1 downTo 0) {
             val c = convs.getJSONObject(i)

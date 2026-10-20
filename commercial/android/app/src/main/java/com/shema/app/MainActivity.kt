@@ -152,7 +152,11 @@ class MainActivity : Activity(), BillingManager.BillingCallback {
         return ScrollView(this).apply { setBackgroundColor(c.bg); addView(root) }
     }
 
-    private fun showHome() { screen = "home"; setContentView(homeView) }
+    // the home page + a floating "undo" bar at the bottom (it must not push the page around under the finger)
+    private val homeFrame by lazy { FrameLayout(this).apply { addView(homeView); addView(undoHost,
+        FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM)) } }
+    private val undoHost by lazy { FrameLayout(this).apply { setPadding(px(16), 0, px(16), px(24)) } }
+    private fun showHome() { screen = "home"; (homeView.parent as? ViewGroup)?.let { if (it !== homeFrame) it.removeView(homeView) }; setContentView(homeFrame) }
     private fun pcConnected() = Prefs.paired(this) && (ListenService.lanOk || ListenService.viaTailscale || pcReachable == true)
 
     private fun showSettings() {
@@ -196,41 +200,177 @@ class MainActivity : Activity(), BillingManager.BillingCallback {
             alerts = LinearLayout(this@MainActivity).apply { orientation = LinearLayout.VERTICAL }
             addView(alerts)
 
-            // status orb
+            // 2026-10-20 review: value first. The state is one compact row (it only matters when something is wrong);
+            // the screen is about what was said today.
+            val statusRow = LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+                background = round(c.surface, 18, Color.parseColor("#1CFFECD6")); setPadding(px(14), px(12), px(12), px(12))
+            }
             val orbBox = FrameLayout(this@MainActivity)
             orbRing = View(this@MainActivity).apply { background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(c.rec) }; alpha = 0f }
             orb = View(this@MainActivity).apply { background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(c.off) } }
-            orbBox.addView(orbRing, FrameLayout.LayoutParams(px(120), px(120), Gravity.CENTER))
-            orbBox.addView(orb, FrameLayout.LayoutParams(px(84), px(84), Gravity.CENTER))
+            orbBox.addView(orbRing, FrameLayout.LayoutParams(px(48), px(48), Gravity.CENTER))
+            orbBox.addView(orb, FrameLayout.LayoutParams(px(36), px(36), Gravity.CENTER))
             orbBox.addView(View(this@MainActivity).apply { background = getDrawable(R.drawable.ic_stat) },
-                FrameLayout.LayoutParams(px(40), px(40), Gravity.CENTER))
-            addView(orbBox, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, px(130)))
-            title = text("", 20f, bold = true).apply { gravity = Gravity.CENTER }
-            subtitle = text("", 14f, c.dim).apply { gravity = Gravity.CENTER }
-            addView(title); addView(subtitle)
-            gap(16)
-
+                FrameLayout.LayoutParams(px(20), px(20), Gravity.CENTER))
+            statusRow.addView(orbBox, LinearLayout.LayoutParams(px(48), px(48)))
+            val words = LinearLayout(this@MainActivity).apply { orientation = LinearLayout.VERTICAL; setPadding(px(10), 0, px(8), 0) }
+            title = text("", 17f, bold = true)
+            subtitle = text("", 13f, c.dim).apply { maxLines = 2 }
+            words.addView(title); words.addView(subtitle)
+            statusRow.addView(words, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
             // one control: start when off, pause / resume when on (pause = nothing is recorded until resumed)
+            pauseBtn = button("⏸ השהה") { if (ListenService.on) svc(ListenService.ACTION_TOGGLE) else start() }
+            statusRow.addView(pauseBtn)
+            addView(statusRow)
+            gap(10)
+            // off: one big orange call to action (the only thing that matters then)
             main = button("התחל להקשיב", primary = true) { if (ListenService.on) svc(ListenService.ACTION_TOGGLE) else start() }
             addView(main)
-            gap(10)
-            searchBtn = button("🔎 חיפוש ושאלות", primary = true) { startActivity(Intent(this@MainActivity, SearchActivity::class.java)) }
-            addView(searchBtn)
-            gap(10)
+
+            // what matters today (promises, requests, meeting decisions), with done / delete right here
+            briefBox = LinearLayout(this@MainActivity).apply { orientation = LinearLayout.VERTICAL }
+            addView(briefBox)
+            // today's conversations: the newest three, then the whole day
+            todayBox = LinearLayout(this@MainActivity).apply { orientation = LinearLayout.VERTICAL }
+            addView(todayBox)
+            gap(12)
+
             val row = LinearLayout(this@MainActivity).apply { orientation = LinearLayout.HORIZONTAL }
-            meetBtn = button("📋 פגישות") { openWhenListening(MeetingActivity::class.java) }
-            whoBtn = button("מי זה?") { startActivity(Intent(this@MainActivity, TeachActivity::class.java)) }
-            row.addView(meetBtn, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-            row.addView(whoBtn, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = px(8) })
+            searchBtn = button("🔎 חפש או שאל") { startActivity(Intent(this@MainActivity, SearchActivity::class.java)) }
+            meetBtn = button("📋 הקלט פגישה") { openWhenListening(MeetingActivity::class.java) }
+            row.addView(searchBtn, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            row.addView(meetBtn, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = px(8) })
             addView(row)
+            gap(8)
+            whoBtn = button("מי זה?") { startActivity(Intent(this@MainActivity, TeachActivity::class.java)) }
+            addView(whoBtn)
             gap(14)
-            todayLine = text("", 14f, c.dim).apply {
-                background = round(c.surface, 14); setPadding(px(14), px(12), px(14), px(12))
-                isClickable = true; setOnClickListener { startActivity(Intent(this@MainActivity, DayActivity::class.java)) }
-                contentDescription = "ציר הזמן של היום"
-            }
+            todayLine = text("", 13f, c.faint).apply { gravity = Gravity.CENTER }
             addView(todayLine)
         }
+    }
+
+    // ------------------------------------------------------------ home: today (from the PC)
+    private lateinit var pauseBtn: TextView
+    private lateinit var briefBox: LinearLayout
+    private lateinit var todayBox: LinearLayout
+    private var todayAt = 0L
+    private var todayJson: String? = null
+
+    private fun day() = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
+
+    /** Today's conversations and "what matters today" from the PC: on open, and every 2 minutes while the home is shown. */
+    private fun loadToday(force: Boolean = false) {
+        if (!Prefs.paired(this) || (!force && System.currentTimeMillis() - todayAt < 120_000)) return
+        todayAt = System.currentTimeMillis()
+        val d = day()
+        thread {
+            val dayJ = Net.call(this, "GET", "/home/api/day?d=$d", timeoutMs = 15000)
+            val briefJ = Net.call(this, "GET", "/home/api/brief?d=$d", timeoutMs = 15000)      // PC 1.0.11+ (older: null)
+            ui.post { if (!isDestroyed) drawToday(dayJ, briefJ) }
+        }
+    }
+
+    private fun drawToday(dayJ: String?, briefJ: String?) {
+        val key = (dayJ ?: "") + "|" + (briefJ ?: "")
+        if (dayJ == null && todayJson != null) return            // keep the last good view while the PC is away
+        if (key == todayJson) return
+        todayJson = if (dayJ == null) null else key
+        briefBox.removeAllViews(); todayBox.removeAllViews()
+        // what matters today
+        val items = try { org.json.JSONObject(briefJ ?: "{}").optJSONArray("items") } catch (e: Exception) { null }
+        val acts = mutableListOf<org.json.JSONObject>()
+        if (items != null) for (i in 0 until items.length()) items.getJSONObject(i).let { if (it.optString("kind") == "task" || it.optString("kind") == "decision") acts += it }
+        if (acts.isNotEmpty()) {
+            briefBox.gap(12)
+            val card = card()
+            card.addView(text("חשוב היום", 13f, c.faint, bold = true))
+            for (it in acts.take(4)) {
+                card.gap(8)
+                val sure = it.optBoolean("sure", true)
+                val who = it.optString("who").takeIf { w -> w.isNotBlank() && w != "null" }
+                val label = (if (it.optString("kind") == "decision") "הוחלט" else if (it.optString("item_kind") == "request") "בקשה" else "משימה") + (if (sure) "" else "?")
+                card.addView(text("$label · " + (if (who != null) "$who: " else "") + it.optString("text") +
+                    (it.optString("due").takeIf { d -> d.isNotBlank() && d != "null" }?.let { d -> " ($d)" } ?: ""), 15f, c.ink).apply {
+                    isClickable = true; setOnClickListener { _ -> openConvAt(it) } })
+                val btns = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, px(4), 0, 0) }
+                btns.addView(smallBtn("✓ בוצע") { briefAct(it, "done") })
+                btns.addView(View(this), LinearLayout.LayoutParams(px(6), 1))
+                btns.addView(smallBtn("✕ מחק") { briefAct(it, "del") })
+                card.addView(btns)
+            }
+            briefBox.addView(card)
+        }
+        // today's conversations
+        todayBox.gap(12)
+        val convs = try { org.json.JSONObject(dayJ ?: "{}").optJSONArray("conversations") } catch (e: Exception) { null }
+        val card = card()
+        if (dayJ == null) {
+            card.addView(text("השיחות של היום יופיעו כאן כשהמחשב זמין.", 14f, c.dim))
+        } else if (convs == null || convs.length() == 0) {
+            card.addView(text("עוד אין שיחות היום", 15f, c.ink, bold = true))
+            card.addView(text("שמע מקשיב. כל שיחה מופיעה כאן כמה דקות אחרי שהיא נגמרת: סיכום, מי דיבר ומה סוכם.", 14f, c.dim))
+        } else {
+            card.addView(text("היום · ${convs.length()} שיחות", 13f, c.faint, bold = true))
+            for (i in convs.length() - 1 downTo maxOf(0, convs.length() - 3)) {
+                val k = convs.getJSONObject(i)
+                card.gap(8)
+                val item = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; isClickable = true
+                    setOnClickListener { startActivity(Intent(this@MainActivity, ConvActivity::class.java).putExtra("id", k.getInt("id"))) } }
+                item.addView(text(TimelineView.ltr(k.optString("start").drop(11).take(5)) + " · " +
+                    (k.optString("topic").takeIf { it.isNotBlank() && it != "null" } ?: "שיחה"), 15f, c.ink, bold = true))
+                k.optString("summary").takeIf { it.isNotBlank() && it != "null" }?.let { item.addView(text(it, 13f, c.dim).apply { maxLines = 2 }) }
+                card.addView(item)
+            }
+            card.gap(10)
+            card.addView(text("כל היום וציר הזמן ›", 14f, c.accent, bold = true).apply {
+                isClickable = true; setOnClickListener { startActivity(Intent(this@MainActivity, DayActivity::class.java)) } })
+        }
+        todayBox.addView(card)
+    }
+
+    private fun smallBtn(t: String, onClick: () -> Unit) = TextView(this).apply {
+        text = t; textSize = 13f; setTextColor(c.dim); background = round(c.surface2, 12, Color.parseColor("#33FFECD6"))
+        setPadding(px(12), px(6), px(12), px(6)); isClickable = true; setOnClickListener { onClick() }
+    }
+
+    private fun openConvAt(it: org.json.JSONObject) {
+        val cid = it.optInt("conv_id"); if (cid <= 0) return
+        startActivity(Intent(this, ConvActivity::class.java).putExtra("id", cid))
+    }
+
+    /** "✓ בוצע" / "✕ מחק" on a promise (tasks) or a meeting decision, with undo (same API as the PC's day page). */
+    private fun briefAct(it: org.json.JSONObject, a: String) {
+        val isTask = it.has("id") && !it.isNull("id")
+        val was = if (isTask) (if (it.optBoolean("sure", true)) "confirmed" else "open") else "open"
+        fun set(s: String) = if (isTask) Net.call(this, "POST", "/home/api/task", org.json.JSONObject().put("id", it.getInt("id")).put("state", s))
+            else Net.call(this, "POST", "/home/api/decision", org.json.JSONObject().put("conv_id", it.optInt("conv_id")).put("text", it.optString("text")).put("state", s))
+        val to = if (a == "done") "done" else if (isTask) "dismissed" else "deleted"
+        thread {
+            val r = set(to)
+            ui.post {
+                if (r == null) { Toast.makeText(this, "המחשב לא זמין, נסה שוב", Toast.LENGTH_SHORT).show(); return@post }
+                loadToday(force = true)
+                undoBar(if (a == "done") "סומן כבוצע" else "נמחק מהרשימה") { thread { set(was); ui.post { loadToday(force = true) } } }
+            }
+        }
+    }
+
+    /** a short "done · undo" line under the header for 8 seconds */
+    private var undoView: View? = null
+    private fun undoBar(msg: String, undo: () -> Unit) {
+        undoHost.removeAllViews()
+        val v = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+            background = round(Color.parseColor("#3A322B"), 14, c.accent); setPadding(px(14), px(12), px(10), px(12)); elevation = px(6).toFloat()
+            layoutDirection = View.LAYOUT_DIRECTION_RTL
+            addView(text(msg, 14f, c.ink), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            addView(text("בטל", 14f, c.accent, bold = true).apply { setPadding(px(12), px(4), px(4), px(4)); isClickable = true
+                setOnClickListener { undoHost.removeAllViews(); undoView = null; undo() } })
+        }
+        undoView = v; undoHost.addView(v)
+        ui.postDelayed({ if (undoView === v) { undoHost.removeAllViews(); undoView = null } }, 8000)
     }
 
     private fun section(parent: LinearLayout, title: String) {
@@ -356,13 +496,15 @@ class MainActivity : Activity(), BillingManager.BillingCallback {
 
     // ------------------------------------------------------------ first run, one step at a time
     private var obStep = 0
-    // no voice reading here: tagging "זה אני" / "מי זה?" teaches the voices; the reading stays in the settings
-    private val obSteps = listOf("welcome", "mic", "notif", "battery", "pc", "role")
+    // no voice reading here: tagging "זה אני" / "מי זה?" teaches the voices; the reading stays in the settings.
+    // 2026-10-20 review: microphone + notifications in one step, and no "which phone?" step (personal is the
+    // default and the common case; a home phone is chosen in the settings)
+    private val obSteps = listOf("welcome", "perms", "battery", "pc")
 
     private fun stepNeeded(s: String) = when (s) {
         "welcome" -> !Prefs.isDisclosureAccepted(this)
-        "mic" -> checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED
-        "notif" -> checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        "perms" -> checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED ||
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         "battery" -> !batteryOk()
         "pc" -> !Prefs.paired(this)
         "role" -> !Prefs.flag(this, "role_chosen")
@@ -385,6 +527,9 @@ class MainActivity : Activity(), BillingManager.BillingCallback {
         while (obStep < obList.size && !stepNeeded(obList[obStep])) obStep++     // done meanwhile (paired, allowed in settings)
         if (obStep >= obList.size) { finishOnboarding(); return }
         val s = obList[obStep]
+        // opened from the PC's pairing link (phone camera on the QR): no second scan, just confirm it
+        if (s == "pc" && Prefs.parsePair(pendingLink) != null) ui.post {
+            val l = pendingLink; pendingLink = null; if (l != null && screen == "onboarding") confirmPair(l) }
         setContentView(page {
             gap(30)
             addView(text("שלב ${obStep + 1} מתוך ${obList.size}", 13f, c.faint))
@@ -406,13 +551,12 @@ class MainActivity : Activity(), BillingManager.BillingCallback {
                     gap(10)
                     addView(button("מדיניות הפרטיות") { openPrivacyPolicy() })
                 }
-                "mic" -> {
-                    body("מיקרופון", "כדי לשמוע שיחות, שמע צריך גישה למיקרופון. הוא שומר רק קטעים עם דיבור, והם נשלחים רק למחשב שלך.")
-                    addView(button("אפשר מיקרופון", primary = true) { requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), 11) })
-                }
-                "notif" -> {
-                    body("התראה קבועה", "אנדרואיד דורש התראה קבועה כשאפליקציה מקשיבה ברקע. ממנה גם אפשר להשהות בלחיצה אחת.")
-                    addView(button("אפשר התראות", primary = true) { requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 12) })
+                "perms" -> {
+                    body("מיקרופון והתראה", "מיקרופון: כדי לשמוע שיחות. נשמרים רק קטעים עם דיבור, והם נשלחים רק למחשב שלך.\n\n" +
+                        "התראה: כל עוד שמע מקשיב היא מופיעה, ומשם משהים בלחיצה אחת.")
+                    addView(button("אפשר", primary = true) {
+                        requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO, Manifest.permission.POST_NOTIFICATIONS)
+                            .filter { checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }.toTypedArray(), 11) })
                 }
                 "battery" -> {
                     body("להמשיך להקשיב", "בלי זה, הטלפון סוגר את שמע אחרי זמן מה כדי לחסוך סוללה, וחלקים מהיום לא מוקלטים. " +
@@ -441,7 +585,7 @@ class MainActivity : Activity(), BillingManager.BillingCallback {
                 }
             }
             gap(20)
-            if (s != "welcome" && s != "mic") addView(text("דלג", 15f, c.faint).apply {
+            if (s != "welcome" && s != "perms") addView(text("דלג", 15f, c.faint).apply {
                 gravity = Gravity.CENTER; setPadding(0, px(10), 0, px(10)); isClickable = true; setOnClickListener { nextStep() } })
         })
     }
@@ -462,6 +606,7 @@ class MainActivity : Activity(), BillingManager.BillingCallback {
     override fun onResume() {
         super.onResume()
         if (screen == "onboarding" && obStep < obList.size && !stepNeeded(obList[obStep])) nextStep()   // back from the battery screen
+        if (screen == "home") loadToday(force = true)
         refreshChecklist()
         refreshCalls()
         billingManager.checkActiveSubscriptions()
@@ -864,12 +1009,11 @@ class MainActivity : Activity(), BillingManager.BillingCallback {
     }
 
     override fun onRequestPermissionsResult(rc: Int, perms: Array<out String>, res: IntArray) {
-        if (rc == 11 || rc == 12) {                          // first run: microphone / notifications
+        if (rc == 11) {                                      // first run: microphone + notifications
             if (screen == "onboarding") {
-                val ok = res.isNotEmpty() && res[0] == PackageManager.PERMISSION_GRANTED
-                if (!ok) Toast.makeText(this, if (rc == 11) "בלי מיקרופון שמע לא יכול להקשיב" else "אפשר לאשר גם מאוחר יותר, בהגדרות",
-                    Toast.LENGTH_LONG).show()
-                if (ok || rc == 12) nextStep()
+                val ok = checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+                if (!ok) Toast.makeText(this, "בלי מיקרופון שמע לא יכול להקשיב", Toast.LENGTH_LONG).show()
+                else { obStep++; renderStep() }                  // notifications refused: fine, the settings offer it again
             }
             refreshChecklist(); return
         }
@@ -967,13 +1111,10 @@ class MainActivity : Activity(), BillingManager.BillingCallback {
         val on = ListenService.on
         val paused = on && ListenService.pausedNow
         val pulseRed = on && !paused && ListenService.hearing
-        main.text = when { !on -> "התחל להקשיב"; paused -> "▶ המשך להקשיב"; else -> "⏸ השהה" }
-        val strong = !on || paused
-        main.background = round(if (strong) c.accent else c.surface2, 16, if (strong) null else Color.parseColor("#33FFECD6"))
-        main.setTextColor(if (strong) c.accentInk else c.ink)
-        // one orange button at a time: start / resume when stopped, search while listening
-        searchBtn.background = round(if (strong) c.surface2 else c.accent, 16, if (strong) Color.parseColor("#33FFECD6") else null)
-        searchBtn.setTextColor(if (strong) c.ink else c.accentInk)
+        // off / paused: one big orange "start / resume"; listening: only the small "pause" in the status row
+        main.text = if (paused) "▶ המשך להקשיב" else "התחל להקשיב"
+        main.visibility = if (!on || paused) View.VISIBLE else View.GONE
+        pauseBtn.visibility = if (on && !paused) View.VISIBLE else View.GONE
 
         orb.background = GradientDrawable().apply {
             shape = GradientDrawable.OVAL
@@ -994,26 +1135,26 @@ class MainActivity : Activity(), BillingManager.BillingCallback {
         val sent = if (ListenService.lastSentAt > 0) {
             val s = maxOf(0, (System.currentTimeMillis() - ListenService.lastSentAt) / 1000)
             "נשלח למחשב " + when { s < 60 -> "לפני $s שנ׳"; s < 3600 -> "לפני ${s / 60} דק׳"; else -> "לפני ${s / 3600} שע׳" }
-        } else link
+        } else ""
         title.text = when { !on -> "כבוי"; paused -> "מושהה · לא מקליט"; pulseRed -> "שומע דיבור…"; else -> "מקשיב" }
         subtitle.text = when {
-            !on -> "הקש \"התחל להקשיב\""
+            !on -> "שום דבר לא מוקלט"
             paused -> "שום דבר לא מוקלט עד שתמשיך"
             ListenService.blocked.isNotEmpty() -> ListenService.blocked
-            else -> "$sent · $link"
+            sent.isNotEmpty() -> "$link · $sent"
+            else -> link
         }
 
         // home extras: who is this (only when voices wait), today
         val teach = ListenService.digestTeach
         whoBtn.visibility = if (teach > 0) View.VISIBLE else View.GONE
-        whoBtn.text = "מי זה? ($teach)"
+        whoBtn.text = "🙋 מי זה? $teach משפטים מחכים לשם"
         val mins = ListenService.speechToday(this)
-        val tasks = ListenService.digestTasks
-        todayLine.text = "היום: " + (if (mins >= 60) "${mins / 60} שע׳ ${mins % 60} דק׳" else "$mins דק׳") + " דיבור נשלחו למחשב" +
-            (if (tasks > 0) " · $tasks משימות פתוחות" else "") + "\n🕒 ציר הזמן של היום ›"
+        todayLine.text = if (mins > 0) "היום נשלחו למחשב " + (if (mins >= 60) "${mins / 60} שע׳ ${mins % 60} דק׳" else "$mins דק׳") + " דיבור" else ""
+        if (screen == "home") loadToday()
 
         val meeting = Meeting.active(this)
-        meetBtn.text = if (meeting) "🔴 פגישה מוקלטת · ${(System.currentTimeMillis() - Meeting.start(this)) / 60_000} דק׳" else "📋 פגישות"
+        meetBtn.text = if (meeting) "🔴 פגישה מוקלטת · ${(System.currentTimeMillis() - Meeting.start(this)) / 60_000} דק׳" else "📋 הקלט פגישה"
         meetBtn.background = round(if (meeting) c.rec else c.surface2, 16, if (meeting) null else Color.parseColor("#33FFECD6"))
         refreshAlerts()
 

@@ -84,14 +84,15 @@ class SearchActivity : Activity() {
             hint = "חפש בשיחות, או שאל שאלה"; setTextColor(col.ink); setHintTextColor(col.faint)
             inputType = InputType.TYPE_CLASS_TEXT; imeOptions = EditorInfo.IME_ACTION_SEARCH; setSingleLine()
             background = round(col.surface2, 12); setPadding(px(12), px(10), px(12), px(10))
-            setOnEditorActionListener { _, _, _ -> doSearch(); true }
+            setOnEditorActionListener { _, _, _ -> go(); true }
         }
         root.addView(query)
         root.addView(gap(8))
         val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         fun w(v: View, last: Boolean = false) = row.addView(v, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
             .apply { if (!last) marginEnd = px(8) })
-        w(button("חפש", true) { doSearch() }); w(button("שאל") { doAsk() }); w(button("סכם", false) { doSummary() }, true)
+        // 2026-10-20 review: one box. A question gets an answer from the conversations, anything else is a search.
+        w(button("חפש או שאל", true) { go() }); w(button("סכם את התקופה", false) { doSummary() }, true)
         root.addView(row)
         root.addView(gap(14))
         resultBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
@@ -145,6 +146,17 @@ class SearchActivity : Activity() {
     }
 
     // ------------------------------------------------------------ search / ask / summary
+    private val qWords = listOf("מה", "מי", "מתי", "איפה", "למה", "איך", "האם", "כמה", "מאיזה", "באיזה", "על מה", "עם מי", "מדוע",
+        "what", "who", "when", "where", "why", "how", "did", "does", "do", "is", "was", "which")
+
+    /** a question (a "?" or a question word first) -> answer; else search */
+    private fun go() {
+        val q = query.text.toString().trim()
+        val first = q.lowercase().split(" ").firstOrNull().orEmpty().removePrefix("ו").removePrefix("ה")
+        val isQ = q.contains("?") || q.split(" ").size >= 3 && qWords.any { w -> q.lowercase().startsWith("$w ") || q.lowercase().startsWith("ו$w ") }
+        if (isQ && first.isNotEmpty()) doAsk() else doSearch()
+    }
+
     private fun doList() = run("/home/api/search?r=$range&q=", 20000, "טוען שיחות…") { showConvs(it.getJSONArray("results"), null) }
 
     private fun doSearch() {
@@ -226,6 +238,7 @@ class SearchActivity : Activity() {
 
     private fun showStats(j: JSONObject, cached: Boolean) {
         val people = j.getJSONArray("people")
+        var feel = false                                  // tone / emotion only where the PC has it (not in Shema Pro)
         statsBox.addView(gap(14))
         val c = card()
         c.addView(text("מי דיבר" + if (cached) " (נשמר, המחשב לא זמין)" else "", 16f, col.accent, true))
@@ -253,6 +266,7 @@ class SearchActivity : Activity() {
             bits += "${p.optInt("lines")} משפטים · ${p.optInt("words")} מילים"
             if (!p.isNull("pace")) bits += "קצב ${p.optDouble("pace")} הברות/שנ׳"
             val v = if (p.isNull("valence")) null else p.optDouble("valence")
+            if (v != null) feel = true
             if (v != null) bits += "קול " + (if (v >= .58) "רגוע/חיובי" else if (v <= .42) "מתוח" else "ביניים")
             val vs = if (p.isNull("valence_vs_usual")) null else p.optDouble("valence_vs_usual")
             if (vs != null && Math.abs(vs) >= .05) bits += if (vs > 0) "חיובי מהרגיל" else "מתוח מהרגיל"
@@ -262,7 +276,7 @@ class SearchActivity : Activity() {
             }
             c.add(text(bits.joinToString(" · "), 12f, col.faint), 3)
             val em = p.optJSONArray("emotions")
-            if (em != null && em.length() > 0) {
+            if (em != null && em.length() > 0) { feel = true
                 val s = (0 until em.length()).joinToString("  ") { val e = em.getJSONObject(it); "${e.optString("emotion")} ${(e.optDouble("share") * 100).toInt()}%" }
                 c.add(text("רגש בקול (רק כשהמודל בטוח): $s", 12f, col.sky), 2)
             }
@@ -279,8 +293,8 @@ class SearchActivity : Activity() {
         if (bg != null) for (i in 0 until bg.length()) { val b = bg.getJSONObject(i); extra += "${b.optString("media")} ${b.optDouble("minutes")} דק׳" }
         if (sounds != null) for (i in 0 until minOf(sounds.length(), 5)) { val s = sounds.getJSONObject(i); extra += "${s.optString("tag")} ×${s.optInt("n")}" }
         if (extra.isNotEmpty()) { c.addView(gap(10)); c.addView(text("ברקע: " + extra.joinToString(" · "), 12f, col.faint)) }
-        c.addView(gap(8))
-        c.addView(text("הרגשות והטון הם הערכה של מודל, לא קביעה. השוואה ל\"רגיל\" של אותו אדם חשובה יותר מהמספר עצמו.", 11f, col.faint))
+        if (feel) { c.addView(gap(8))
+            c.addView(text("הרגשות והטון הם הערכה של מודל, לא קביעה. השוואה ל\"רגיל\" של אותו אדם חשובה יותר מהמספר עצמו.", 11f, col.faint)) }
         statsBox.addView(c)
     }
 }

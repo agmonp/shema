@@ -42,7 +42,8 @@ class ConvActivity : Activity() {
         val sky = Color.parseColor("#8FB3E0"); val unk = Color.parseColor("#6F665C")
     }
     private val palette = listOf("#EAA45E", "#86BBA8", "#8FB3E0", "#E48A7F", "#C9A3E6", "#D8C37A").map { Color.parseColor(it) }
-    private val HOW = mapOf("user" to "סימנת", "voice" to "לפי הקול", "context" to "לפי ההקשר", "conv" to "כנראה", "call" to "לפי השיחה")
+    // 2026-10-20 review: the sure cases (the voice, or you said so) need no tag on every line; only the guesses say so
+    private val HOW = mapOf("context" to "לפי ההקשר", "conv" to "כנראה", "call" to "לפי השיחה")
     private var dp = 1f
     private var convId = 0
     private var startAt = -1.0
