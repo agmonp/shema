@@ -12,6 +12,7 @@ import android.content.Intent
  *  service from here, so ask the user with one tap (the tap opens the app, which starts it). */
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(c: Context, i: Intent) {
+        Reminders.rearm(c)                                   // alarms do not survive a restart / update
         if (!Prefs.wanted(c)) return
         val nm = c.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         nm.createNotificationChannel(NotificationChannel("restart", "הפעלה מחדש", NotificationManager.IMPORTANCE_HIGH))

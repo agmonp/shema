@@ -298,6 +298,12 @@ class MainActivity : Activity(), BillingManager.BillingCallback {
                 btns.addView(smallBtn("✓ בוצע") { briefAct(it, "done") })
                 btns.addView(View(this), LinearLayout.LayoutParams(px(6), 1))
                 btns.addView(smallBtn("✕ מחק") { briefAct(it, "del") })
+                if (it.has("id") && !it.isNull("id")) {           // a reminder only when the user asks for it on this item
+                    val at = it.optString("remind_at").takeIf { r -> it.has("remind_at") && !it.isNull("remind_at") && r.isNotBlank() }
+                    btns.addView(View(this), LinearLayout.LayoutParams(px(6), 1))
+                    btns.addView(smallBtn(if (at != null) "🔔 " + Reminders.label(at) else "🔔 הזכר לי") { remindPick(it, at) }.apply {
+                        if (at != null) { setTextColor(c.accent); background = round(c.surface2, 12, c.accent) } })
+                }
                 card.addView(btns)
             }
             briefBox.addView(card)
@@ -349,10 +355,47 @@ class MainActivity : Activity(), BillingManager.BillingCallback {
         val to = if (a == "done") "done" else if (isTask) "dismissed" else "deleted"
         thread {
             val r = set(to)
+            if (r != null && isTask) Reminders.remove(this, it.getInt("id"))     // done / deleted: no reminder (undo brings it back on the next sync)
             ui.post {
                 if (r == null) { Toast.makeText(this, "המחשב לא זמין, נסה שוב", Toast.LENGTH_SHORT).show(); return@post }
                 loadToday(force = true)
                 undoBar(if (a == "done") "סומן כבוצע" else "נמחק מהרשימה") { thread { set(was); ui.post { loadToday(force = true) } } }
+            }
+        }
+    }
+
+    /** "🔔 הזכר לי": tomorrow 09:00 / the time that was said / a chosen time / cancel. Sets remind_at on the PC (which
+     *  keeps the list) and schedules it here at once. */
+    private fun remindPick(it: org.json.JSONObject, at: String?) {
+        val tm = Reminders.tomorrow9()
+        val opts = mutableListOf<Pair<String, String?>>("מחר ב-09:00" to tm)
+        it.optString("due_at").takeIf { d -> it.has("due_at") && d != tm && Reminders.atMs(d) > System.currentTimeMillis() }?.let { d ->
+            opts += "כמו שנאמר: ${it.optString("due")} (${Reminders.label(d)})" to d }
+        opts += "בחר זמן…" to "pick"
+        if (at != null) opts += "בטל תזכורת" to null
+        AlertDialog.Builder(this).setTitle(if (at != null) "🔔 תזכורת ${Reminders.label(at)}" else "להזכיר לך?")
+            .setItems(opts.map { o -> o.first }.toTypedArray()) { _, k ->
+                val v = opts[k].second
+                if (v == "pick") pickTime(at ?: tm) { t -> remindSet(it, t) } else remindSet(it, v)
+            }.setNegativeButton("סגור", null).show()
+    }
+
+    private fun pickTime(start: String, done: (String) -> Unit) {
+        val cal = java.util.Calendar.getInstance().apply { timeInMillis = Reminders.atMs(start).takeIf { it > 0 } ?: System.currentTimeMillis() }
+        android.app.DatePickerDialog(this, { _, y, m, d ->
+            android.app.TimePickerDialog(this, { _, h, mi ->
+                cal.set(y, m, d, h, mi, 0); done(Reminders.fmtAt(cal.timeInMillis))
+            }, cal.get(java.util.Calendar.HOUR_OF_DAY), cal.get(java.util.Calendar.MINUTE), true).show()
+        }, cal.get(java.util.Calendar.YEAR), cal.get(java.util.Calendar.MONTH), cal.get(java.util.Calendar.DAY_OF_MONTH))
+            .apply { datePicker.minDate = System.currentTimeMillis() - 1000 }.show()
+    }
+
+    private fun remindSet(it: org.json.JSONObject, at: String?) {
+        thread {
+            val err = Reminders.set(this, it, at)
+            ui.post {
+                Toast.makeText(this, err ?: if (at != null) "🔔 אזכיר לך ${Reminders.label(at)}" else "התזכורת בוטלה", Toast.LENGTH_SHORT).show()
+                if (err == null) loadToday(force = true)
             }
         }
     }

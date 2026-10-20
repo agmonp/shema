@@ -464,6 +464,7 @@ class ListenService : Service() {
                     val d = j.optJSONObject("digest")
                     if (d != null) { digestTeach = d.optInt("teach"); digestTasks = d.optInt("tasks_open"); maybeDigest(d) }
                     j.optJSONArray("meetings_done")?.let { a -> for (i in 0 until a.length()) meetingReady(a.optString(i)) }
+                    j.optJSONArray("reminders")?.let { Reminders.sync(this, it) }       // only what the user asked for (PC 1.0.12+)
                 }
             } catch (e: Exception) { }
         }

@@ -83,6 +83,8 @@ class ConvActivity : Activity() {
         super.onCreate(savedInstanceState)
         dp = resources.displayMetrics.density
         convId = intent.getIntExtra("id", 0); startAt = intent.getDoubleExtra("at", -1.0)
+        intent.getIntExtra("notif", 0).takeIf { it != 0 }?.let {           // opened from a reminder's button: it is read
+            (getSystemService(NOTIFICATION_SERVICE) as android.app.NotificationManager).cancel(it) }
         root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL; layoutDirection = View.LAYOUT_DIRECTION_RTL
             setBackgroundColor(col.bg); setPadding(px(14), px(16), px(14), 0)
