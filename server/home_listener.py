@@ -156,6 +156,9 @@ MIGRATIONS = [   # columns added after the first version (2026-10-06 afternoon)
     # "system" = what the PC played, NULL = not a two-channel recording / not decided); a meeting item's owner, only when
     # it was said (tasks.who stays the line's speaker, as for every other item); what a PC meeting recorded from
     ("utterances", "side", "TEXT"), ("tasks", "owner", "TEXT"), ("meetings", "source", "TEXT"),
+    # 2026-10-20: a reminder the user asked for on this item ("YYYY-MM-DDTHH:MM", local time). NULL = never reminded:
+    # nothing is reminded on its own, not even a confirmed item; the paired phone delivers it
+    ("tasks", "remind_at", "TEXT"),
 ]
 
 
@@ -2214,6 +2217,121 @@ def _quote_line(c, cid, quote):
 
 BRIEF_MAX = 5
 
+# --- opt-in reminders (2026-10-20). Owner's rule: an item is reminded only after the user asked for it on that item
+# (phone or PC); extraction can be wrong, so nothing - not even a confirmed item - gets a reminder by itself.
+REMIND_HOUR = 9
+_HE_WEEKDAYS = {"ראשון": 6, "שני": 0, "שלישי": 1, "רביעי": 2, "חמישי": 3, "שישי": 4, "שבת": 5}
+_HE_NUM = {"יומיים": 2, "שלושה": 3, "שלוש": 3, "ארבעה": 4, "ארבע": 4, "חמישה": 5, "חמש": 5, "שישה": 6, "שש": 6}
+
+
+def due_to_time(due, said_at):
+    """A said due time ("מחר בבוקר", "ביום שלישי", "בעוד שלושה ימים בשעה 17:00", "25/10") -> "YYYY-MM-DDTHH:MM"
+    counted from when it was said, or None when it can't be read. Only a suggestion for the picker."""
+    if not isinstance(due, str) or not due.strip() or not said_at:
+        return None
+    try:
+        base = datetime.fromisoformat(str(said_at)[:19])
+    except ValueError:
+        return None
+    s = due.replace("״", '"').replace("-", " ")
+    words = re.findall(r"[֐-׿\"']+|\d{1,2}[:/.]\d{1,2}(?:[/.]\d{2,4})?|\d+", s)
+    bare = [re.sub(r"^(?:וב|וה|ב|ה|ו|ל)(?=[֐-׿]{3,})", "", w) for w in words]
+    day, hour, minute = None, None, 0
+    m = re.search(r"(\d{1,2})[/.](\d{1,2})(?:[/.](\d{2,4}))?", s)
+    if m and ":" not in m.group(0):
+        y = int(m.group(3)) if m.group(3) else base.year
+        y = y + 2000 if y < 100 else y
+        try:
+            day = datetime(y, int(m.group(2)), int(m.group(1)))
+            if not m.group(3) and day.date() < base.date():
+                day = day.replace(year=y + 1)
+        except ValueError:
+            day = None
+    if day is None:
+        if "מחרתיים" in bare:
+            day = base + timedelta(days=2)
+        elif "מחר" in bare:
+            day = base + timedelta(days=1)
+        elif any(w in bare for w in ("היום", "ערב")) or "הערב" in words:
+            day = base
+        elif "שבוע" in bare and ("הבא" in bare or "עוד" in bare):
+            day = base + timedelta(days=7)
+        else:
+            for i, w in enumerate(bare):
+                if w in ("ימים", "יום") and i and (bare[i - 1] in _HE_NUM or bare[i - 1].isdigit()):
+                    day = base + timedelta(days=_HE_NUM.get(bare[i - 1]) or int(bare[i - 1]))
+                    break
+                if w == "יומיים":
+                    day = base + timedelta(days=2)
+                    break
+            if day is None:
+                for i, w in enumerate(words):
+                    wd = _HE_WEEKDAYS.get(re.sub(r"^ו?(?:ב|ביום)(?=[֐-׿]{3,})", "", w))
+                    # "שני" alone is also "second": only after "יום" / "ב" ("ביום שני", "בשני")
+                    if wd is not None and (w != "שני" or (i and bare[i - 1] == "יום")):
+                        day = base + timedelta(days=(wd - base.weekday() - 1) % 7 + 1)
+                        break
+    if day is None:
+        return None
+    m = re.search(r"(\d{1,2}):(\d{2})", s) or re.search(r"(?:שעה|ב)\s*(\d{1,2})(?!\d|[/.])", s)
+    if m and int(m.group(1)) < 24:
+        hour, minute = int(m.group(1)), int(m.group(2)) if m.lastindex and m.lastindex > 1 else 0
+        if hour < 8 and any(w in bare for w in ("ערב", "צהריים", "אחה\"צ")):
+            hour += 12
+    elif "צהריים" in bare:
+        hour = 16 if "אחר" in bare or "אחרי" in bare else 13
+    elif "ערב" in bare or "הערב" in words:
+        hour = 19
+    elif "בוקר" in bare:
+        hour = 9
+    out = day.replace(hour=REMIND_HOUR if hour is None else hour, minute=minute, second=0, microsecond=0)
+    return out.strftime("%Y-%m-%dT%H:%M") if out > base else None
+
+
+def _remind_time(at):
+    """The user's chosen time -> "YYYY-MM-DDTHH:MM", or None when it is not a time."""
+    try:
+        return datetime.fromisoformat(str(at).strip()[:19]).strftime("%Y-%m-%dT%H:%M")
+    except (TypeError, ValueError):
+        return None
+
+
+def set_reminder(tid, at):
+    """POST /home/api/task_remind: the user asked for a reminder on this item at `at`, or cancelled it (at=None)."""
+    when = None
+    if at not in (None, ""):
+        when = _remind_time(at)
+        if not when:
+            return {"ok": False, "msg": "זמן לא מובן"}
+        dt = datetime.fromisoformat(when)
+        if dt < datetime.now() - timedelta(minutes=1):
+            return {"ok": False, "msg": "הזמן הזה כבר עבר"}
+        if dt > datetime.now() + timedelta(days=400):
+            return {"ok": False, "msg": "רחוק מדי"}
+    with db() as c:
+        t = c.execute("SELECT state FROM tasks WHERE id=?", (int(tid),)).fetchone()
+        if not t:
+            return {"ok": False, "msg": "הפריט לא נמצא"}
+        if when and t["state"] not in ("open", "confirmed"):
+            return {"ok": False, "msg": "הפריט כבר סגור"}
+        c.execute("UPDATE tasks SET remind_at=? WHERE id=?", (when, int(tid)))
+    return {"ok": True, "id": int(tid), "remind_at": when}
+
+
+def reminders(c):
+    """Every reminder the user set on a still-open item, for the phone to schedule (with epoch ms in this PC's time
+    zone). Done / deleted items drop out, so the phone cancels them on its next sync."""
+    out = []
+    for t in c.execute("SELECT id, conv_id, who, what, quote, remind_at FROM tasks WHERE remind_at IS NOT NULL "
+                       "AND state IN ('open','confirmed') ORDER BY remind_at LIMIT 100"):
+        try:
+            ms = int(datetime.fromisoformat(t["remind_at"]).timestamp() * 1000)
+        except ValueError:
+            continue
+        out.append({"id": t["id"], "conv_id": t["conv_id"], "text": t["what"], "quote": t["quote"],
+                    "who": t["who"] if t["who"] and t["who"] != "?" else None, "at": t["remind_at"], "at_ms": ms})
+    return out
+
 
 def brief(c, day):
     """'What matters today' for the home page: at most 5 items, every one with evidence behind it. Kinds with
@@ -2232,12 +2350,15 @@ def brief(c, day):
                 items.append({"kind": "decision", "text": d, "conv_id": r["conv_id"], "src": "meeting", "sure": True,
                               "t0": convs[r["conv_id"]]["start"]})
         # extracted items: a candidate (state open) until the user confirms it; both point at the line it was said in
-        for t in c.execute(f"SELECT id, conv_id, who, who_how, what, due, quote, kind, utt_id, state FROM tasks "
+        for t in c.execute(f"SELECT id, conv_id, who, who_how, what, due, quote, kind, utt_id, state, remind_at FROM tasks "
                            f"WHERE state IN ('open','confirmed') AND conv_id IN ({ph}) ORDER BY id", list(convs)):
             it = {"kind": "decision" if t["kind"] == "decision" else "task", "item_kind": t["kind"] or "promise", "id": t["id"],
                   "text": t["what"], "who": t["who"] if t["who"] and t["who"] != "?" else None, "who_sure": t["who_how"] in ("user", "voice", None),
                   "due": t["due"], "quote": t["quote"], "conv_id": t["conv_id"], "src": "quote", "sure": t["state"] == "confirmed",
-                  "t0": convs[t["conv_id"]]["start"]}
+                  "t0": convs[t["conv_id"]]["start"], "remind_at": t["remind_at"]}
+            due_at = due_to_time(t["due"], convs[t["conv_id"]]["start"])
+            if due_at:
+                it["due_at"] = due_at                      # only offered in the picker; never set by itself
             if t["utt_id"]:
                 it["utt_id"] = t["utt_id"]
             else:
@@ -3469,7 +3590,8 @@ def api(path, qs):
                                        else max(OWNER_MIN_SAMPLES, owner_enrolled(c, clean_device(qs["device"][0])))) if "device" in qs else None,
                     "owner_samples": owner_enrolled(c, clean_device(qs["device"][0])) if "device" in qs else None,
                     "digest": digest() if "device" in qs else None,
-                    "meetings_done": meetings_done(c, clean_device(qs["device"][0])) if "device" in qs else None}
+                    "meetings_done": meetings_done(c, clean_device(qs["device"][0])) if "device" in qs else None,
+                    "reminders": reminders(c) if "device" in qs else None}
         if path == "/home/api/pc_rec":                    # the PC's own recording + what it can record from
             return {"rec": pc_rec_status(), "devices": pc_devices(fresh="fresh" in qs)}
         if path == "/home/api/coverage":
@@ -3637,8 +3759,8 @@ class Handler(BaseHTTPRequestHandler):
                       "/home/api/privacy_set", "/home/api/gold", "/home/api/fix_text", "/home/api/asr_check", "/home/api/teach_skip",
                       "/home/api/asr_settings", "/home/api/asr_glossary", "/home/api/asr_rollback", "/home/api/asr_install",
                       "/home/api/asr_nominate", "/home/api/forget_phone", "/home/api/split", "/home/api/unsplit",
-                      "/home/api/pc_rec", "/home/api/decision"):
-            phone_ok = u.path in ("/home/api/label", "/home/api/task", "/home/api/decision","/home/api/teach_skip", "/home/api/split", "/home/api/unsplit")       # teaching + task checking also from the paired phone
+                      "/home/api/pc_rec", "/home/api/decision", "/home/api/task_remind"):
+            phone_ok = u.path in ("/home/api/label", "/home/api/task", "/home/api/task_remind", "/home/api/decision","/home/api/teach_skip", "/home/api/split", "/home/api/unsplit")       # teaching + task checking also from the paired phone
             if not (self._authed() if phone_ok else self._local()):
                 return self._send(403, {"error": "only from this PC" if not phone_ok else "bad token"})
             b = self._body()
@@ -3648,6 +3770,8 @@ class Handler(BaseHTTPRequestHandler):
                         c.execute("UPDATE tasks SET state=? WHERE id=?", (b.get("state") if b.get("state") in ("open", "done", "dismissed", "confirmed") else "open",
                                                                           int(b.get("id", 0))))
                     return self._send(200, {"ok": True})
+                if u.path == "/home/api/task_remind":      # a reminder only when the user asks for it on this item
+                    return self._send(200, set_reminder(int(b.get("id", 0)), b.get("at")))
                 if u.path == "/home/api/decision":
                     return self._send(200, decision_state(int(b.get("conv_id", 0)), str(b.get("text") or ""), b.get("state")))
                 if u.path == "/home/api/teach_skip":        # "several people talk / unclear": never ask about it again
@@ -3835,7 +3959,8 @@ class Handler(BaseHTTPRequestHandler):
             if u.path == "/home/api/pc_rec" and isinstance(out, dict):
                 out["local"] = self._local()                # start / stop only at this PC; elsewhere the screen only shows it
             if u.path == "/home/api/status" and not authed and isinstance(out, dict):
-                out = dict(out, digest=None, owner_enrolled=None, owner_samples=None, phones=[], meetings_done=None, pc_rec=None)  # no codes -> only the clock and counts
+                out = dict(out, digest=None, owner_enrolled=None, owner_samples=None, phones=[], meetings_done=None, pc_rec=None,
+                           reminders=None)  # no codes -> only the clock and counts
         except Exception as exc:  # noqa: BLE001
             return self._send(500, {"error": repr(exc)})
         return self._send(200, out) if out is not None else self._send(404, {"error": "not found"})
