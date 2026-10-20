@@ -142,6 +142,15 @@ class ConvActivity : Activity() {
                 setOnClickListener { maxLines = if (maxLines == 2) 40 else 2 }; contentDescription = "סיכום. הקש להרחבה" }
             root.addView(sum)
         }
+        if (j.optBoolean("has_audio")) {                   // PC 1.0.13+: the recordings are still kept
+            val recRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(0, px(8), 0, 0) }
+            val rec = chip("🎧 שתף הקלטה") {}
+            rec.setOnClickListener { AudioShare.share(this, "/home/audio/conv/$convId.m4a", "conversation-$convId.m4a", "שתף את הקלטת השיחה", rec) }
+            recRow.addView(rec)
+            recRow.addView(text("רק הדיבור. כולל קולות של אחרים: ודא שהם מסכימים לפני ששולחים.", 11f, col.faint).apply { setPaddingRelative(px(10), 0, 0, 0) },
+                LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            root.addView(recRow)
+        }
 
         // timeline + zoom
         tl = TimelineView(this)
