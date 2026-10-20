@@ -120,5 +120,89 @@ class MeetingAudioTests(unittest.TestCase):
             srv.shutdown()
 
 
+class ConvAudioTests(unittest.TestCase):
+    """2026-10-20: the same download for a regular conversation (its own lines, TV lines left out)."""
+    @classmethod
+    def setUpClass(cls):
+        H.config()
+        H.migrate()
+
+    def setUp(self):
+        d = Path(_TMP) / "rec"
+        d.mkdir(exist_ok=True)
+        tone(d / "c.wav", 60, [(5, 14), (20, 25), (40, 44)])
+        tone(d / "d.wav", 60, [(2, 8)])
+        with H.db() as c:
+            for t in ("utterances", "chunks", "meetings", "conversations"):
+                c.execute(f"DELETE FROM {t}")
+            c.execute("INSERT INTO conversations (id, start, end, seconds, topic, status) VALUES "
+                      "(7, '2026-10-20T09:30:00', '2026-10-20T09:36:00', 360, 'ארוחת בוקר', 'done')")
+            c.execute("INSERT INTO conversations (id, start, end, seconds, topic, status) VALUES "
+                      "(8, '2026-10-20T11:00:00', '2026-10-20T11:01:00', 60, 'אחרת', 'done')")
+            for cid, st, f in ((11, "2026-10-20T09:30:00", d / "c.wav"), (12, "2026-10-20T09:35:00", d / "d.wav")):
+                c.execute("INSERT INTO chunks (id, device, start, seconds, file, status) VALUES (?,?,?,60,?,'done')",
+                          (cid, "ph", st, str(f)))
+            # 09:30:20-25 is the TV (media) and another conversation's line sits in the same recording: neither goes in
+            for ch, conv, t0, t1, n, media in ((11, 7, "09:30:05", "09:30:10", "תמר", None),
+                                               (11, 7, "09:30:10.500", "09:30:14", "דנה", None),
+                                               (11, 7, "09:30:20", "09:30:25", None, "tv"),
+                                               (11, 8, "09:30:40", "09:30:44", "יוסי", None),
+                                               (12, 7, "09:35:02", "09:35:08", "דנה", None)):
+                c.execute("INSERT INTO utterances (chunk_id, conv_id, t0, t1, name, text, media) VALUES (?,?,?,?,?, 'x', ?)",
+                          (ch, conv, "2026-10-20T" + t0, "2026-10-20T" + t1, n, media))
+
+    def test_plan_own_lines_only(self):
+        with H.db() as c:
+            P, C, miss = H.conv_audio_plan(c, 7)
+            self.assertTrue(H.conv_has_audio(c, 7))
+        self.assertEqual(miss, 0)
+        self.assertEqual(len(P), 2)
+        self.assertAlmostEqual(sum(p["dur"] for p in P), 9.5 + 6.5, places=2)
+        self.assertEqual([(x["t"][11:19], x["who"]) for x in C], [("09:30:05", "תמר"), ("09:30:10", "דנה"), ("09:35:02", "דנה")])
+
+    def test_file_and_name(self):
+        f, info = H.conv_audio(7)
+        self.assertIsNotNone(f, info)
+        self.assertAlmostEqual(duration(f), 16.0, delta=0.3)
+        titles, raw = chapters_of(f)
+        self.assertEqual(titles, ["09:30:05 · תמר", "09:30:10 · דנה", "09:35:02 · דנה"])
+        self.assertIn("ארוחת בוקר", raw)
+        self.assertEqual(info["name"], "conversation-2026-10-20-0930.m4a")
+        self.assertEqual(H.conv_audio(7)[0], f)
+
+    def test_api_has_audio_and_no_audio(self):
+        self.assertTrue(H.api("/home/api/conversation", {"id": ["7"]})["has_audio"])
+        with H.db() as c:
+            c.execute("UPDATE chunks SET file=NULL")
+        self.assertFalse(H.api("/home/api/conversation", {"id": ["7"]})["has_audio"])
+        f, why = H.conv_audio(7)
+        self.assertIsNone(f)
+        self.assertIn("לא נשמרה", why)
+        self.assertIsNone(H.conv_audio(999)[0])
+
+    def test_http(self):
+        cfg = H.config(); cfg["token"] = "tk"; H._write_config(cfg)
+
+        class Remote(H.Handler):
+            def _local(self):
+                return False
+        from http.server import ThreadingHTTPServer
+        srv = ThreadingHTTPServer(("127.0.0.1", 0), Remote)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        base = f"http://127.0.0.1:{srv.server_address[1]}/home/audio/conv/"
+        try:
+            with self.assertRaises(urllib.error.HTTPError):
+                urllib.request.urlopen(base + "7.m4a")
+            with urllib.request.urlopen(urllib.request.Request(base + "7.m4a", headers={"X-Home-Token": "tk"})) as r:
+                self.assertEqual(r.headers["Content-Type"], "audio/mp4")
+                self.assertIn("conversation-2026-10-20-0930.m4a", r.headers["Content-Disposition"])
+                self.assertGreater(len(r.read()), 1000)
+            with self.assertRaises(urllib.error.HTTPError) as e:
+                urllib.request.urlopen(urllib.request.Request(base + "999.m4a", headers={"X-Home-Token": "tk"}))
+            self.assertEqual(e.exception.code, 404)
+        finally:
+            srv.shutdown()
+
+
 if __name__ == "__main__":
     unittest.main()

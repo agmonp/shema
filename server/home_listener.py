@@ -3795,7 +3795,8 @@ def api(path, qs):
                                 for k in ("f0_hz", "intensity_db", "syll_per_s", "arousal", "valence")}
             S = _clean(c.execute("SELECT * FROM sounds WHERE conv_id=? ORDER BY t0", (cid,)).fetchall())
             return {"conversation": dict(conv) if conv else None, "utterances": U, "sounds": S,
-                    "meeting": meeting_of_conv(c, cid) if conv else None}
+                    "meeting": meeting_of_conv(c, cid) if conv else None,
+                    "has_audio": conv_has_audio(c, cid) if conv else False}
     return None
 
 
@@ -4044,12 +4045,14 @@ class Handler(BaseHTTPRequestHandler):
             except ValueError:
                 part = None
             return self._utt_audio(int(m.group(1)), part=part)
-        m = re.fullmatch(r"/home/audio/meeting/([A-Za-z0-9_-]{1,40})\.m4a", u.path)
-        if m and self._authed():                           # a whole meeting: speech only, chapters = the real clock time
+        m = re.fullmatch(r"/home/audio/(meeting|conv)/([A-Za-z0-9_-]{1,40})\.m4a", u.path)
+        if m and m.group(1) == "conv" and not m.group(2).isdigit():
+            m = None
+        if m and self._authed():                           # a whole meeting / conversation: speech only, chapters = the real clock time
             try:
-                f, info = meeting_audio(m.group(1))
+                f, info = (meeting_audio if m.group(1) == "meeting" else conv_audio)(m.group(2))
             except Exception as exc:  # noqa: BLE001
-                log(f"meeting audio failed {exc!r}")
+                log(f"{m.group(1)} audio failed {exc!r}")
                 return self._send(500, {"error": "יצירת הקובץ נכשלה"})
             if not f:
                 return self._send(404, {"error": info})
@@ -4120,9 +4123,25 @@ def meeting_audio_plan(c, mid):
     """What goes into a meeting's speech-only file: [{"file", "off", "dur", "t"}] pieces in order (t = the real clock
     time of the piece's first sample) and chapters [{"t", "at", "who"}] (at = seconds into the file). Only the stretches
     with a line in them; the chapters carry the meeting's real time, so 03:10 in the file still reads as 14:12:30."""
-    rows = c.execute("SELECT u.t0, u.t1, u.name, k.id AS chunk, k.start, k.seconds, k.file FROM utterances u "
-                     "JOIN chunks k ON k.id=u.chunk_id WHERE k.ctx=? AND u.t0 IS NOT NULL ORDER BY u.t0, u.id",
-                     (MEET_PREFIX + mid,)).fetchall()
+    return _speech_plan(c.execute("SELECT u.t0, u.t1, u.name, k.id AS chunk, k.start, k.seconds, k.file FROM utterances u "
+                                  "JOIN chunks k ON k.id=u.chunk_id WHERE k.ctx=? AND u.t0 IS NOT NULL ORDER BY u.t0, u.id",
+                                  (MEET_PREFIX + mid,)).fetchall())
+
+
+def conv_audio_plan(c, cid):
+    """The same for one conversation: its own lines (TV / radio lines left out), wherever their recordings are."""
+    return _speech_plan(c.execute("SELECT u.t0, u.t1, u.name, k.id AS chunk, k.start, k.seconds, k.file FROM utterances u "
+                                  "JOIN chunks k ON k.id=u.chunk_id WHERE u.conv_id=? AND u.t0 IS NOT NULL AND u.media IS NULL "
+                                  "ORDER BY u.t0, u.id", (cid,)).fetchall())
+
+
+def conv_has_audio(c, cid):
+    """the "download recording" button: only when some of the conversation's recordings are still kept (audio policy)"""
+    return bool(c.execute("SELECT 1 FROM utterances u JOIN chunks k ON k.id=u.chunk_id WHERE u.conv_id=? "
+                          "AND k.file IS NOT NULL AND u.media IS NULL LIMIT 1", (cid,)).fetchone())
+
+
+def _speech_plan(rows):
     pieces, chapters, missing = [], [], set()
     for r in rows:
         if not r["file"] or not os.path.exists(r["file"]):
@@ -4152,16 +4171,19 @@ def meeting_audio_plan(c, mid):
     return pieces, chapters, len(missing)
 
 
+def _export_dir():
+    EXPORTS.mkdir(parents=True, exist_ok=True)
+    for f in EXPORTS.glob("*.m4a"):                       # old copies go first
+        if time.time() - f.stat().st_mtime > EXPORT_KEEP_S:
+            f.unlink(missing_ok=True)
+    return EXPORTS
+
+
 def meeting_audio(mid):
     """Build (or reuse) one m4a of a meeting: speech only, chapters named by the real clock time and who spoke.
     -> (path, info) or (None, reason)."""
-    import numpy as np
-    import voice_embed as VE
     mid = meet_id(mid)
-    EXPORTS.mkdir(parents=True, exist_ok=True)
-    for f in EXPORTS.glob("meeting-*"):                    # old copies go first
-        if time.time() - f.stat().st_mtime > EXPORT_KEEP_S:
-            f.unlink(missing_ok=True)
+    _export_dir()
     with db() as c:
         m = c.execute("SELECT id, title, started, ended FROM meetings WHERE id=?", (mid,)).fetchone()
         if not m:
@@ -4169,11 +4191,33 @@ def meeting_audio(mid):
         pieces, chapters, missing = meeting_audio_plan(c, mid)
     if not pieces:
         return None, ("ההקלטה של הפגישה לא נשמרה (לפי הגדרת שמירת ההקלטות)" if missing else "אין בפגישה הזו דיבור מוקלט")
+    return _speech_m4a(pieces, chapters, missing, f"meeting-{mid}", "meeting", m["started"], m["title"] or "פגישה", "הפגישה")
+
+
+def conv_audio(cid):
+    """The same for a regular conversation -> (path, info) or (None, reason). File name conversation-YYYY-MM-DD-HHMM.m4a."""
+    cid = int(cid)
+    _export_dir()
+    with db() as c:
+        cv = c.execute("SELECT id, topic, start FROM conversations WHERE id=?", (cid,)).fetchone()
+        if not cv:
+            return None, "השיחה לא נמצאה"
+        pieces, chapters, missing = conv_audio_plan(c, cid)
+    if not pieces:
+        return None, ("ההקלטה של השיחה לא נשמרה (לפי הגדרת שמירת ההקלטות)" if missing else "אין בשיחה הזו דיבור מוקלט")
+    return _speech_m4a(pieces, chapters, missing, f"conversation-{cid}", "conversation", cv["start"], cv["topic"] or "שיחה", "השיחה")
+
+
+def _speech_m4a(pieces, chapters, missing, stem, kind, started, title, noun):
+    """pieces + chapters (from _speech_plan) -> one AAC m4a in EXPORTS, reused while the same plan holds."""
+    import numpy as np
+    import voice_embed as VE
     key = hashlib.sha1(json.dumps([[p["file"], p["off"], p["dur"]] for p in pieces] + [c_["who"] for c_ in chapters],
                                   ensure_ascii=False).encode()).hexdigest()[:12]
-    out = EXPORTS / f"meeting-{mid}-{key}.m4a"
+    out = EXPORTS / f"{stem}-{key}.m4a"
+    started = started or ""
     info = {"seconds": round(sum(p["dur"] for p in pieces), 1), "chapters": len(chapters), "missing_chunks": missing,
-            "name": "meeting-" + (m["started"] or "")[:16].replace("T", "-").replace(":", "") + ".m4a"}
+            "name": f"{kind}-" + started[:16].replace("T", "-").replace(":", "") + ".m4a"}
     if out.exists():
         return out, info
     decoded, parts = {}, []
@@ -4187,10 +4231,9 @@ def meeting_audio(mid):
         parts.append(a[s0:s0 + int(round(p["dur"] * SR_OUT))])
     pcm = np.concatenate(parts) if parts else np.zeros(0, np.int16)
     total = len(pcm) / SR_OUT
-    title = m["title"] or "פגישה"
-    meta = [";FFMETADATA1", f"title={_ffmeta(title)}", f"date={(m['started'] or '')[:10]}",
-            f"creation_time={_ffmeta(m['started'] or '')}",
-            "comment=" + _ffmeta(f"רק דיבור. התחלה {(m['started'] or '')[11:19]}; שמות הפרקים הם שעון הפגישה האמיתי.")]
+    meta = [";FFMETADATA1", f"title={_ffmeta(title)}", f"date={started[:10]}",
+            f"creation_time={_ffmeta(started)}",
+            "comment=" + _ffmeta(f"רק דיבור. התחלה {started[11:19]}; שמות הפרקים הם שעון {noun} האמיתי.")]
     for i, ch in enumerate(chapters):
         end = chapters[i + 1]["at"] if i + 1 < len(chapters) else total
         meta += ["[CHAPTER]", "TIMEBASE=1/1000", f"START={int(ch['at'] * 1000)}", f"END={int(max(end, ch['at'] + 0.001) * 1000)}",
@@ -4205,7 +4248,7 @@ def meeting_audio(mid):
                             "-c:a", "aac", "-b:a", "48k", "-movflags", "+faststart", str(tmp / "out.m4a")],
                            capture_output=True, creationflags=0x08000000)
         if r.returncode or not (tmp / "out.m4a").exists():
-            log(f"meeting audio {mid}: ffmpeg failed {r.stderr[-300:]!r}")
+            log(f"{stem} audio: ffmpeg failed {r.stderr[-300:]!r}")
             return None, "יצירת הקובץ נכשלה"
         (tmp / "out.m4a").replace(out)
     finally:
