@@ -344,6 +344,13 @@ mark{background:rgba(234,164,94,.3);color:inherit;border-radius:3px}
 .brief .acts button{font-size:12px;padding:3px 10px;border-radius:999px;border:1px solid var(--line);background:none;color:var(--dim);cursor:pointer}
 .brief .acts button:hover{color:var(--ink);border-color:var(--accent)}
 .brief .acts button[data-a="done"]:hover{color:var(--sage);border-color:var(--sage)}
+.brief .acts button.on{color:var(--accent);border-color:var(--accent)}
+.brief .it{flex-wrap:wrap} .brief .rmd{flex-basis:100%;display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:6px 0 2px;padding-inline-start:72px;cursor:default}
+.brief .rmd button{font-size:13px;padding:4px 12px;border-radius:999px;border:1px solid var(--line2);background:var(--surface2);color:var(--ink);cursor:pointer;min-height:32px}
+.brief .rmd button:hover{border-color:var(--accent)} .brief .rmd button.off{color:var(--rose);background:none}
+.brief .rmd .pick{display:flex;gap:4px;align-items:center}
+.brief .rmd input{background:var(--surface2);border:1px solid var(--line2);border-radius:10px;color:var(--ink);padding:4px 8px;font:inherit;font-size:13px;color-scheme:dark light}
+.brief .rmd small{flex-basis:100%;color:var(--faint);font-size:12px}
 .askbox{display:flex;gap:6px}
 .askbox input{flex:1;min-width:0;background:var(--surface2);border:1px solid var(--line2);border-radius:10px;color:var(--ink);padding:8px 12px;font:inherit}
 .askbox input:focus{border-color:var(--accent);outline:none}
@@ -664,13 +671,41 @@ async function showBrief(d){
       <span class="tx">${i.who ? `<b>${esc(i.who)}${i.who_sure === false ? "?" : ""}</b>: ` : ""}${esc(i.text)}${i.due ? ` <span class="chip">${esc(i.due)}</span>` : ""}
         ${i.t0 ? `<small>${hm(i.t0)}${i.quote ? ` · ״${esc(i.quote)}״` : ""}</small>` : i.kind === "teach" ? "<small>לזהות אותם משפר את הסיכומים והחיפוש</small>" : ""}</span>
       <span class="src">${BRIEF_SRC[i.src] || ""}</span>
-      ${i.id || i.src === "meeting" ? `<span class="acts"><button data-a="done" title="סמן שזה נעשה">✓ בוצע</button><button data-a="del" title="הסר מהרשימה">✕ מחק</button></span>` : ""}</div>`).join("")}</div></div>`;
+      ${i.id || i.src === "meeting" ? `<span class="acts"><button data-a="done" title="סמן שזה נעשה">✓ בוצע</button><button data-a="del" title="הסר מהרשימה">✕ מחק</button>${i.id ? `<button data-a="remind" class="${i.remind_at ? "on" : ""}" title="${i.remind_at ? "יש תזכורת: לשנות או לבטל" : "תזכורת לטלפון, רק אם תבקש"}" aria-expanded="false">🔔 ${i.remind_at ? esc(remindLabel(i.remind_at)) : "הזכר לי"}</button>` : ""}</span>` : ""}</div>`).join("")}</div></div>`;
   el.querySelectorAll(".it").forEach(b => {
     const i = B.items[+b.dataset.k];
-    b.onclick = e => { if (e.target.closest(".acts")) return;
+    b.onclick = e => { if (e.target.closest(".acts,.rmd")) return;
       location.hash = i.kind === "teach" ? "teach" : convHref(i.conv_id, i.utt_id).slice(1); };
     b.onkeydown = e => { if (e.key === "Enter" && e.target === b) b.onclick(e); };
-    b.querySelectorAll(".acts button").forEach(x => x.onclick = () => briefAct(i, x.dataset.a, d));
+    b.querySelectorAll(".acts button").forEach(x => x.onclick = () => x.dataset.a === "remind" ? remindPick(b, x, i, d) : briefAct(i, x.dataset.a, d));
+  });
+}
+// 🔔 reminders: only when the user asks on this item (nothing is reminded by itself); the paired phone delivers them
+const p2 = n => String(n).padStart(2, "0");
+const localIso = t => `${t.getFullYear()}-${p2(t.getMonth() + 1)}-${p2(t.getDate())}T${p2(t.getHours())}:${p2(t.getMinutes())}`;
+function remindLabel(at){
+  const t = new Date(at), n = new Date(), tm = new Date(n); tm.setDate(n.getDate() + 1);
+  const same = (a, b) => a.toDateString() === b.toDateString();
+  return `${same(t, n) ? "היום" : same(t, tm) ? "מחר" : `${t.getDate()}/${t.getMonth() + 1}`} ${p2(t.getHours())}:${p2(t.getMinutes())}`;
+}
+function remindPick(row, btn, i, d){
+  const old = row.querySelector(".rmd");
+  if (old) { old.remove(); btn.setAttribute("aria-expanded", "false"); return; }
+  const tm = new Date(); tm.setDate(tm.getDate() + 1); tm.setHours(9, 0, 0, 0);
+  const opts = [[localIso(tm), "מחר ב-09:00"]];
+  if (i.due_at && new Date(i.due_at) > new Date() && i.due_at !== localIso(tm)) opts.push([i.due_at, `כמו שנאמר: ${i.due} (${remindLabel(i.due_at)})`]);
+  const p = document.createElement("div"); p.className = "rmd";
+  p.innerHTML = `${opts.map(([v, n]) => `<button data-at="${esc(v)}">${esc(n)}</button>`).join("")}
+    <span class="pick"><input type="datetime-local" aria-label="בחר זמן" value="${esc(i.remind_at || localIso(tm))}" min="${localIso(new Date())}"><button data-at="pick">בחר זמן</button></span>
+    ${i.remind_at ? `<button data-at="" class="off">בטל תזכורת</button>` : ""}<small>התזכורת תגיע לטלפון המחובר</small>`;
+  row.appendChild(p); btn.setAttribute("aria-expanded", "true");
+  p.querySelectorAll("button").forEach(x => x.onclick = async () => {
+    const at = x.dataset.at === "pick" ? p.querySelector("input").value : x.dataset.at;
+    if (x.dataset.at === "pick" && !at) return;
+    const r = await POST("/home/api/task_remind", {id: i.id, at: at || null}).catch(() => null);
+    if (!r || r.ok === false) { toast((r && r.msg) || "לא הצליח"); return; }
+    toast(r.remind_at ? `🔔 תזכורת ${remindLabel(r.remind_at)}` : "התזכורת בוטלה");
+    showBrief(d);
   });
 }
 // "✓ בוצע" / "✕ מחק" on a promise (tasks table) or a meeting decision (the meeting's summary), with undo
@@ -2032,7 +2067,7 @@ covHealth();
 setInterval(covHealth, 20000);
 setInterval(() => { status(); live(); }, 4000);
 // not while a conversation is open under the timeline, or while a question is being typed
-setInterval(() => { if (!location.hash && !document.querySelector(".sheet") && !TL_OPEN && document.activeElement?.id !== "askq") showDay(); }, 30000);
+setInterval(() => { if (!location.hash && !document.querySelector(".sheet,.rmd") && !TL_OPEN && document.activeElement?.id !== "askq") showDay(); }, 30000);
 setInterval(() => J("/home/api/teach").then(t => teachCount(t.left)).catch(() => {}), 30000);
 </script>
 </body>
