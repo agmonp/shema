@@ -2315,7 +2315,8 @@ def set_reminder(tid, at):
         if when and t["state"] not in ("open", "confirmed"):
             return {"ok": False, "msg": "הפריט כבר סגור"}
         c.execute("UPDATE tasks SET remind_at=? WHERE id=?", (when, int(tid)))
-    return {"ok": True, "id": int(tid), "remind_at": when}
+    return {"ok": True, "id": int(tid), "remind_at": when,
+            "at_ms": int(datetime.fromisoformat(when).timestamp() * 1000) if when else None}   # this PC's time zone
 
 
 def reminders(c):
