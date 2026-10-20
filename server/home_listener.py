@@ -20,7 +20,7 @@ r"""home_listener.py -- Shema's PC side (server).
     python -X utf8 home_listener.py                 # serve on :8770
     python -X utf8 home_listener.py --ingest FILE --start 2026-10-06T18:00:00
 """
-import argparse, json, os, re, secrets, sqlite3, subprocess, sys, threading, time
+import argparse, hashlib, json, os, re, secrets, shutil, sqlite3, subprocess, sys, threading, time
 
 # Started windowless (pythonw, logon task): without this every ffmpeg child opens its own console
 # window that never closes.
@@ -2096,6 +2096,8 @@ def meeting_view(c, mid):
                                              (m["device"], m["started"] or until, until))] if m["device"] == PC_DEVICE else []
     v["live"] = PCREC.status() if PCREC and PCREC.meet == m["id"] else None
     v["share_text"], v["transcript_text"] = meeting_texts(v)
+    # the "download recording" button: only when some of its recordings are still kept (audio policy)
+    v["has_audio"] = bool(c.execute("SELECT 1 FROM chunks WHERE ctx=? AND file IS NOT NULL LIMIT 1", (ctx,)).fetchone())
     return v
 
 
@@ -3728,6 +3730,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Set-Cookie", self._cookie)
         if getattr(self, "_dl_name", None):
             self.send_header("Content-Disposition", f'attachment; filename="{self._dl_name}"')
+        for k, v in (getattr(self, "_extra", None) or {}).items():
+            self.send_header(k, str(v))
         self.end_headers()
         self.wfile.write(body)
 
@@ -3935,6 +3939,18 @@ class Handler(BaseHTTPRequestHandler):
             except ValueError:
                 part = None
             return self._utt_audio(int(m.group(1)), part=part)
+        m = re.fullmatch(r"/home/audio/meeting/([A-Za-z0-9_-]{1,40})\.m4a", u.path)
+        if m and self._authed():                           # a whole meeting: speech only, chapters = the real clock time
+            try:
+                f, info = meeting_audio(m.group(1))
+            except Exception as exc:  # noqa: BLE001
+                log(f"meeting audio failed {exc!r}")
+                return self._send(500, {"error": "יצירת הקובץ נכשלה"})
+            if not f:
+                return self._send(404, {"error": info})
+            self._dl_name = info["name"]
+            self._extra = {"X-Speech-Seconds": info["seconds"], "X-Missing-Chunks": info["missing_chunks"]}
+            return self._send(200, f.read_bytes(), "audio/mp4")
         m = re.fullmatch(r"/home/audio/sound/(\d+)", u.path)
         if m and self._authed():                           # one sound event's audio
             return self._utt_audio(int(m.group(1)), table="sounds")
@@ -3981,6 +3997,115 @@ class Handler(BaseHTTPRequestHandler):
         wav = subprocess.run([VE.FF, "-v", "error", "-ss", f"{max(0, off - 0.2):.2f}", "-t", f"{dur + 0.4:.2f}",
                               "-i", r["file"], "-ac", "1", "-ar", "16000", "-f", "wav", "-"], capture_output=True).stdout
         return self._send(200, _fix_wav(wav), "audio/wav")
+
+
+EXPORTS = HOME / "exports"
+EXPORT_KEEP_S = 2 * 3600      # a built meeting file is a copy of recordings: gone after 2 h (audio deletion still wins)
+MEET_PAD_S = 0.25             # around every line
+MEET_JOIN_S = 1.0             # lines closer than this play with the pause between them
+MEET_CHAPTER_GAP_S = 1.5      # a new chapter after a longer pause, or when another person speaks
+SR_OUT = 16000
+
+
+def _ffmeta(v):
+    return re.sub(r"([=;#\\\n])", r"\\\1", str(v))
+
+
+def meeting_audio_plan(c, mid):
+    """What goes into a meeting's speech-only file: [{"file", "off", "dur", "t"}] pieces in order (t = the real clock
+    time of the piece's first sample) and chapters [{"t", "at", "who"}] (at = seconds into the file). Only the stretches
+    with a line in them; the chapters carry the meeting's real time, so 03:10 in the file still reads as 14:12:30."""
+    rows = c.execute("SELECT u.t0, u.t1, u.name, k.id AS chunk, k.start, k.seconds, k.file FROM utterances u "
+                     "JOIN chunks k ON k.id=u.chunk_id WHERE k.ctx=? AND u.t0 IS NOT NULL ORDER BY u.t0, u.id",
+                     (MEET_PREFIX + mid,)).fetchall()
+    pieces, chapters, missing = [], [], set()
+    for r in rows:
+        if not r["file"] or not os.path.exists(r["file"]):
+            missing.add(r["chunk"])
+            continue
+        st = datetime.fromisoformat(r["start"])
+        t0, t1 = datetime.fromisoformat(r["t0"]), datetime.fromisoformat(r["t1"] or r["t0"])
+        a = max(0.0, (t0 - st).total_seconds() - MEET_PAD_S)
+        b = (t1 - st).total_seconds() + MEET_PAD_S
+        if r["seconds"]:
+            b = min(b, float(r["seconds"]))
+        if b <= a:
+            continue
+        p = pieces[-1] if pieces else None
+        if p and p["chunk"] == r["chunk"] and a <= p["off"] + p["dur"] + MEET_JOIN_S:
+            gap = a - (p["off"] + p["dur"])
+            p["dur"] = max(p["dur"], b - p["off"])
+        else:
+            gap = None if not p else (st + timedelta(seconds=a) - (p["t"] + timedelta(seconds=p["dur"]))).total_seconds()
+            pieces.append({"chunk": r["chunk"], "file": r["file"], "off": a, "dur": b - a, "t": st + timedelta(seconds=a),
+                           "at": (pieces[-1]["at"] + pieces[-1]["dur"]) if pieces else 0.0})
+            p = pieces[-1]
+        who = r["name"] or "לא מזוהה"
+        if not chapters or chapters[-1]["who"] != who or (gap is not None and gap >= MEET_CHAPTER_GAP_S):
+            at = p["at"] + max(0.0, a - p["off"])
+            chapters.append({"t": iso(st + timedelta(seconds=a + MEET_PAD_S)), "at": round(at, 3), "who": who})
+    return pieces, chapters, len(missing)
+
+
+def meeting_audio(mid):
+    """Build (or reuse) one m4a of a meeting: speech only, chapters named by the real clock time and who spoke.
+    -> (path, info) or (None, reason)."""
+    import numpy as np
+    import voice_embed as VE
+    mid = meet_id(mid)
+    EXPORTS.mkdir(parents=True, exist_ok=True)
+    for f in EXPORTS.glob("meeting-*"):                    # old copies go first
+        if time.time() - f.stat().st_mtime > EXPORT_KEEP_S:
+            f.unlink(missing_ok=True)
+    with db() as c:
+        m = c.execute("SELECT id, title, started, ended FROM meetings WHERE id=?", (mid,)).fetchone()
+        if not m:
+            return None, "הפגישה לא נמצאה"
+        pieces, chapters, missing = meeting_audio_plan(c, mid)
+    if not pieces:
+        return None, ("ההקלטה של הפגישה לא נשמרה (לפי הגדרת שמירת ההקלטות)" if missing else "אין בפגישה הזו דיבור מוקלט")
+    key = hashlib.sha1(json.dumps([[p["file"], p["off"], p["dur"]] for p in pieces] + [c_["who"] for c_ in chapters],
+                                  ensure_ascii=False).encode()).hexdigest()[:12]
+    out = EXPORTS / f"meeting-{mid}-{key}.m4a"
+    info = {"seconds": round(sum(p["dur"] for p in pieces), 1), "chapters": len(chapters), "missing_chunks": missing,
+            "name": "meeting-" + (m["started"] or "")[:16].replace("T", "-").replace(":", "") + ".m4a"}
+    if out.exists():
+        return out, info
+    decoded, parts = {}, []
+    for p in pieces:
+        if p["file"] not in decoded:
+            raw = subprocess.run([VE.FF, "-v", "error", "-i", p["file"], "-vn", "-ac", "1", "-ar", str(SR_OUT), "-f", "s16le", "-"],
+                                 capture_output=True, creationflags=0x08000000).stdout
+            decoded = {p["file"]: np.frombuffer(raw, np.int16)}                    # one file at a time in memory
+        a = decoded[p["file"]]
+        s0 = int(p["off"] * SR_OUT)
+        parts.append(a[s0:s0 + int(round(p["dur"] * SR_OUT))])
+    pcm = np.concatenate(parts) if parts else np.zeros(0, np.int16)
+    total = len(pcm) / SR_OUT
+    title = m["title"] or "פגישה"
+    meta = [";FFMETADATA1", f"title={_ffmeta(title)}", f"date={(m['started'] or '')[:10]}",
+            f"creation_time={_ffmeta(m['started'] or '')}",
+            "comment=" + _ffmeta(f"רק דיבור. התחלה {(m['started'] or '')[11:19]}; שמות הפרקים הם שעון הפגישה האמיתי.")]
+    for i, ch in enumerate(chapters):
+        end = chapters[i + 1]["at"] if i + 1 < len(chapters) else total
+        meta += ["[CHAPTER]", "TIMEBASE=1/1000", f"START={int(ch['at'] * 1000)}", f"END={int(max(end, ch['at'] + 0.001) * 1000)}",
+                 "title=" + _ffmeta(f"{ch['t'][11:19]} · {ch['who']}")]
+    tmp = out.with_suffix(".tmp")
+    tmp.mkdir(exist_ok=True)
+    try:
+        (tmp / "speech.raw").write_bytes(pcm.astype(np.int16).tobytes())
+        (tmp / "meta.txt").write_text("\n".join(meta) + "\n", encoding="utf-8")
+        r = subprocess.run([VE.FF, "-v", "error", "-y", "-f", "s16le", "-ar", str(SR_OUT), "-ac", "1", "-i", str(tmp / "speech.raw"),
+                            "-i", str(tmp / "meta.txt"), "-map", "0:a", "-map_metadata", "1", "-map_chapters", "1",
+                            "-c:a", "aac", "-b:a", "48k", "-movflags", "+faststart", str(tmp / "out.m4a")],
+                           capture_output=True, creationflags=0x08000000)
+        if r.returncode or not (tmp / "out.m4a").exists():
+            log(f"meeting audio {mid}: ffmpeg failed {r.stderr[-300:]!r}")
+            return None, "יצירת הקובץ נכשלה"
+        (tmp / "out.m4a").replace(out)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    return out, info
 
 
 def _fix_wav(b):

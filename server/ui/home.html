@@ -1687,7 +1687,8 @@ function meetResults(v, box){
       <h2>${esc(m.title || v.topic || "פגישה")}</h2>
       ${(v.people || []).length ? `<div class="ppl">${v.people.map(p => `<span style="color:${colorOf(p)}">${esc(p)}</span>`).join("")}</div>` : ""}
       <div class="acts"><button id="mcopy">📋 העתק סיכום</button><button id="mcopyt">📄 העתק תמלול</button>
-        <button id="mdl">⬇ הורד כקובץ טקסט</button>${m.conv_id ? `<button id="mresum">↻ סכם מחדש</button>` : ""}</div></div>
+        <button id="mdl">⬇ הורד כקובץ טקסט</button>${v.has_audio ? `<button id="mdla" title="קובץ m4a: רק הקטעים שבהם דיברו. הפרקים בקובץ נקראים לפי השעה האמיתית בפגישה">⬇ הורד הקלטה</button>` : ""}${m.conv_id ? `<button id="mresum">↻ סכם מחדש</button>` : ""}</div>
+      ${v.has_audio ? `<div class="legend">ההקלטה כוללת קולות של אנשים נוספים. לפני ששולחים אותה הלאה, ודא שהם מסכימים.</div>` : ""}</div>
     <div class="mgrid"><div>
       ${m.status === "empty" ? `<div class="card"><div class="legend" style="margin:0">לא נשמע דיבור בפגישה הזו.</div></div>` : ""}
       <div class="card"><h2>תקציר</h2>
@@ -1720,6 +1721,20 @@ function meetResults(v, box){
     const blob = new Blob(["﻿" + v.share_text + "\n\n— תמלול —\n" + v.transcript_text], {type: "text/plain;charset=utf-8"});
     const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `meeting-${m.id}.txt`;
     document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 3000);
+  };
+  const da = $("#mdla");
+  if (da) da.onclick = async () => {                      // speech only; chapters carry the real clock time
+    da.disabled = true; const was = da.textContent; da.textContent = "מכין קובץ…";
+    try {
+      const r = await fetch(`/home/audio/meeting/${encodeURIComponent(m.id)}.m4a`);
+      if (!r.ok) { const j = await r.json().catch(() => ({})); toast(j.error || "ההורדה נכשלה"); return; }
+      const name = ((r.headers.get("Content-Disposition") || "").match(/filename="([^"]+)"/) || [])[1] || `meeting-${m.id}.m4a`;
+      const a = document.createElement("a"); a.href = URL.createObjectURL(await r.blob()); a.download = name;
+      document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+      const sec = +r.headers.get("X-Speech-Seconds") || 0, miss = +r.headers.get("X-Missing-Chunks") || 0;
+      toast(`ההקלטה ירדה: ${sec < 60 ? Math.round(sec) + " שנ׳" : Math.round(sec / 60) + " דק׳"} דיבור.` + (miss ? " חלק מההקלטות כבר לא נשמרו." : " הפרקים בקובץ = השעה בפגישה."));
+    } catch (e) { toast("המחשב לא ענה"); }
+    finally { da.disabled = false; da.textContent = was; }
   };
   const rs = $("#mresum");
   if (rs) rs.onclick = async () => { rs.disabled = true; rs.textContent = "מסכם… (דקה-שתיים)";
