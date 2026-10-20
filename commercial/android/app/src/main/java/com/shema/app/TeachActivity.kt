@@ -103,6 +103,7 @@ class TeachActivity : Activity() {
                 if (q == null || p == null) { showError(); return@post }
                 val j = JSONObject(q)
                 items = j.getJSONArray("items"); left = j.optInt("left"); goal = j.optInt("goal"); doneToday = j.optInt("done_today"); people = JSONArray(p); idx = 0
+                ListenService.digestTeach = minOf(left, 99)        // the home's "מי זה?" shows the same number at once
                 owner = j.optString("owner")                   // older PC programs: the first of the household
                 if (owner.isEmpty() && people.length() > 0 && people.getJSONObject(0).optString("group") == "בית") owner = people.getJSONObject(0).optString("id")
                 show()
@@ -122,10 +123,13 @@ class TeachActivity : Activity() {
         body.removeAllViews()
         body.addView(text("מי זה?", 22f, bold = true))
         if (goal > 0) body.addView(text("לימוד חכם · ${minOf(doneToday + done, goal)}/$goal היום", 14f, col.sage, true))
-        body.addView(text("$done נלמדו עכשיו · $left ממתינים במחשב", 13f, col.dim))
+        body.addView(text("$done נלמדו עכשיו · $left ממתינים ללימוד", 13f, col.dim))
         body.addView(View(this), LinearLayout.LayoutParams(1, px(16)))
         if (idx >= items.length()) {
-            body.addView(text("אין עוד קולות ללמד כרגע ✓", 18f, col.sage, true))
+            if (items.length() > 0) { load(); return }   // batch done: ask the PC again (more, or "finished" at zero)
+            body.addView(text("סיימת ללמד ✓", 20f, col.sage, true))
+            body.addView(text("אין עוד קולות שצריך ללמד כרגע. משפטים חדשים יופיעו כאן כשיהיו.", 14f, col.dim))
+            ListenService.digestTeach = 0
             return
         }
         val it = items.getJSONObject(idx)
