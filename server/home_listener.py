@@ -759,6 +759,59 @@ def current_cands(c, device=None):
 
 
 TEACH_GOAL = 10          # smart teaching: sentences per day worth the user's time
+TEACH_SCAN = 20000       # unnamed lines looked at, newest first (the whole archive in practice; cached)
+_TEACH_CACHE = {}
+
+
+def teach_candidates(c):
+    """Every line smart teaching would ask about, best first: [(score, row, guess, s1, s2, unit vector)], and how many
+    were left out as "two voices equally close". The home screen's "voices to teach" count is the length of this list,
+    so it never promises lines the teaching screen will not show. Left out: shorter than 1.5 s or 3 words, TV, marked
+    "several speakers / unclear", or two known voices equally close (a mix). A line no known voice is close to is a
+    new person: asked without a guess. Before any voice is known every
+    clear line counts, chosen by length (otherwise a new user could never start). Cached until something changes."""
+    from home_analyze import best_two
+    key = tuple(c.execute("SELECT (SELECT max(id) FROM utterances), (SELECT count(*) FROM utterances WHERE speaker IS NULL), "
+                          "(SELECT count(*) FROM voice_bank), (SELECT count(*) FROM teach_skips)").fetchone())
+    if _TEACH_CACHE.get("key") == key and time.time() - _TEACH_CACHE.get("at", 0) < 600:
+        return _TEACH_CACHE["val"]
+    cands = current_cands(c)
+    taught = {r["speaker"]: r["n"] for r in c.execute("SELECT speaker, count(*) AS n FROM voice_bank GROUP BY speaker")}
+    rows = c.execute("SELECT id, t0, seconds, text, conv_id, emb FROM utterances WHERE speaker IS NULL AND media IS NULL "
+                     "AND emb IS NOT NULL AND seconds >= 1.5 AND id NOT IN (SELECT utt_id FROM teach_skips) "
+                     "ORDER BY t0 DESC LIMIT ?", (TEACH_SCAN,)).fetchall()
+    scored, ambiguous = [], 0
+    for r in rows:
+        words = len((r["text"] or "").split())
+        if words < 3:
+            continue
+        x = np.frombuffer(r["emb"], dtype=np.float32)
+        size = min(1.0, r["seconds"] / 4.0) * min(1.0, words / 6.0)
+        if not cands:                                       # nobody known yet: the clearest long lines first
+            scored.append((size, r, None, 0.0, 0.0, x / (np.linalg.norm(x) + 1e-9)))
+            continue
+        b, s1, s2 = best_two(x, cands)
+        if b == "__tv__" and s1 >= 0.25:
+            continue
+        if s1 < 0.25:                                       # nobody known sounds like it: a new person, worth asking
+            scored.append((0.55 + 0.2 * size, r, None, 0.0, 0.0, x / (np.linalg.norm(x) + 1e-9)))
+            continue
+        margin = s1 - s2
+        if margin < 0.04:                                   # two known voices equally close: likely a mix, not worth learning
+            ambiguous += 1
+            continue
+        need = 1.0 / (1.0 + taught.get(b, 0)) ** 0.5
+        score = 0.5 * need + 0.3 * min(1.0, margin / 0.12) + 0.2 * size
+        scored.append((score, r, b, s1, s2, x / (np.linalg.norm(x) + 1e-9)))
+    scored.sort(key=lambda t: -t[0])
+    _TEACH_CACHE.update(key=key, at=time.time(), val=(scored, ambiguous))
+    return scored, ambiguous
+
+
+def teach_count(c, day=None):
+    """The number shown on the home screens (PC tab, phone "מי זה?", the day's brief)."""
+    scored = teach_candidates(c)[0]
+    return len(scored) if day is None else sum(1 for t in scored if (t[1]["t0"] or "").startswith(day))
 
 
 def teach_queue(c, limit=40, mode="smart"):
@@ -771,7 +824,6 @@ def teach_queue(c, limit=40, mode="smart"):
     mode "all": every unnamed sentence, newest first (the old list). Sentences marked "several speakers / unclear"
     never come back in smart mode."""
     from home_analyze import best_two
-    cands = current_cands(c)
     taught = {r["speaker"]: r["n"] for r in c.execute("SELECT speaker, count(*) AS n FROM voice_bank GROUP BY speaker")}
     taught_names = {name_of(c, k): v for k, v in taught.items()}
     today = datetime.now().strftime("%Y-%m-%d")
@@ -789,7 +841,7 @@ def teach_queue(c, limit=40, mode="smart"):
     if mode == "all":
         rows = c.execute("SELECT id, t0, seconds, text, conv_id, emb FROM utterances WHERE speaker IS NULL AND media IS NULL "
                          "AND emb IS NOT NULL AND seconds >= 1.2 ORDER BY t0 DESC LIMIT ?", (limit,)).fetchall()
-        out = []
+        out, cands = [], current_cands(c)
         for r in rows:
             if cands:
                 b, s1, s2 = best_two(np.frombuffer(r["emb"], dtype=np.float32), cands)
@@ -798,39 +850,24 @@ def teach_queue(c, limit=40, mode="smart"):
                 out.append(card(r))
         return {"items": out, "left": left, "taught": taught_names, "mode": "all", "goal": TEACH_GOAL, "done_today": done_today}
 
-    rows = c.execute("SELECT id, t0, seconds, text, conv_id, emb FROM utterances WHERE speaker IS NULL AND media IS NULL "
-                     "AND emb IS NOT NULL AND seconds >= 1.5 AND id NOT IN (SELECT utt_id FROM teach_skips) "
-                     "ORDER BY t0 DESC LIMIT 1200").fetchall()
-    scored, ambiguous = [], 0
-    for r in rows:
-        words = len((r["text"] or "").split())
-        if words < 3 or not cands:
-            continue
-        x = np.frombuffer(r["emb"], dtype=np.float32)
-        b, s1, s2 = best_two(x, cands)
-        if b == "__tv__":
-            continue
-        margin = s1 - s2
-        if s1 < 0.25 or margin < 0.04:                      # two voices equally close: likely a mix, not worth learning
-            ambiguous += 1
-            continue
-        need = 1.0 / (1.0 + taught.get(b, 0)) ** 0.5
-        score = 0.5 * need + 0.3 * min(1.0, margin / 0.12) + 0.2 * min(1.0, r["seconds"] / 4.0) * min(1.0, words / 6.0)
-        scored.append((score, r, b, s1, s2, x / (np.linalg.norm(x) + 1e-9)))
-    scored.sort(key=lambda t: -t[0])
+    scored, ambiguous = teach_candidates(c)
     picks, per_guess, per_conv = [], {}, {}
+    new_cap = 4 if any(t[2] is not None for t in scored) else TEACH_GOAL     # new voices: 4 a batch beside the guessed ones
     for score, r, b, s1, s2, xn in scored:
         if len(picks) >= max(limit, TEACH_GOAL) or len(picks) >= TEACH_GOAL:
             break
-        if per_guess.get(b, 0) >= 4 or per_conv.get(r["conv_id"], 0) >= 2:
+        if per_guess.get(b or "__new__", 0) >= (4 if b else new_cap) or per_conv.get(r["conv_id"], 0) >= 2:
             continue
         if any(float(np.dot(xn, p[5])) >= 0.93 for p in picks):          # near-duplicate of one already chosen
             continue
         picks.append((score, r, b, s1, s2, xn))
-        per_guess[b] = per_guess.get(b, 0) + 1
+        per_guess[b or "__new__"] = per_guess.get(b or "__new__", 0) + 1
         per_conv[r["conv_id"]] = per_conv.get(r["conv_id"], 0) + 1
-    out = [card(r, b, s1, s2) for _, r, b, s1, s2, _ in picks]
-    return {"items": out, "left": left, "taught": taught_names, "mode": "smart", "goal": TEACH_GOAL, "done_today": done_today,
+    out = [card(r, b, s1, s2) if b is not None else card(r) for _, r, b, s1, s2, _ in picks]
+    # left = what smart teaching can still ask about (the same number the home screen shows), not every unnamed line:
+    # the screen keeps asking batch after batch while it is above zero, and says "finished" at zero
+    return {"items": out, "left": len(scored), "more": len(scored) > len(out), "unnamed": left,
+            "taught": taught_names, "mode": "smart", "goal": TEACH_GOAL, "done_today": done_today,
             "skipped_ambiguous": ambiguous,
             "need": {name_of(c, k): v for k, v in taught.items() if not k.startswith("__")}}
 
@@ -1500,6 +1537,66 @@ def save_analysis(row, st, res):
         with db() as c:
             c.execute("INSERT INTO dropped (day, ctx, reason, seconds, utterances, at) VALUES (?,?,?,?,?,?)",
                       (st.strftime("%Y-%m-%d"), ctx, "optout", 0, skipped, iso(datetime.now())))
+
+
+def delete_items(convs=(), meetings=()):
+    """The user's "מחק" (one or many, phone or PC): conversations and meetings go completely -- summary, transcript
+    (and its edit history), tasks and decisions, sounds, search entries, and the recordings that held only them.
+    The day summary of every touched day is removed at once and written again without them. Kept: the voices the
+    user taught (voice vectors, no words, not reversible to sound). A conversation still being recorded is refused."""
+    import memory_index as MI
+    convs = {int(x) for x in convs or [] if str(x).lstrip("-").isdigit()}
+    mids = [m for m in (meet_id(x) for x in meetings or []) if m]
+    gone, refused, days, of_meeting = 0, 0, set(), set()
+    with db() as c:
+        for mid in mids:
+            m = c.execute("SELECT id, status, conv_id FROM meetings WHERE id=?", (mid,)).fetchone()
+            if not m:
+                continue
+            if m["status"] == "recording":
+                refused += 1
+                continue
+            of_meeting.update(r[0] for r in c.execute("SELECT id FROM conversations WHERE ctx=?", (MEET_PREFIX + mid,)))
+            if m["conv_id"]:
+                of_meeting.add(m["conv_id"])
+            convs |= of_meeting
+            for ch in c.execute("SELECT id, file FROM chunks WHERE ctx=? AND file IS NOT NULL", (MEET_PREFIX + mid,)).fetchall():
+                drop_audio(c, ch["id"], ch["file"])
+            c.execute("DELETE FROM meetings WHERE id=?", (mid,))
+            gone += 1
+        for cid in sorted(convs):
+            k = c.execute("SELECT id, start, status, ctx FROM conversations WHERE id=?", (cid,)).fetchone()
+            if not k:
+                continue
+            if k["status"] == "open":
+                refused += 1
+                continue
+            days.add((k["start"] or "")[:10])
+            chunks = [r[0] for r in c.execute("SELECT DISTINCT chunk_id FROM utterances WHERE conv_id=? AND chunk_id IS NOT NULL", (cid,))]
+            n = c.execute("SELECT count(*), coalesce(sum(seconds),0) FROM utterances WHERE conv_id=?", (cid,)).fetchone()
+            c.execute("DELETE FROM utt_edits WHERE utt_id IN (SELECT id FROM utterances WHERE conv_id=?)", (cid,))
+            c.execute("DELETE FROM teach_skips WHERE utt_id IN (SELECT id FROM utterances WHERE conv_id=?)", (cid,))
+            c.execute("UPDATE voice_bank SET utt_id=NULL WHERE utt_id IN (SELECT id FROM utterances WHERE conv_id=?)", (cid,))
+            for t in ("utterances", "sounds", "tasks", "conv_fts", "seg_vecs"):
+                c.execute(f"DELETE FROM {t} WHERE conv_id=?", (cid,))
+            c.execute("DELETE FROM conversations WHERE id=?", (cid,))
+            if is_meet(k["ctx"]):
+                c.execute("DELETE FROM meetings WHERE id=?", (k["ctx"][len(MEET_PREFIX):],))
+            c.execute("INSERT INTO dropped (day, ctx, reason, seconds, utterances, at) VALUES (?,?,?,?,?,?)",
+                      ((k["start"] or "")[:10], k["ctx"], "user", round(n[1], 1), n[0], iso(datetime.now())))
+            for ch in chunks:                                  # a recording shared with another conversation stays
+                f = c.execute("SELECT file FROM chunks WHERE id=?", (ch,)).fetchone()
+                if f and f["file"] and not c.execute("SELECT 1 FROM utterances WHERE chunk_id=? LIMIT 1", (ch,)).fetchone():
+                    drop_audio(c, ch, f["file"])
+            gone += cid not in of_meeting                      # a meeting and its conversation are one item
+        for d in days:
+            c.execute("DELETE FROM daily WHERE day=?", (d,))
+    MI._CACHE.dirty = True                                # the meaning search forgets them now
+    _TEACH_CACHE.clear()
+    if days:                                              # the day summary again, without what was deleted
+        threading.Thread(target=lambda: [summarize_day(d) for d in sorted(days)], daemon=True).start()
+    log(f"user deleted {gone} conversations/meetings ({refused} refused: still recording)")
+    return {"ok": True, "deleted": gone, "refused": refused}
 
 
 # ------------------------------------------------------------------ privacy gate for conversations away from home
@@ -2373,10 +2470,9 @@ def brief(c, day):
     order = {"decision": 0, "task": 1, "marked": 2}
     items.sort(key=lambda i: (order[i["kind"]], not i.get("sure", True), i["t0"]))     # confirmed before candidates
     # last place: unnamed voices worth naming (only when there are enough to matter)
-    unk = c.execute("SELECT count(*) FROM utterances WHERE t0>=? AND t0<? AND speaker IS NULL AND media IS NULL "    # t0 index
-                    "AND emb IS NOT NULL AND seconds>=1.2", (day, day + "T99")).fetchone()[0]
+    unk = teach_count(c, day)                 # only lines the teaching screen will really show
     if unk >= 5:
-        items = items[:BRIEF_MAX - 1] + [{"kind": "teach", "n": unk, "text": f"{unk} משפטים בלי שם", "src": "teach"}]
+        items = items[:BRIEF_MAX - 1] + [{"kind": "teach", "n": unk, "text": f"{unk} משפטים ללמד", "src": "teach"}]
     return {"day": day, "items": items[:BRIEF_MAX]}
 
 
@@ -3154,8 +3250,7 @@ def digest(device=None):
     with db() as c:
         d = c.execute("SELECT summary, conversations FROM daily WHERE day=?", (day,)).fetchone()
         tasks = c.execute("SELECT count(*) FROM tasks WHERE state='open'").fetchone()[0]
-        teach = c.execute("SELECT count(*) FROM utterances WHERE speaker IS NULL AND media IS NULL AND emb IS NOT NULL "
-                          "AND seconds>=1.2").fetchone()[0]
+        teach = teach_count(c)                    # what the teaching screen will really ask about
         n = c.execute("SELECT count(*) FROM conversations WHERE substr(start,1,10)=? AND status='done'", (day,)).fetchone()[0]
     try:
         import asr_update
@@ -3764,8 +3859,8 @@ class Handler(BaseHTTPRequestHandler):
                       "/home/api/privacy_set", "/home/api/gold", "/home/api/fix_text", "/home/api/asr_check", "/home/api/teach_skip",
                       "/home/api/asr_settings", "/home/api/asr_glossary", "/home/api/asr_rollback", "/home/api/asr_install",
                       "/home/api/asr_nominate", "/home/api/forget_phone", "/home/api/split", "/home/api/unsplit",
-                      "/home/api/pc_rec", "/home/api/decision", "/home/api/task_remind"):
-            phone_ok = u.path in ("/home/api/label", "/home/api/task", "/home/api/task_remind", "/home/api/decision","/home/api/teach_skip", "/home/api/split", "/home/api/unsplit")       # teaching + task checking also from the paired phone
+                      "/home/api/pc_rec", "/home/api/decision", "/home/api/task_remind", "/home/api/delete_items"):
+            phone_ok = u.path in ("/home/api/label", "/home/api/task", "/home/api/task_remind", "/home/api/delete_items", "/home/api/decision","/home/api/teach_skip", "/home/api/split", "/home/api/unsplit")       # teaching + task checking also from the paired phone
             if not (self._authed() if phone_ok else self._local()):
                 return self._send(403, {"error": "only from this PC" if not phone_ok else "bad token"})
             b = self._body()
@@ -3775,6 +3870,8 @@ class Handler(BaseHTTPRequestHandler):
                         c.execute("UPDATE tasks SET state=? WHERE id=?", (b.get("state") if b.get("state") in ("open", "done", "dismissed", "confirmed") else "open",
                                                                           int(b.get("id", 0))))
                     return self._send(200, {"ok": True})
+                if u.path == "/home/api/delete_items":     # the user's "מחק" on one or many (after the undo window)
+                    return self._send(200, delete_items(b.get("convs") or [], b.get("meetings") or []))
                 if u.path == "/home/api/task_remind":      # a reminder only when the user asks for it on this item
                     return self._send(200, set_reminder(int(b.get("id", 0)), b.get("at")))
                 if u.path == "/home/api/decision":

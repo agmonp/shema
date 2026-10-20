@@ -455,6 +455,16 @@ mark{background:rgba(234,164,94,.3);color:inherit;border-radius:3px}
 .mtlx{display:flex;justify-content:space-between;font-size:11px;color:var(--faint);font-variant-numeric:tabular-nums}
 .msearch{width:100%;background:var(--surface2);border:1px solid var(--line2);border-radius:10px;color:var(--ink);padding:6px 10px;font:inherit;margin-bottom:4px}
 .mrow{display:flex;gap:10px;align-items:center;padding:10px 4px;border-bottom:1px solid var(--line);cursor:pointer}
+.selbtn{margin-inline-start:auto;font-size:12px;font-weight:600;color:var(--dim);border:1px solid var(--line);border-radius:999px;padding:2px 12px;background:none;cursor:pointer}
+.selbtn:hover{color:var(--ink);border-color:var(--accent)}
+.selrow{position:relative} .selrow .selbox{flex:none;width:20px;height:20px;border:2px solid var(--line2);border-radius:6px;display:inline-grid;place-items:center;
+  font-size:13px;line-height:1;color:transparent;vertical-align:middle;margin-inline-end:8px;background:var(--surface2)}
+.conv.selrow .selbox{position:absolute;inset-inline-end:12px;top:12px;margin:0}
+.selrow.on{outline:2px solid var(--accent);outline-offset:-2px} .selrow.on .selbox{background:var(--accent);border-color:var(--accent);color:var(--accentInk,#1B130B)}
+.selbar{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);z-index:60;display:flex;gap:8px;align-items:center;background:var(--surface3);
+  border:1px solid var(--line2);border-radius:14px;padding:8px 10px 8px 14px;box-shadow:0 8px 28px rgba(0,0,0,.35);max-width:calc(100vw - 32px)}
+.selbar b{font-size:14px;white-space:nowrap} .selbar button{border-radius:10px;padding:7px 14px;min-height:36px;font-weight:700;white-space:nowrap;border:1px solid var(--line2);background:var(--surface2);color:var(--ink);cursor:pointer}
+.selbar .del{background:#e5484d;border-color:#e5484d;color:#fff} .selbar .del:disabled{opacity:.45;cursor:default}
 .mrow:hover{background:var(--surface2)}
 .mrow .bd{flex:1;min-width:0} .mrow .tt{font-weight:700} .mrow .sub{font-size:12px;color:var(--faint)}
 .mrow .chip{flex:none}
@@ -1025,7 +1035,7 @@ async function showDay(){
     const ppl = J0(c.people, []).map(n => `<span class="chip" style="color:${colorOf(n)}">${esc(first(n))}</span>`).join("");
     const sig = J0(c.signals, []).map(s => `<span class="chip sig">${esc(s)}</span>`).join("");
     const intr = J0(c.interruptions, []).length;
-    return `<div class="card conv" data-id="${c.id}">
+    return `<div class="card conv" data-id="${c.id}" data-sel="${c.id}"${c.status === "open" ? ` data-open="1"` : ""}>
       <div class="when">${hm(c.start)}–${hm(c.end)} · ${mins(c.seconds || 0)}${c.status === "open" ? ' · <span class="chip prov">ממשיכה עכשיו</span>' : ""}</div>
       <div class="topic">${esc(c.topic || "שיחה")}</div>
       ${c.summary ? `<div class="sum cl">${esc(c.summary)}</div>` : ""}
@@ -1040,13 +1050,14 @@ async function showDay(){
     <div class="card"><h2>היום על ציר הזמן</h2><div id="daytl"></div></div>
     <div id="tlconv"></div>
     ${daily}
-    <div class="sech">שיחות · ${D.conversations.length}</div>
+    <div class="sech">שיחות · ${D.conversations.length}<button class="selbtn" id="csel">בחר</button></div>
     ${convs}
     ${nShort ? `<button class="shortc" id="shortc">${SHOW_SHORT ? "הסתר" : "הצג"} ${nShort} שיחות קצרות (פחות מדקה, בלי סיכום)</button>` : ""}
     <details class="stats" id="stats"${STATS_OPEN ? " open" : ""}><summary>נתוני היום · ${Math.round(talkMin)} דק׳ דיבור · ${D.conversations.length} שיחות</summary>
       <div class="card" style="margin-top:4px"><h2>מי דיבר היום</h2><div class="talk">${talk}${(D.media || []).map(m => `<div class="p"><b style="color:var(--sky)">${MEDIA_ICON[m.media] || "📺"} ${esc(m.media)}</b><small>${m.minutes} דקות ברקע (לא תומלל)</small></div>`).join("")}</div>
       <div class="legend">כאן "שיחה" = רצף דיבור בלי הפסקה ארוכה. כמה שיחות קצרות יכולות להיות חלק מאותו עניין.</div></div></details>`;
   document.querySelectorAll("#main .conv[data-id]").forEach(e => e.onclick = () => location.hash = "c" + e.dataset.id);
+  $("#csel").onclick = () => selectMode([...document.querySelectorAll("#main .conv[data-sel]")], "convs", showDay);
   if ($("#shortc")) $("#shortc").onclick = () => { SHOW_SHORT = !SHOW_SHORT; showDay(); };
   $("#stats").ontoggle = e => { STATS_OPEN = e.target.open; };
   if (askVal) { $("#askq").value = askVal; $("#askres").innerHTML = askRes; }
@@ -1147,7 +1158,7 @@ async function showTeach(){
   $("#days").innerHTML = "";
   T = await J("/home/api/teach" + (TM === "all" ? "?m=all" : ""));
   HOUSE ||= (await J("/home/api/people")).filter(p => p.group === "בית" || p.group === "נוספו");
-  teachCount(T.left);
+  if (T.mode === "smart") teachCount(T.left);           // the badge = what smart teaching will still ask
   const taught = Object.entries(T.taught).map(([n, k]) => `<span class="chip">${esc(first(n))}: ${k}</span>`).join("");
   const smart = T.mode === "smart";
   const goalBar = smart ? `<div class="card" style="margin-bottom:10px"><b>לימוד חכם · ${Math.min(T.done_today, T.goal)}/${T.goal} היום</b>
@@ -1157,7 +1168,7 @@ async function showTeach(){
         <button class="act" id="tmall" style="margin-inline-start:8px">כל המשפטים ›</button></div></div>`
     : `<div class="card" style="margin-bottom:10px"><button class="act" id="tmsmart">‹ חזרה ללימוד חכם</button></div>`;
   if (!T.items.length) {
-    $("#main").innerHTML = goalBar + `<div class="card"><h2>ללמד קולות</h2><div class="empty">${smart ? "אין כרגע משפטים ברורים וחדשים ללמוד. ✓" : "אין כרגע משפטים לא מזוהים."}</div>
+    $("#main").innerHTML = goalBar + `<div class="card"><h2>ללמד קולות</h2><div class="empty">${smart ? "סיימת ללמד ✓ אין עוד משפטים ברורים שצריך ללמד. משפטים חדשים יופיעו כאן כשיהיו." : "אין כרגע משפטים לא מזוהים."}</div>
       ${taught ? `<div class="chips">דוגמאות שלימדת: ${taught}</div>` : ""}</div>`;
     $("#tmall")?.addEventListener("click", () => { TM = "all"; showTeach(); });
     $("#tmsmart")?.addEventListener("click", () => { TM = "smart"; showTeach(); });
@@ -1165,7 +1176,7 @@ async function showTeach(){
   }
   tcur = Math.min(tcur, T.items.length - 1);
   const dmy = t => t.slice(5, 10).split("-").reverse().join("/");
-  $("#main").innerHTML = goalBar + `<div class="progress"><b>${T.left} משפטים לא מזוהים</b>
+  $("#main").innerHTML = goalBar + `<div class="progress"><b>${smart ? `${T.left} משפטים ממתינים ללימוד` : `${T.left} משפטים לא מזוהים`}</b>
       <span class="legend" style="margin:0">הקשב ובחר מי מדבר. מקלדת: <b>Enter</b> = הניחוש · <b>1-${HOUSE.length}</b> = אדם · <b>S</b> = דלג · <b>רווח</b> = נגן שוב.
       3-5 דוגמאות לכל אדם כבר משפרות מאוד.</span>${taught ? `<span class="chips" style="margin:0">${taught}</span>` : ""}</div>
     <div class="teach">${T.items.map((u, i) => `<div class="tcard ${i === tcur ? "cur" : ""}" data-i="${i}">
@@ -1741,20 +1752,59 @@ function meetResults(v, box){
     const r = await POST("/home/api/summarize_conv", {id: m.conv_id, final: true}).catch(() => null);
     toast(r && r.ok ? "הסיכום עודכן." : "הסיכום נכשל: " + ((r && r.msg) || "המחשב לא ענה")); showMeeting(m.id); };
 }
+// ---------------------------------------------------------------- "בחר" -> pick several -> "מחק" (with undo)
+// Nothing new on the screen until "בחר": then a box on each row and one bar at the bottom. Deleted rows vanish at once;
+// the delete is sent when the undo time is over (or when the page closes), so "בטל" really brings everything back.
+let SEL = null;
+function selectMode(rows, kind, redraw){
+  if (SEL) selectExit();
+  const ids = new Set(), noun = kind === "meetings" ? ["פגישה", "פגישות"] : ["שיחה", "שיחות"];
+  const bar = document.createElement("div"); bar.className = "selbar"; bar.setAttribute("role", "toolbar");
+  bar.innerHTML = `<b>בחר ${noun[1]} למחיקה</b><button class="del" disabled>🗑 מחק</button><button class="no">ביטול</button>`;
+  const count = () => { bar.querySelector("b").textContent = ids.size ? `${ids.size} נבחרו` : `בחר ${noun[1]} למחיקה`; bar.querySelector(".del").disabled = !ids.size; };
+  rows.forEach(r => {
+    if (r.dataset.open) return;                              // still being recorded: cannot be deleted yet
+    r.classList.add("selrow"); r.insertAdjacentHTML("afterbegin", `<span class="selbox" aria-hidden="true">✓</span>`);
+    r.setAttribute("aria-checked", "false"); r.setAttribute("role", "checkbox");
+    r._click = r.onclick; r.onclick = e => { e.preventDefault(); e.stopPropagation();
+      const id = r.dataset.sel; ids.has(id) ? ids.delete(id) : ids.add(id); r.classList.toggle("on", ids.has(id)); r.setAttribute("aria-checked", ids.has(id)); count(); };
+  });
+  bar.querySelector(".no").onclick = () => { selectExit(); redraw(); };
+  bar.querySelector(".del").onclick = () => {
+    const chosen = [...ids], gone = rows.filter(r => ids.has(r.dataset.sel));
+    gone.forEach(r => r.style.display = "none");
+    SEL = null; bar.remove();
+    const body = kind === "meetings" ? {meetings: chosen} : {convs: chosen.map(Number)};
+    let sent = false;
+    const send = () => { if (sent) return; sent = true; window.removeEventListener("pagehide", send);
+      navigator.sendBeacon ? navigator.sendBeacon("/home/api/delete_items", JSON.stringify(body)) : POST("/home/api/delete_items", body); };
+    const t = setTimeout(() => { send(); setTimeout(redraw, 600); }, 7000);
+    window.addEventListener("pagehide", send);
+    undoToast(chosen.length === 1 ? `ה${noun[0]} נמחקה` : `${chosen.length} ${noun[1]} נמחקו`,
+      () => { clearTimeout(t); sent = true; window.removeEventListener("pagehide", send); redraw(); });
+  };
+  document.body.appendChild(bar); count();
+  SEL = {bar, esc: e => { if (e.key === "Escape") { selectExit(); redraw(); } }};
+  document.addEventListener("keydown", SEL.esc);
+}
+function selectExit(){ if (!SEL) return; SEL.bar.remove(); document.removeEventListener("keydown", SEL.esc); SEL = null; }
+window.addEventListener("hashchange", selectExit);
+
 async function showMeetings(){
   const L = await J("/home/api/meetings").catch(() => []);
   if (location.hash !== "#meetings") return;
-  $("#main").innerHTML = `<div class="card"><h2>פגישות ${REC_LOCAL && REC.state === "idle" ? `<button class="act" id="mnew">📋 הקלט פגישה</button>` : ""}</h2>
+  $("#main").innerHTML = `<div class="card"><h2>פגישות ${REC_LOCAL && REC.state === "idle" ? `<button class="act" id="mnew">📋 הקלט פגישה</button>` : ""}${L.length ? `<button class="selbtn" id="msel">בחר</button>` : ""}</h2>
     <div class="legend" style="margin-top:0">פגישה במחשב: שמע מקליט את המיקרופון ואת מה שהמחשב משמיע (למשל שיחת Zoom / Teams / Meet), מתמלל תוך כדי,
       ובסוף כותב סיכום, החלטות ומשימות, כל אחת עם השורה שבה נאמרה. גם פגישות שהוקלטו בטלפון מופיעות כאן.</div>
     ${L.length ? L.map(m => { const ppl = J0(m.people, []);
-      return `<div class="mrow" data-m="${esc(m.id)}" role="link" tabindex="0"><div class="bd"><div class="tt">${esc(m.title || m.topic || "פגישה")}</div>
+      return `<div class="mrow" data-m="${esc(m.id)}" data-sel="${esc(m.id)}"${m.status === "recording" ? ` data-open="1"` : ""} role="link" tabindex="0"><div class="bd"><div class="tt">${esc(m.title || m.topic || "פגישה")}</div>
         <div class="sub">${(m.started || "").slice(0, 10)} · ${hm(m.started)} · ${m.device === "pc" ? "🖥 מחשב" : "📱 טלפון"}${m.seconds ? " · " + mins(m.seconds) : ""}${ppl.length ? " · " + ppl.map(p => esc(first(p))).join(", ") : ""}</div></div>
         ${m.open_tasks ? `<span class="chip">${m.open_tasks} משימות פתוחות</span>` : ""}<span class="chip ${m.status === "done" ? "sig" : "prov"}">${esc(M_ST[m.status] || m.status || "")}</span></div>`; }).join("")
       : `<div class="empty">עוד אין פגישות.</div>`}</div>`;
   document.querySelectorAll(".mrow[data-m]").forEach(r => { r.onclick = () => location.hash = meetHref(r.dataset.m).slice(1);
     r.onkeydown = e => { if (e.key === "Enter") r.onclick(); }; });
   const nb = $("#mnew"); if (nb) nb.onclick = showMeetStart;
+  $("#msel")?.addEventListener("click", () => selectMode([...document.querySelectorAll(".mrow[data-sel]")], "meetings", showMeetings));
 }
 // ---------------------------------------------------------------- connect a phone (QR made here, nothing leaves the PC)
 async function showPair(){
@@ -2082,7 +2132,7 @@ covHealth();
 setInterval(covHealth, 20000);
 setInterval(() => { status(); live(); }, 4000);
 // not while a conversation is open under the timeline, or while a question is being typed
-setInterval(() => { if (!location.hash && !document.querySelector(".sheet,.rmd") && !TL_OPEN && document.activeElement?.id !== "askq") showDay(); }, 30000);
+setInterval(() => { if (!location.hash && !document.querySelector(".sheet,.rmd,.selbar,.undo") && !TL_OPEN && document.activeElement?.id !== "askq") showDay(); }, 30000);
 setInterval(() => J("/home/api/teach").then(t => teachCount(t.left)).catch(() => {}), 30000);
 </script>
 </body>

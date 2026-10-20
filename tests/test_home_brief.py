@@ -14,6 +14,11 @@ import home_listener as H      # noqa: E402
 DAY = "2026-10-17"
 
 
+def _emb(k):
+    import numpy as np
+    return np.random.default_rng(k).normal(size=192).astype(np.float32).tobytes()
+
+
 class BriefTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -60,8 +65,8 @@ class BriefTests(unittest.TestCase):
         self.assertEqual(kinds, ["task", "marked"])               # no decisions/open/highlights/teach invented
         with H.db() as c:
             for k in range(5):
-                c.execute("INSERT INTO utterances (conv_id, t0, seconds, text, emb) VALUES (3, ?, 2, 'x', x'00')",
-                          (f"{DAY}T20:00:{k:02d}",))
+                c.execute("INSERT INTO utterances (conv_id, t0, seconds, text, emb) VALUES (3, ?, 2, 'משפט שאפשר ללמד ממנו', ?)",
+                          (f"{DAY}T20:00:{k:02d}", _emb(k)))
             B = H.brief(c, DAY)
         self.assertEqual(B["items"][-1]["kind"], "teach")
         self.assertEqual(B["items"][-1]["n"], 5)
@@ -92,8 +97,8 @@ class BriefTests(unittest.TestCase):
             c.execute("INSERT INTO meetings (id, conv_id, result) VALUES ('m2', 1, ?)",
                       (json.dumps({"decisions": ["עוד החלטה"]}, ensure_ascii=False),))
             for k in range(6):
-                c.execute("INSERT INTO utterances (conv_id, t0, seconds, text, emb) VALUES (3, ?, 2, 'x', x'00')",
-                          (f"{DAY}T20:00:{k:02d}",))
+                c.execute("INSERT INTO utterances (conv_id, t0, seconds, text, emb) VALUES (3, ?, 2, 'משפט שאפשר ללמד ממנו', ?)",
+                          (f"{DAY}T20:00:{k:02d}", _emb(k)))
             B = H.brief(c, DAY)
         self.assertEqual(len(B["items"]), 5)
         self.assertEqual([i["kind"] for i in B["items"]], ["decision"] * 4 + ["teach"])
