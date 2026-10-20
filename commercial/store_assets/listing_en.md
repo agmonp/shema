@@ -4,31 +4,30 @@
 `Shema Pro: Private Voice AI`
 
 ## Short Description (up to 80 chars):
-`Personal voice memory: local transcription, speaker ID & summaries. Zero cloud.`
+`Personal voice memory: transcription, speaker ID & summaries on your own PC.`
 
 ---
 
 ## Full Description (up to 4000 chars):
 Life happens. Shema remembers.
 
-Shema Pro is an intelligent personal voice memory app that captures, transcribes, and summarizes what is said around you — with 100% privacy, zero cloud storage, and no recurring server fees.
+Shema Pro is a personal voice memory app. It helps you capture, transcribe and return to what was said in your conversations, and everything is stored on your own computer, not in the cloud.
 
-🔒 Privacy by Design (Zero Cloud)
-Unlike other voice notes and AI tools, Shema Pro never sends your voice recordings or transcripts to any cloud server.
-Your phone listens and strips silence/noise locally, sending voice segments directly to your personal Windows PC over your home Wi-Fi (or secure Tailscale). Transcription, speaker identification, and AI summaries happen exclusively on your own computer.
+Privacy by design
+Shema Pro does not send your recordings or transcripts to any Shema cloud. Shema has no server.
+Your phone drops silence and noise on the device and sends only speech segments directly to your personal Windows PC over your home Wi-Fi (or your own Tailscale network). Transcription, speaker identification and summaries run only on your computer.
 
-⭐ Key Features:
-• Accurate Transcription: Powered by state-of-the-art Hebrew Whisper models (ivrit.ai) running on your PC, with no per-minute charges.
-• Speaker Recognition: Learns the voices of family members, partners, and colleagues, identifying who said what in subsequent conversations.
-• AI Summaries & Tasks: Local LLMs generate titles, structured summaries, and extract commitments or action items ("I'll email the contract tomorrow").
-• Natural Language Search & Q&A: "What did we decide about the trip?", "When did the doctor call?" — query your memory and get instant answers with citations.
-• Star Key Moments: Tap "Mark Moment ⭐" on your phone to protect crucial discussions from automatic cleanup.
-• Comprehensive Privacy Controls: Mute for an hour, pause anytime, define private geofenced zones (e.g. clinics), and automatically silence during private calendar events.
+Key features:
+• Hebrew transcription: Hebrew Whisper models (ivrit.ai) running on your PC, with no per-minute limits.
+• Who said what: teach Shema the voices of the people you talk with in a few taps, and it recognizes them in later conversations.
+• Summaries and tasks: a local language model writes a title and summary for each conversation and collects commitments ("I'll email the contract tomorrow").
+• Search and questions: "What did we decide about the project?", "When did we talk with the client?" — answers come from your saved conversations.
+• Mark moments: tap "Mark moment" on your phone to keep a part of a conversation and protect it from cleanup.
+• Privacy controls: private for an hour, pause and stop from the notification, private places (e.g. clinics), and muting during calendar events with chosen words.
 
-📱 How It Works:
-1. Download the free companion software on your Windows PC.
+How it works:
+1. Install the Shema software on your Windows PC.
 2. Scan the pairing QR code from your PC screen with Shema Pro on your phone.
-3. Your phone listens in the background, and conversations are transcribed and organized privately on your PC.
+3. Your phone listens in the background with a persistent notification, and conversations are transcribed and organized on your PC.
 
-💳 Super Affordable Annual Subscription:
-Shema Pro is available as an annual in-app subscription at just ₪99.90 / $29.99 per year (less than $2.50/month!) with an inclusive 14-day free trial. No cloud fees, unlimited minutes, cancel anytime via Google Play.
+Important: you are responsible for telling the people around you that you are recording and for getting their consent. Do not record conversations you are not part of.

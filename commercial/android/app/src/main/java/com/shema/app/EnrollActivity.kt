@@ -115,8 +115,7 @@ class EnrollActivity : Activity() {
         if (first) {
             body.addView(button("דלג · התחל להקליט בלי זה") { skip() })
             gap(8)
-            body.addView(text("אם תדלג, שמע ילמד את הקול שלך מהשיחות: במסך \"מי זה?\" לחץ \"זה אני\" על משפט שלך. " +
-                "בטלפון אישי, הקלטה מחוץ לבית מתחילה רק אחרי שהקול שלך נלמד.", 13f, col.faint))
+            body.addView(text("אם תדלג, שמע ילמד את הקול שלך מהשיחות: במסך \"מי זה?\" לחץ \"זה אני\" על משפט שלך.", 13f, col.faint))
         } else {
             body.addView(button("סגור") { finish() })
             gap(8)

@@ -396,10 +396,15 @@ class MainActivity : Activity(), BillingManager.BillingCallback {
             when (s) {
                 "welcome" -> {
                     body("ברוך הבא לשמע", "שמע מקשיב ברקע ושומר רק קטעים שיש בהם דיבור. ההקלטות נשלחות רק למחשב שלך בבית, " +
-                        "ושם הן מתומללות ומסוכמות. שום דבר לא עולה לענן.\n\nלפני שמתחילים: ספר לבני הבית שאתה מקליט. " +
-                        "הקלטה של שיחה שאינך משתתף בה עלולה להיות אסורה בחוק.\n\nבכל רגע אפשר ללחוץ \"השהה\", ושום דבר לא יוקלט עד שתמשיך.")
+                        "ושם הן מתומללות ומסוכמות. שום דבר לא עולה לענן.\n\nלפני שמתחילים: ספר לאנשים סביבך שאתה מקליט. " +
+                        "אתה אחראי לקבל את הסכמתם. אסור להקליט שיחה שאינך משתתף בה.\n\n" +
+                        "כל עוד שמע מקשיב מופיעה התראה קבועה. בכל רגע אפשר ללחוץ בה \"השהה\" או \"עצור\".")
                     addView(button("מסכים, בוא נתחיל", primary = true) {
                         Prefs.setDisclosureAccepted(this@MainActivity, true); Prefs.setFlag(this@MainActivity, "welcomed"); nextStep() })
+                    gap(10)
+                    addView(button("לא עכשיו") { finishOnboarding() })     // no microphone is asked for; start() asks again later
+                    gap(10)
+                    addView(button("מדיניות הפרטיות") { openPrivacyPolicy() })
                 }
                 "mic" -> {
                     body("מיקרופון", "כדי לשמוע שיחות, שמע צריך גישה למיקרופון. הוא שומר רק קטעים עם דיבור, והם נשלחים רק למחשב שלך.")
@@ -423,7 +428,7 @@ class MainActivity : Activity(), BillingManager.BillingCallback {
                     addView(button("איך מתקינים?") { showDesktopGuide() })
                 }
                 "role" -> {
-                    body("איזה טלפון זה?", "טלפון אישי יוצא איתך ומקליט גם בחוץ (רק כשהקול שלך נלמד). טלפון בית נשאר בבית ומקליט רק שם.")
+                    body("איזה טלפון זה?", "טלפון אישי יוצא איתך ומקליט גם בחוץ. טלפון בית נשאר בבית ומקליט רק שם.")
                     addView(button("טלפון אישי (שלי)", primary = true) { setRole("wearer"); Prefs.setFlag(this@MainActivity, "role_chosen"); nextStep() })
                     gap(10)
                     addView(button("טלפון בית") { setRole("home"); Prefs.setFlag(this@MainActivity, "role_chosen"); nextStep() })
@@ -667,10 +672,10 @@ class MainActivity : Activity(), BillingManager.BillingCallback {
     // ------------------------------------------------------------ Google Play Prominent Disclosure
     private fun showProminentDisclosure(onAccepted: () -> Unit) {
         val msg = "שמע Pro מקליט ברקע קטעי דיבור בלבד כדי לתמלל, לזהות דוברים ולסכם את השיחות שלך.\n\n" +
-            "🔒 פרטיות מוחלטת בתכנון:\n" +
-            "• כל ההקלטות והעיבוד נעשים מקומית במכשיר ובמחשב האישי שלך בלבד.\n" +
+            "• ההקלטות והעיבוד נעשים בטלפון ובמחשב האישי שלך בלבד.\n" +
             "• שום הקלטה, תמלול או מידע אישי אינם נשלחים לענן של שמע או לצד שלישי.\n" +
-            "• תמיד ניתן להשהות, להשתיק לשעה או לכבות את ההקלטה מווילון ההתראות.\n\n" +
+            "• כל עוד שמע מקשיב מופיעה התראה קבועה, וממנה אפשר להשהות או לעצור.\n" +
+            "• אתה אחראי ליידע את האנשים סביבך ולקבל את הסכמתם. אסור להקליט שיחה שאינך משתתף בה.\n\n" +
             "האם לאשר את הפעלת המיקרופון?"
 
         AlertDialog.Builder(this)
@@ -682,6 +687,7 @@ class MainActivity : Activity(), BillingManager.BillingCallback {
                 onAccepted()
             }
             .setNegativeButton("לא עכשיו", null)
+            .setNeutralButton("מדיניות הפרטיות") { _, _ -> openPrivacyPolicy() }
             .show()
     }
 
@@ -756,7 +762,7 @@ class MainActivity : Activity(), BillingManager.BillingCallback {
 
     private fun setRole(r: String) {
         Prefs.setRole(this, r); refreshChecklist()
-        Toast.makeText(this, if (r == "wearer") "טלפון אישי: מקליט גם בחוץ, אחרי שהקול שלך נלמד" else "טלפון בית: מקליט רק בבית", Toast.LENGTH_LONG).show()
+        Toast.makeText(this, if (r == "wearer") "טלפון אישי: מקליט גם בחוץ" else "טלפון בית: מקליט רק בבית", Toast.LENGTH_LONG).show()
     }
 
     /** The voice reading screen (it was a silent 25 s in the background, so nothing seemed to happen on the tap). */
@@ -1024,14 +1030,14 @@ class MainActivity : Activity(), BillingManager.BillingCallback {
         roleHome.setTextColor(if (Prefs.role(this) == "home") c.accentInk else c.ink)
         roleWear.background = round(if (Prefs.role(this) == "wearer") c.accent else c.surface2, 14)
         roleWear.setTextColor(if (Prefs.role(this) == "wearer") c.accentInk else c.ink)
-        roleDesc.text = if (Prefs.role(this) == "home") "טלפון בית: מקליט רק ברשת הביתית" else "טלפון אישי: מקליט גם בחוץ, אחרי שהקול שלך נלמד"
+        roleDesc.text = if (Prefs.role(this) == "home") "טלפון בית: מקליט רק ברשת הביתית" else "טלפון אישי: מקליט גם בחוץ"
         val en = ListenService.enrolled
         val known = en >= ListenService.minSamples
         if (known && !Prefs.flag(this, "voice_known")) Prefs.setFlag(this, "voice_known")
         enrollStatus.text = when {
             known -> "הקול שלך נלמד ✓ ($en דוגמאות)"
             en > 0 -> "מתחיל להכיר אותך ($en מתוך ${ListenService.minSamples} דוגמאות)"
-            en == 0 -> "לא חובה: שמע לומד את הקול שלך גם כשאתה מסמן \"זה אני\" במסך \"מי זה?\". קריאה קצרה (25 שניות) רק מאיצה, ומאפשרת להקליט מחוץ לבית כבר מהיום הראשון."
+            en == 0 -> "לא חובה: שמע לומד את הקול שלך גם כשאתה מסמן \"זה אני\" במסך \"מי זה?\". קריאה קצרה (25 שניות) רק מאיצה את זה."
             else -> "עוד לא ידוע (המחשב לא ענה עדיין)"
         }
         enrollBtn.text = if (known) "ללמד שוב" else "קריאה קצרה (25 שניות) · לא חובה"

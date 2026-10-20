@@ -89,6 +89,7 @@ class ListenService : Service() {
         @Volatile var blocked = ""
         @Volatile var enrolled = -1                       // owner voice samples on the PC for this phone (-1 = unknown)
         @Volatile var minSamples = 3
+        @Volatile var ownerGate = false                   // PC setting: away from home only with a known owner voice
         @Volatile var enrollUntilNow = 0L
         @Volatile var enrollSpeechMs = 0L                // speech heard during the current voice reading
         @Volatile var meetingSince = 0L                  // a meeting is being recorded since (0 = none)
@@ -202,6 +203,7 @@ class ListenService : Service() {
             ACTION_MEETING_START -> startMeeting(intent)
             ACTION_MEETING_END -> if (meetId.isNotEmpty()) { meetEndReq = true; if (!running) finishMeeting() }
             ACTION_STOP -> { if (meetId.isNotEmpty()) finishMeeting()          // the end goes to the PC with the next start
+                Prefs.setWanted(this, false)                  // "stop" in the notification too: opening the app does not restart it
                 Timeline.userStop(this); stopAll(); return START_NOT_STICKY }
         }
         // + location type when allowed: lets the service read the Wi-Fi name and the place in the background
@@ -320,8 +322,9 @@ class ListenService : Service() {
             calMute -> { key = "cal"; "אירוע פרטי ביומן: $calTitle" }
             lowBat -> { key = "battery"; "סוללה חלשה ($batPct%)" }
             !wearer() && !atHome -> { key = "away"; "מחוץ לבית" }
-            wearer() && !atHome && enrolled in 0 until minSamples -> { key = "enroll_needed"; "מחוץ לבית: צריך ללמד את הקול שלך כדי להקליט בחוץ" }
-            wearer() && !atHome && enrolled < 0 -> { key = "enroll_needed"; "מחוץ לבית: עוד לא ידוע אם הקול שלך נלמד" }
+            // only when the user turned on "keep only conversations with my voice" on the PC (off by default)
+            ownerGate && wearer() && !atHome && enrolled in 0 until minSamples -> { key = "enroll_needed"; "מחוץ לבית: צריך ללמד את הקול שלך כדי להקליט בחוץ" }
+            ownerGate && wearer() && !atHome && enrolled < 0 -> { key = "enroll_needed"; "מחוץ לבית: עוד לא ידוע אם הקול שלך נלמד" }
             else -> ""
         }
         blocked = why; reasonKey = key; reasonDetail = det
@@ -455,7 +458,9 @@ class ListenService : Service() {
                     skew = j.getLong("now_ms") - (t0 + t1) / 2
                     Timeline.ack(this, nTl)
                     if (!j.isNull("owner_enrolled")) enrolled = j.getInt("owner_enrolled")
+                    if (j.has("owner_samples") && !j.isNull("owner_samples")) enrolled = j.getInt("owner_samples")   // real count (server 1.0.11+)
                     if (j.has("owner_min_samples")) minSamples = j.getInt("owner_min_samples")
+                    ownerGate = j.optBoolean("owner_gate", false)
                     val d = j.optJSONObject("digest")
                     if (d != null) { digestTeach = d.optInt("teach"); digestTasks = d.optInt("tasks_open"); maybeDigest(d) }
                     j.optJSONArray("meetings_done")?.let { a -> for (i in 0 until a.length()) meetingReady(a.optString(i)) }
@@ -978,7 +983,8 @@ class ListenService : Service() {
             .setContentIntent(open)
             .addAction(Notification.Action.Builder(null, if (paused) "▶ המשך להקשיב" else "⏸ השהה", act(ACTION_TOGGLE, 1)).build())
             .addAction(Notification.Action.Builder(null, "סמן רגע ⭐", act(ACTION_MARK, 2)).build())
-            .build()                                          // turning Shema off is in the app's settings only
+            .addAction(Notification.Action.Builder(null, "⏹ עצור", act(ACTION_STOP, 3)).build())
+            .build()
     }
 }
 
