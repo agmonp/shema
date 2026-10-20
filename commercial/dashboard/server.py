@@ -251,6 +251,9 @@ def start_build(what, version=""):
 
 def make_zip(version):
     """The Windows server zip from the committed files (forward slashes; Compress-Archive on PS 5.1 writes backslashes)."""
+    have = (ROOT / "server" / "VERSION").read_text(encoding="utf-8").strip() if (ROOT / "server" / "VERSION").exists() else ""
+    if have != version:                               # the update button compares it with the release tag
+        raise SystemExit(f"server/VERSION is {have!r}, not {version!r}: set it, commit, then build")
     files = [f for f in git("ls-files", "server", "install", "requirements.txt", "README.md", "LICENSE").splitlines() if f]
     DIST.mkdir(exist_ok=True)
     out = DIST / f"shema-windows-v{version}.zip"

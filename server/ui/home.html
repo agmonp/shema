@@ -63,6 +63,8 @@ button{font:inherit;color:inherit;cursor:pointer;background:none;border:0}
 .srow input{background:var(--surface2);border:1px solid var(--line2);border-radius:8px;color:var(--ink);padding:4px 8px;font:inherit;width:170px}
 .store{background:var(--surface2);border:1px solid var(--line2);border-radius:16px;padding:3px 10px;font-size:13px;color:var(--dim)}
 .store:hover{border-color:var(--accent)}
+.updbtn{color:var(--accent);border-color:var(--accent);font-weight:700}
+.updnotes{white-space:pre-wrap;font-size:14px;color:var(--dim);background:var(--surface2);border-radius:10px;padding:10px 12px;max-height:40vh;overflow:auto;margin:8px 0}
 .meter{height:8px;border-radius:4px;background:var(--surface3);overflow:hidden;margin:6px 0}
 .meter i{display:block;height:100%;background:var(--accent)}
 .kv{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;font-size:14px;margin:8px 0}
@@ -478,7 +480,7 @@ mark{background:rgba(234,164,94,.3);color:inherit;border-radius:3px}
 </head>
 <body>
 <div class="wrap">
-  <div class="top"><img class="logo" src="/home/icon.svg" alt=""><h1>שמע</h1><button class="meetbtn" id="meetbtn" hidden title="להקליט פגישה במחשב (שיחת וידאו או פגישה בחדר): תמלול תוך כדי, ובסוף סיכום, החלטות ומשימות">📋 הקלט פגישה</button><button class="recbtn" id="recbtn" hidden title="להקליט ישירות במחשב: מיקרופון, שמע המחשב או שניהם">🎙 הקלטה חדשה</button><button class="pairbtn" id="pairbtn">📱 חבר טלפון</button><button class="store" id="store" title="מקום בדיסק">📦 …</button><span class="status" id="status"></span></div>
+  <div class="top"><img class="logo" src="/home/icon.svg" alt=""><h1>שמע</h1><button class="meetbtn" id="meetbtn" hidden title="להקליט פגישה במחשב (שיחת וידאו או פגישה בחדר): תמלול תוך כדי, ובסוף סיכום, החלטות ומשימות">📋 הקלט פגישה</button><button class="recbtn" id="recbtn" hidden title="להקליט ישירות במחשב: מיקרופון, שמע המחשב או שניהם">🎙 הקלטה חדשה</button><button class="pairbtn" id="pairbtn">📱 חבר טלפון</button><button class="store" id="store" title="מקום בדיסק">📦 …</button><button class="store updbtn" id="updbtn" hidden></button><span class="status" id="status"></span></div>
   <div id="alarm"></div>
   <div id="recbar"></div>
   <div id="phones"></div>
@@ -2120,6 +2122,48 @@ function route(soft){
   J("/home/api/tasks").then(t => { const n = t.filter(x => x.state === "open").length, e = $("#taskn");     // proposals waiting for a yes/no
     e.hidden = !n; e.textContent = n; }).catch(() => {});
 }
+// ---------------------------------------------------------------- a new version: "⬆" in the header -> what's new -> one click
+let UPD = null;
+async function checkUpdate(force){
+  try { UPD = await J("/home/api/update" + (force ? "?force=1" : "")); } catch (e) { return; }
+  const b = $("#updbtn");
+  b.hidden = !UPD.newer;
+  if (UPD.newer) { b.textContent = `⬆ גרסה ${UPD.latest} זמינה`; b.title = `מותקנת ${UPD.current}`; }
+}
+function showUpdate(){
+  const sh = document.createElement("div"); sh.className = "sheet";
+  const U = UPD, can = U.can_update && REC_LOCAL;
+  sh.innerHTML = `<div class="box"><button class="x" aria-label="סגור">×</button><h3>⬆ גרסה ${esc(U.latest)} של שמע</h3>
+    <div class="legend" style="margin:0">מותקנת עכשיו: ${esc(U.current)}. ההקלטות, ההגדרות והחיבור לטלפון נשמרים.</div>
+    ${U.notes ? `<div class="updnotes">${esc(U.notes.replace(/\*\*/g, "").split(/\n\s*התקנה או עדכון/)[0].trim())}</div>` : ""}
+    <div id="updst" class="legend"></div>
+    <div class="row" style="display:flex;gap:8px;margin-top:10px">${can ? `<button class="ok" id="updgo">עדכן עכשיו</button>` : ""}
+      ${U.page ? `<a class="back" href="${esc(U.page)}" target="_blank" rel="noopener" style="text-decoration:none;padding:8px 14px">להורדה ידנית ›</a>` : ""}</div>
+    ${!can ? `<div class="legend">${U.installed ? "העדכון בלחיצה עובד רק מהמסך של המחשב עצמו." : "בהתקנה הזו העדכון ידני: מורידים את ה-ZIP ומריצים Install.bat."}</div>` : `<div class="legend">לוקח דקה-שתיים. השרת נעצר ועולה מחדש לבד; אם משהו לא מצליח, הגרסה הקודמת חוזרת.</div>`}</div>`;
+  document.body.appendChild(sh);
+  const close = () => sh.remove();
+  sh.querySelector(".x").onclick = close; sh.onclick = e => { if (e.target === sh) close(); };
+  const go = sh.querySelector("#updgo"), st = sh.querySelector("#updst");
+  if (go) go.onclick = async () => {
+    go.disabled = true; go.textContent = "מעדכן…";
+    const r = await POST("/home/api/update", {}).catch(() => null);
+    if (!r || r.ok === false) { st.textContent = (r && r.msg) || "העדכון לא התחיל"; go.disabled = false; go.textContent = "עדכן עכשיו"; return; }
+    const t0 = Date.now(), want = U.latest;
+    const poll = setInterval(async () => {
+      let s = null; try { s = await J("/home/api/status"); } catch (e) { st.textContent = "השרת מתחלף לגרסה החדשה…"; return; }
+      if (s.version === want) { clearInterval(poll); st.textContent = "עודכן ✓"; toast(`שמע עודכן לגרסה ${want}`); setTimeout(() => location.reload(), 1200); return; }
+      const u = await J("/home/api/update").catch(() => null);
+      if (u && (u.state === "failed" || (u.last && u.last.ok === false && u.last.to === want))) {
+        clearInterval(poll); go.disabled = false; go.textContent = "נסה שוב";
+        st.textContent = u.state === "failed" ? u.msg : "העדכון לא הצליח, והגרסה הקודמת חזרה. אפשר לנסות שוב או להוריד ידנית."; return; }
+      st.textContent = (u && u.msg) || "מעדכן…";
+      if (Date.now() - t0 > 6 * 60000) { clearInterval(poll); st.textContent = "זה לוקח יותר מהצפוי. אפשר לרענן את הדף בעוד כמה דקות."; }
+    }, 3000);
+  };
+}
+$("#updbtn").onclick = showUpdate;
+checkUpdate(); setInterval(checkUpdate, 3 * 3600 * 1000);
+
 window.onhashchange = () => route();
 $("#store").onclick = showStorage;
 $("#pairbtn").onclick = showPair;

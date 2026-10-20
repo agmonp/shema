@@ -45,6 +45,7 @@ import numpy as np
 PROJ = Path(__file__).resolve().parent
 sys.path.insert(0, str(PROJ))
 import paths  # noqa: E402
+import updater  # noqa: E402
 
 HOME = paths.DATA                     # %LOCALAPPDATA%\Shema\data (SHEMA_DATA / HOME_DATA: tests use a scratch folder)
 AUDIO = HOME / "audio"
@@ -3674,7 +3675,7 @@ def api(path, qs):
         if path == "/home/api/status":
             n = {r["status"]: r["n"] for r in c.execute("SELECT status, count(*) AS n FROM chunks GROUP BY status")}
             last = c.execute("SELECT max(received) FROM chunks").fetchone()[0]
-            return {"chunks": n, "last_received": last, "worker_busy": WORKER.busy if WORKER else None,
+            return {"chunks": n, "last_received": last, "version": updater.VERSION, "worker_busy": WORKER.busy if WORKER else None,
                     "paused_until": config().get("paused_until"), "phones": phones(), "pc_has_mic": pc_devices()["mic"] is not None,
                     "pc_rec": pc_rec_status(),
                     "audio_policy": config().get("audio_policy", "archive"),
@@ -3719,6 +3720,11 @@ def api(path, qs):
         if path == "/home/api/memory":
             import memory_index as MI
             return MI.stats(c)
+        if path == "/home/api/update":                     # "a new version is available" (public release list)
+            on = config().get("update_check", True) is not False
+            if "force" in qs:
+                updater.check(on, force=True)
+            return updater.status(on)
         if path == "/home/api/brief":
             return brief(c, qs.get("d", [datetime.now().strftime("%Y-%m-%d")])[0])
         if path == "/home/api/stats":
@@ -3859,7 +3865,7 @@ class Handler(BaseHTTPRequestHandler):
                       "/home/api/privacy_set", "/home/api/gold", "/home/api/fix_text", "/home/api/asr_check", "/home/api/teach_skip",
                       "/home/api/asr_settings", "/home/api/asr_glossary", "/home/api/asr_rollback", "/home/api/asr_install",
                       "/home/api/asr_nominate", "/home/api/forget_phone", "/home/api/split", "/home/api/unsplit",
-                      "/home/api/pc_rec", "/home/api/decision", "/home/api/task_remind", "/home/api/delete_items"):
+                      "/home/api/pc_rec", "/home/api/decision", "/home/api/task_remind", "/home/api/delete_items", "/home/api/update"):
             phone_ok = u.path in ("/home/api/label", "/home/api/task", "/home/api/task_remind", "/home/api/delete_items", "/home/api/decision","/home/api/teach_skip", "/home/api/split", "/home/api/unsplit")       # teaching + task checking also from the paired phone
             if not (self._authed() if phone_ok else self._local()):
                 return self._send(403, {"error": "only from this PC" if not phone_ok else "bad token"})
@@ -3870,6 +3876,8 @@ class Handler(BaseHTTPRequestHandler):
                         c.execute("UPDATE tasks SET state=? WHERE id=?", (b.get("state") if b.get("state") in ("open", "done", "dismissed", "confirmed") else "open",
                                                                           int(b.get("id", 0))))
                     return self._send(200, {"ok": True})
+                if u.path == "/home/api/update":           # the update button: only on this PC's own screen
+                    return self._send(200, updater.apply(PORT, config().get("update_check", True) is not False))
                 if u.path == "/home/api/delete_items":     # the user's "מחק" on one or many (after the undo window)
                     return self._send(200, delete_items(b.get("convs") or [], b.get("meetings") or []))
                 if u.path == "/home/api/task_remind":      # a reminder only when the user asks for it on this item
