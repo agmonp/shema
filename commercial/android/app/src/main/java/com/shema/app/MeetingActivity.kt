@@ -59,6 +59,12 @@ object Meeting {
         for (i in 0 until minOf(old.length(), 29)) if (old.getJSONObject(i).optString("id") != id) a.put(old.get(i))
         p(c).edit().putString("history", a.toString()).apply()
     }
+    /** deleted by the user: off the recent list */
+    fun forget(c: Context, ids: Collection<String>) {
+        val old = history(c); val a = JSONArray()
+        for (i in 0 until old.length()) if (old.getJSONObject(i).optString("id") !in ids) a.put(old.get(i))
+        p(c).edit().putString("history", a.toString()).apply()
+    }
     fun known(c: Context, id: String): JSONObject? {
         val a = history(c)
         for (i in 0 until a.length()) if (a.getJSONObject(i).optString("id") == id) return a.getJSONObject(i)
@@ -81,6 +87,7 @@ class MeetingActivity : Activity() {
         @Volatile var showing = ""                       // the meeting on screen now (no "ready" notification for it)
     }
     private val ui = Handler(Looper.getMainLooper())
+    private lateinit var picker: Picker
     private val col = object {
         val bg = Color.parseColor("#13100E"); val surface = Color.parseColor("#1C1815"); val surface2 = Color.parseColor("#25201C")
         val ink = Color.parseColor("#F4EDE5"); val dim = Color.parseColor("#B1A597"); val faint = Color.parseColor("#958A7D")
@@ -118,9 +125,15 @@ class MeetingActivity : Activity() {
         dp = resources.displayMetrics.density
         body = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL; layoutDirection = View.LAYOUT_DIRECTION_RTL
-            setPadding(px(18), px(22), px(18), px(28))
+            setPadding(px(18), px(22), px(18), px(96))
         }
-        setContentView(ScrollView(this).apply { setBackgroundColor(col.bg); addView(body) })
+        val host = FrameLayout(this)
+        host.addView(ScrollView(this).apply { setBackgroundColor(col.bg); addView(body) })
+        setContentView(host)
+        picker = Picker(this, host, "פגישה", "פגישות",
+            commit = { ids -> (Net.call(this, "POST", "/home/api/delete_items", JSONObject().put("meetings", JSONArray(ids))) != null)
+                .also { ok -> if (ok) Meeting.forget(this, ids) } },
+            redraw = { if (alive) render() })
         resultId = intent?.getStringExtra("id") ?: ""
         startTitle = intent?.getStringExtra("title") ?: ""
     }
@@ -132,6 +145,7 @@ class MeetingActivity : Activity() {
     }
 
     override fun onResume() { super.onResume(); alive = true; render() }
+    override fun onStop() { picker.flush(); super.onStop() }
     override fun onPause() { alive = false; showing = ""; pulse?.cancel(); pulse = null; super.onPause() }
 
     private fun render() {
@@ -163,15 +177,27 @@ class MeetingActivity : Activity() {
         val h = Meeting.history(this)
         if (h.length() > 0) {
             gap(22)
-            body.addView(text("פגישות אחרונות", 14f, col.faint))
+            picker.clear()
+            val head = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+            head.addView(text("פגישות אחרונות", 14f, col.faint), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            head.addView(text("בחר", 14f, col.dim, true).apply { setPadding(px(12), px(6), px(12), px(6)); background = round(col.surface2, 14)
+                contentDescription = "בחירת פגישות למחיקה"; isClickable = true; setOnClickListener { picker.start() } })
+            body.addView(head)
             gap(6)
             for (i in 0 until minOf(h.length(), 10)) {
                 val m = h.getJSONObject(i)
+                val open = { resultId = m.optString("id"); lastResult = null; render() }
                 val row = card().apply {
-                    addView(text(m.optString("title").ifEmpty { "פגישה" }, 16f, bold = true))
-                    addView(text(when_(m.optLong("start")) + " · " + mins(m.optLong("end") - m.optLong("start")), 13f, col.dim))
-                    isClickable = true; setOnClickListener { resultId = m.optString("id"); lastResult = null; render() }
+                    orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+                    val inner = LinearLayout(this@MeetingActivity).apply { orientation = LinearLayout.VERTICAL }
+                    inner.addView(text(m.optString("title").ifEmpty { "פגישה" }, 16f, bold = true))
+                    inner.addView(text(when_(m.optLong("start")) + " · " + mins(m.optLong("end") - m.optLong("start")), 13f, col.dim))
+                    addView(inner, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                    isClickable = true; setOnClickListener { open() }
                 }
+                val mark = text("", 14f, col.ink, true).apply { gravity = Gravity.CENTER }
+                row.addView(mark, LinearLayout.LayoutParams(px(24), px(24)).apply { marginStart = px(10) })
+                picker.row(m.optString("id"), row, mark, open)
                 body.addView(row)
                 gap(8)
             }

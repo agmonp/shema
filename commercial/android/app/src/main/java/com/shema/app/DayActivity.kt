@@ -11,6 +11,7 @@ import android.os.Looper
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -38,6 +39,7 @@ class DayActivity : Activity() {
     private var day: String? = null
     private lateinit var body: LinearLayout
     private lateinit var dayRow: LinearLayout
+    private lateinit var picker: Picker
 
     private fun px(v: Int) = (v * dp).toInt()
     private fun round(color: Int, r: Int, stroke: Int? = null) = GradientDrawable().apply {
@@ -58,7 +60,7 @@ class DayActivity : Activity() {
         super.onCreate(savedInstanceState)
         dp = resources.displayMetrics.density
         val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL; layoutDirection = View.LAYOUT_DIRECTION_RTL; setPadding(px(14), px(16), px(14), px(24)) }
+            orientation = LinearLayout.VERTICAL; layoutDirection = View.LAYOUT_DIRECTION_RTL; setPadding(px(14), px(16), px(14), px(96)) }
         val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
         top.addView(text("→", 24f, col.dim).apply { contentDescription = "חזרה"; setPadding(px(4), 0, px(12), 0); isClickable = true; setOnClickListener { finish() } })
         top.addView(text("ציר הזמן", 21f, bold = true))
@@ -67,7 +69,12 @@ class DayActivity : Activity() {
         root.addView(HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false; setPadding(0, px(10), 0, px(4)); addView(dayRow) })
         body = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         root.addView(body)
-        setContentView(ScrollView(this).apply { setBackgroundColor(col.bg); addView(root) })
+        val host = FrameLayout(this)
+        host.addView(ScrollView(this).apply { setBackgroundColor(col.bg); addView(root) })
+        setContentView(host)
+        picker = Picker(this, host, "שיחה", "שיחות",
+            commit = { ids -> Net.call(this, "POST", "/home/api/delete_items", JSONObject().put("convs", JSONArray(ids.map { it.toInt() }))) != null },
+            redraw = { load() })
         body.addView(text("טוען מהמחשב…", 15f, col.dim))
         thread {
             val d = Net.call(this, "GET", "/home/api/days")
@@ -100,8 +107,11 @@ class DayActivity : Activity() {
         }
     }
 
+    override fun onStop() { picker.flush(); super.onStop() }
+
     private fun show(D: JSONObject) {
         body.removeAllViews()
+        picker.clear()
         val convs = D.optJSONArray("conversations") ?: JSONArray()
         if (convs.length() == 0) { body.addView(text("אין שיחות ביום הזה.", 15f, col.dim)); return }
         // lanes: conversations, then speakers in the order of the day's talk (like the PC), unknown, background
@@ -161,14 +171,24 @@ class DayActivity : Activity() {
         val hasMood = (0 until convs.length()).any { !convs.getJSONObject(it).isNull("mood_valence") }
         body.addView(text((if (hasMood) "צבע השיחה = מצב הרוח בקול (ירוק רגוע · כתום ביניים · אדום מתוח). " else "") +
             "צבוט להגדלה, גרור כדי לזוז, הקש כדי לפתוח.", 12f, col.faint).apply { setPadding(0, px(6), 0, px(12)) })
-        // the day's conversations, newest first
+        // the day's conversations, newest first; long press or "בחר" = pick several to delete
+        val head = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(0, 0, 0, px(8)) }
+        head.addView(text("השיחות · ${convs.length()}", 13f, col.faint, bold = true), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        head.addView(chip("בחר") { picker.start() }.apply { contentDescription = "בחירת שיחות למחיקה" })
+        body.addView(head)
         for (i in convs.length() - 1 downTo 0) {
             val c = convs.getJSONObject(i)
-            val card = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; background = round(col.surface, 14); setPadding(px(14), px(12), px(14), px(12))
-                isClickable = true; setOnClickListener { startActivity(Intent(this@DayActivity, ConvActivity::class.java).putExtra("id", c.getInt("id"))) } }
-            card.addView(text(TimelineView.ltr("${c.optString("start").drop(11).take(5)}–${c.optString("end").drop(11).take(5)}"), 12f, col.faint))
-            card.addView(text(c.optString("topic").takeIf { it.isNotBlank() && it != "null" } ?: "שיחה", 16f, bold = true))
-            c.optString("summary").takeIf { it.isNotBlank() && it != "null" }?.let { card.addView(text(it, 13f, col.dim).apply { maxLines = 3 }) }
+            val open = { startActivity(Intent(this@DayActivity, ConvActivity::class.java).putExtra("id", c.getInt("id"))) }
+            val card = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; background = round(col.surface, 14); setPadding(px(14), px(12), px(14), px(12))
+                isClickable = true; setOnClickListener { open() } }
+            val inner = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+            inner.addView(text(TimelineView.ltr("${c.optString("start").drop(11).take(5)}–${c.optString("end").drop(11).take(5)}"), 12f, col.faint))
+            inner.addView(text(c.optString("topic").takeIf { it.isNotBlank() && it != "null" } ?: "שיחה", 16f, bold = true))
+            c.optString("summary").takeIf { it.isNotBlank() && it != "null" }?.let { inner.addView(text(it, 13f, col.dim).apply { maxLines = 3 }) }
+            card.addView(inner, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            val mark = text("", 14f, col.accentInk, bold = true).apply { gravity = Gravity.CENTER }
+            card.addView(mark, LinearLayout.LayoutParams(px(24), px(24)).apply { marginStart = px(10) })
+            if (c.optString("status") != "open") picker.row(c.getInt("id").toString(), card, mark, open)   // still recording: not yet
             body.addView(card); body.addView(View(this), LinearLayout.LayoutParams(1, px(8)))
         }
     }
