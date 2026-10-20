@@ -122,6 +122,15 @@
 
         <receiver android:name=".ReminderReceiver" android:exported="false" />
 
+        <!-- a meeting's recording handed to WhatsApp / Drive / mail from the share sheet -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.share"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/share_paths" />
+        </provider>
+
         <receiver
             android:name=".BootReceiver"
             android:exported="true">
