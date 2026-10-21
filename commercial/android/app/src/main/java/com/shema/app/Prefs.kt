@@ -39,7 +39,9 @@ object Prefs {
     fun setRemote(c: Context, v: String) = p(c).edit().putString("remote", v.trim()).apply()
 
     /** the address to talk to right now: whichever answered last, else the home one */
-    fun base(c: Context) = ListenService.activeServer.ifEmpty { server(c) }
+    fun base(c: Context) = activeServer.ifEmpty { server(c) }
+    /** set by ListenService; kept here so code that runs at boot never reaches the microphone service (Play's Android 15 check) */
+    @Volatile var activeServer = ""                      // the address that answered last ("" = none)
     fun flag(c: Context, k: String) = p(c).getBoolean(k, false)
     fun setFlag(c: Context, k: String) = p(c).edit().putBoolean(k, true).apply()
     fun digestDay(c: Context) = p(c).getString("digest_day", "")!!

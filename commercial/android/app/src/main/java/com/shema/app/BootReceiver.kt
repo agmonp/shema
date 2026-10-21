@@ -14,14 +14,21 @@ class BootReceiver : BroadcastReceiver() {
     override fun onReceive(c: Context, i: Intent) {
         Reminders.rearm(c)                                   // alarms do not survive a restart / update
         if (!Prefs.wanted(c)) return
-        val nm = c.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        nm.createNotificationChannel(NotificationChannel("restart", "הפעלה מחדש", NotificationManager.IMPORTANCE_HIGH))
-        val open = PendingIntent.getActivity(c, 0, Intent(c, MainActivity::class.java).putExtra("autostart", true),
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
-        nm.notify(2, Notification.Builder(c, "restart")
-            .setSmallIcon(R.drawable.ic_stat)
-            .setContentTitle("שמע Pro כבוי")
-            .setContentText("הטלפון הופעל מחדש. הקש כדי להתחיל להקשיב.")
-            .setContentIntent(open).setAutoCancel(true).build())
+        askToStart(c)
+    }
+
+    companion object {
+        /** one tap opens the app, which starts listening (an activity may start a microphone service) */
+        fun askToStart(c: Context, why: String = "הטלפון הופעל מחדש") {
+            val nm = c.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            nm.createNotificationChannel(NotificationChannel("restart", "הפעלה מחדש", NotificationManager.IMPORTANCE_HIGH))
+            val open = PendingIntent.getActivity(c, 0, Intent(c, MainActivity::class.java).putExtra("autostart", true),
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+            nm.notify(2, Notification.Builder(c, "restart")
+                .setSmallIcon(R.drawable.ic_stat)
+                .setContentTitle("שמע Pro כבוי")
+                .setContentText("$why. הקש כדי להתחיל להקשיב.")
+                .setContentIntent(open).setAutoCancel(true).build())
+        }
     }
 }

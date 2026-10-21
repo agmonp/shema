@@ -99,7 +99,6 @@ class ListenService : Service() {
         @Volatile var digestTeach = 0
         @Volatile var digestTasks = 0
         // reachability over the home Wi-Fi or Tailscale, queue health, battery
-        @Volatile var activeServer = ""                  // the address that answered last ("" = none)
         @Volatile var lanOk = false                      // the PC answered on the home address
         @Volatile var viaTailscale = false               // it answered on the remote (Tailscale) address
         @Volatile var vpnOn = false
@@ -211,7 +210,13 @@ class ListenService : Service() {
         // microphone only: the manifest declares just "microphone", and asking for location too crashed the app on start
         // as soon as the user allowed location (Android 14+: the type must be a subset of the manifest's). The place is
         // still read while the service runs in the foreground.
-        startForeground(1, notification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
+        // Android 14/15 refuse a microphone service started at boot or from the background (also a sticky restart):
+        // instead of crashing, stop and ask the user with one tap, like after a restart.
+        try { startForeground(1, notification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE) }
+        catch (e: Exception) {
+            if (running) throw e
+            BootReceiver.askToStart(this, "ההקשבה נעצרה"); stopSelf(); return START_NOT_STICKY
+        }
         if (loc) startLocation()
         if (!running) {
             running = true
@@ -474,11 +479,11 @@ class ListenService : Service() {
     /** Home address first (2 s), then the remote Tailscale address (5 s). */
     private fun ping(): Boolean {
         val lan = Prefs.server(this)
-        if (pingOne(lan, 2000)) { activeServer = lan; lanOk = true; viaTailscale = false; return true }
+        if (pingOne(lan, 2000)) { Prefs.activeServer = lan; lanOk = true; viaTailscale = false; return true }
         lanOk = false
         val rem = Prefs.remote(this)
-        if (rem.isNotEmpty() && pingOne(rem, 5000)) { activeServer = rem; viaTailscale = true; return true }
-        viaTailscale = false; activeServer = ""
+        if (rem.isNotEmpty() && pingOne(rem, 5000)) { Prefs.activeServer = rem; viaTailscale = true; return true }
+        viaTailscale = false; Prefs.activeServer = ""
         return false
     }
 
@@ -898,7 +903,7 @@ class ListenService : Service() {
         val kind = when { n.contains("_snd.") -> "sound"; n.contains("_enr.") -> "enroll"; n.contains("_imp.") -> "import"; else -> "speech" }
         val meta = File(queueDir, "$n.meta").takeIf { it.exists() }?.readText() ?: "role=${Prefs.role(this)}&home=1"
         val common = "device=${device()}&start=$start&skew=$skew"
-        val base = activeServer.ifEmpty { Prefs.server(this) }
+        val base = Prefs.activeServer.ifEmpty { Prefs.server(this) }
         val c: HttpURLConnection
         if (isMark) {
             val parts = f.readText().trim().split(",")
