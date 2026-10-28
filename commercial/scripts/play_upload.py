@@ -14,6 +14,7 @@ import argparse
 import base64
 import json
 import os
+import re
 import sys
 import time
 import urllib.error
@@ -67,7 +68,12 @@ def main():
     ap.add_argument("--fraction", type=float, default=0.2)
     ap.add_argument("--notes", default="")
     ap.add_argument("--key", default=os.environ.get("SHEMA_PLAY_KEY") or DEFAULT_KEY)
+    ap.add_argument("--name", default="", help="release name; default: the version in the file name (shema-pro-v1.0.19.aab)")
+    ap.add_argument("--existing", type=int, default=0, help="a versionCode already uploaded: only set the track (no upload)")
     a = ap.parse_args()
+    # without a name Play keeps the previous draft's name (1.0.19 showed as "1.0.18")
+    m = re.search(r"v(\d+(?:\.\d+)+)\.aab$", a.aab)
+    name = a.name or (m.group(1) if m else "")
     if not os.path.exists(a.key):
         sys.exit(f"No service-account key at {a.key} (see the setup steps in play_console_upload_guide.md)")
 
@@ -75,12 +81,17 @@ def main():
     print(f"Signed in as {who}")
     edit = call(tok, "POST", API + "/edits", {})["id"]
     try:
-        size = os.path.getsize(a.aab) / 1e6
-        print(f"Uploading {os.path.basename(a.aab)} ({size:.1f} MB)...")
-        vc = call(tok, "POST", UPLOAD + f"/edits/{edit}/bundles?uploadType=media",
-                  raw=open(a.aab, "rb").read(), ctype="application/octet-stream", timeout=900)["versionCode"]
-        print(f"Uploaded: versionCode {vc}")
+        if a.existing:
+            vc = a.existing
+        else:
+            size = os.path.getsize(a.aab) / 1e6
+            print(f"Uploading {os.path.basename(a.aab)} ({size:.1f} MB)...")
+            vc = call(tok, "POST", UPLOAD + f"/edits/{edit}/bundles?uploadType=media",
+                      raw=open(a.aab, "rb").read(), ctype="application/octet-stream", timeout=900)["versionCode"]
+            print(f"Uploaded: versionCode {vc}")
         rel = {"versionCodes": [str(vc)], "status": a.status}
+        if name:
+            rel["name"] = name
         if a.status == "inProgress":
             rel["userFraction"] = a.fraction
         if a.notes.strip():
