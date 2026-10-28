@@ -234,6 +234,9 @@ class MainActivity : Activity(), BillingManager.BillingCallback {
             // today's conversations: the newest three, then the whole day
             todayBox = LinearLayout(this@MainActivity).apply { orientation = LinearLayout.VERTICAL }
             addView(todayBox)
+            // "אני": how the owner spoke (from the PC's "אני" tab), day / week
+            meBox = LinearLayout(this@MainActivity).apply { orientation = LinearLayout.VERTICAL }
+            addView(meBox)
             gap(12)
 
             val row = LinearLayout(this@MainActivity).apply { orientation = LinearLayout.HORIZONTAL }
@@ -269,7 +272,129 @@ class MainActivity : Activity(), BillingManager.BillingCallback {
             val dayJ = Net.call(this, "GET", "/home/api/day?d=$d", timeoutMs = 15000)
             val briefJ = Net.call(this, "GET", "/home/api/brief?d=$d", timeoutMs = 15000)      // PC 1.0.11+ (older: null)
             ui.post { if (!isDestroyed) drawToday(dayJ, briefJ) }
+            loadMe()
         }
+    }
+
+    // ------------------------------------------------------------ home: "אני" (the owner's own speech)
+    private lateinit var meBox: LinearLayout
+    private var meKind = "day"
+    private var meJson: String? = null
+
+    /** /home/api/me2 (the PC's "אני" tab: tone, questions, raised voice, per person, trend); older PCs only have
+     *  /home/api/me (minutes, share, pace, fillers). Called from a background thread. */
+    private fun loadMe() {
+        val k = meKind
+        val m2 = Net.call(this, "GET", "/home/api/me2?k=$k&d=${day()}", timeoutMs = 20000)
+            ?.takeIf { it.trimStart().startsWith("{") && !it.contains("\"error\"") }
+        val old = if (m2 == null && k == "day") Net.call(this, "GET", "/home/api/me?d=${day()}", timeoutMs = 15000) else null
+        ui.post { if (!isDestroyed && k == meKind) drawMe(m2, old) }
+    }
+
+    private fun pct(v: Double) = "${Math.round(v * 100)}%"
+
+    private fun drawMe(m2: String?, old: String?) {
+        val key = meKind + "|" + (m2 ?: "") + "|" + (old ?: "")
+        if (m2 == null && old == null && meJson != null) return  // keep the last good view while the PC is away
+        if (key == meJson) return
+        meJson = key
+        meBox.removeAllViews()
+        if (m2 == null && old == null) return
+        meBox.gap(12)
+        val card = card()
+        // title + היום / השבוע
+        val head = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        head.addView(text("אני", 13f, c.faint, bold = true), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        if (m2 != null || meKind == "week") for ((k, t) in listOf("day" to "היום", "week" to "השבוע")) {
+            head.addView(View(this), LinearLayout.LayoutParams(px(6), 1))
+            head.addView(smallBtn(t) { if (meKind != k) { meKind = k; thread { loadMe() } } }.apply {
+                if (k == meKind) { setTextColor(c.accent); background = round(c.surface2, 12, c.accent) } })
+        }
+        card.addView(head)
+        val when_ = if (meKind == "day") "היום" else "השבוע"
+        fun line(t: String, color: Int = c.ink, size: Float = 15f) { card.gap(6); card.addView(text(t, size, color)) }
+
+        if (m2 == null) {                                          // older PC: the basic numbers only
+            val o = try { org.json.JSONObject(old!!) } catch (e: Exception) { return }
+            if (o.optInt("seconds") <= 0) { line("עוד לא שמעתי אותך מדבר $when_.", c.dim, 14f); meBox.addView(card); return }
+            line("דיברת ${Math.round(o.optInt("seconds") / 60.0)} דק׳ ב-${o.optInt("conversations")} שיחות" +
+                (if (!o.isNull("share")) " · ${pct(o.optDouble("share"))} מהדיבור" else ""), c.ink)
+            if (!o.isNull("pace") && !o.isNull("pace_usual")) {
+                val r = o.optDouble("pace") / o.optDouble("pace_usual")
+                line(if (r > 1.08) "קצב הדיבור מהיר מהרגיל שלך" else if (r < 0.92) "קצב הדיבור איטי מהרגיל שלך" else "קצב הדיבור כרגיל", c.dim, 14f)
+            }
+            line("קטעת ${o.optInt("cut_others")} פעמים · קטעו אותך ${o.optInt("was_cut")}", c.dim, 14f)
+            meBox.addView(card); return
+        }
+
+        val j = try { org.json.JSONObject(m2) } catch (e: Exception) { return }
+        val me = j.optJSONObject("me") ?: org.json.JSONObject()
+        if (me.optInt("lines") <= 0) { line("עוד לא שמעתי אותך מדבר $when_.", c.dim, 14f); meBox.addView(card); return }
+        line("דיברת ${me.optDouble("minutes").let { if (it < 10) it.toString() else Math.round(it).toString() }} דק׳ ב-${me.optInt("conversations")} שיחות" +
+            (if (!me.isNull("share")) " · ${pct(me.optDouble("share"))} מהדיבור" else ""), c.ink, 15f)
+        // tone (classified at night on the PC); ratios as words: "a : b" reads backwards in RTL
+        if (me.optInt("classified") == 0) line("הטון של המשפטים ינותח במחשב בלילה.", c.faint, 13f)
+        else {
+            val pos = me.optInt("pos"); val neg = me.optInt("neg")
+            val tone = when {
+                pos + neg < 3 -> "רוב המשפטים ניטרליים"
+                neg == 0 -> "$pos משפטים חיוביים, אף לא אחד שלילי"
+                pos >= neg -> "חיובי פי ${me.optDouble("ratio")} מהשלילי ($pos מול $neg)"
+                else -> "יותר שלילי מחיובי: $pos משפטים חיוביים מול $neg שליליים"
+            }
+            line("☺ $tone", if (neg > 0 && pos < neg) c.rose else c.sage)
+            if (neg > 0) line("לפי גוטמן, בקשר טוב יש פי 5 משפטים חיוביים מהשליליים.", c.faint, 12f)
+        }
+        // listening + voice
+        val q = me.optInt("questions")
+        line("❓ $q שאלות (${Math.round(100.0 * q / me.optInt("lines"))}% מהמשפטים)", c.dim, 14f)
+        val raised = me.optInt("raised")
+        if (raised > 0) line("🔊 הרמת קול $raised " + (if (raised == 1) "פעם" else "פעמים"), c.rose, 14f)
+        val cutO = me.optInt("cut_others"); val cutM = me.optInt("was_cut")
+        if (cutO + cutM > 0) line("✂ קטעת $cutO פעמים · קטעו אותך $cutM", c.dim, 14f)
+        // the warm and the hard words (only what happened)
+        val tags = me.optJSONObject("tags"); val he = j.optJSONObject("tag_he")
+        if (tags != null && he != null) {
+            val warm = listOf("praise", "thanks", "empathy").filter { tags.optInt(it) > 0 }.map { "${he.optString(it)} ${tags.optInt(it)}" }
+            val hard = listOf("blame", "sarcasm", "curse").filter { tags.optInt(it) > 0 }.map { "${he.optString(it)} ${tags.optInt(it)}" }
+            if (warm.isNotEmpty()) line("💛 " + warm.joinToString(" · "), c.dim, 13f)
+            if (hard.isNotEmpty()) line("⚡ " + hard.joinToString(" · "), c.dim, 13f)
+        }
+        // with whom (the top two by sentences)
+        val people = j.optJSONArray("people")
+        if (people != null && people.length() > 0) {
+            card.gap(8)
+            for (i in 0 until minOf(2, people.length())) {
+                val p = people.getJSONObject(i)
+                val ps = if (!p.isNull("pos_share")) " · ${pct(p.optDouble("pos_share"))} חיובי" else ""
+                val share = if (!p.isNull("my_share")) " · דיברת ${pct(p.optDouble("my_share"))} מהזמן" else ""
+                card.addView(text("עם ${p.optString("name")}: ${p.optInt("lines")} משפטים$share$ps", 13f, c.dim))
+            }
+        }
+        // trend: share of positive sentences, oldest on the left, today on the right
+        val tr = j.optJSONArray("trend")
+        if (tr != null && tr.length() >= 3) {
+            val vals = (0 until tr.length()).map { tr.getJSONObject(it).let { o -> if (o.isNull("pos_share")) -1.0 else o.optDouble("pos_share") } }
+            if (vals.count { it >= 0 } >= 2) {
+                card.gap(10)
+                card.addView(text(if (meKind == "day") "חיוביות ב-${vals.size} הימים האחרונים" else "חיוביות ב-${vals.size} השבועות האחרונים", 12f, c.faint))
+                card.addView(object : View(this) {
+                    val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+                    override fun onDraw(cv: android.graphics.Canvas) {
+                        val n = vals.size; val w = width.toFloat() / n; val h = height.toFloat()
+                        for ((i, v) in vals.withIndex()) {
+                            val x = i * w + w * 0.18f
+                            if (v < 0) { paint.color = c.surface2; cv.drawRect(x, h - px(2), x + w * 0.64f, h, paint); continue }
+                            paint.color = if (i == n - 1) c.accent else if (v >= 0.5) c.sage else c.rose
+                            cv.drawRoundRect(x, h - maxOf(px(3).toFloat(), (h * v).toFloat()), x + w * 0.64f, h, px(2).toFloat(), px(2).toFloat(), paint)
+                        }
+                    }
+                }.apply { layoutDirection = View.LAYOUT_DIRECTION_LTR }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, px(40)))
+            }
+        }
+        card.gap(8)
+        card.addView(text("הניתוח המלא בלשונית \"אני\" במחשב", 12f, c.faint))
+        meBox.addView(card)
     }
 
     private fun drawToday(dayJ: String?, briefJ: String?) {
