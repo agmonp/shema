@@ -76,3 +76,21 @@
 
 > [!TIP]
 > קובץ ה-AAB חתום מראש במפתח ה-Keystore הרשמי שלך ומוכן ישירות להעלאה!
+
+## Automatic upload (no Play Console clicks)
+
+`scripts/build_aab.ps1 -VersionName 1.0.19 -VersionCode 116 -Upload [-Status draft|completed|inProgress] [-Fraction 0.2] [-Notes "..."]`
+builds the bundle and uploads it through the Play Developer API (`scripts/play_upload.py`, standard library + cryptography).
+Default `-Status draft`: the release waits in Play Console for "Send for review". `completed` sends it for review
+(published to everyone once approved); `inProgress` = staged rollout to `-Fraction` of users.
+An existing bundle: `python scripts/play_upload.py dist/shema-pro-v1.0.18.aab --notes "..."`.
+
+One-time setup (the account owner does this; the key never goes into the repo):
+1. https://console.cloud.google.com/projectcreate -> project `shema-play`.
+2. https://console.cloud.google.com/apis/library/androidpublisher.googleapis.com -> Enable (project shema-play).
+3. https://console.cloud.google.com/iam-admin/serviceaccounts/create -> name `play-publisher` -> no roles -> Done.
+4. The service account -> Keys -> Add key -> JSON. Save it as `C:\Users\agmon\keys\play-publisher.json`
+   (or point `SHEMA_PLAY_KEY` at it).
+5. Play Console -> Users and permissions -> Invite new users -> the key's `client_email` -> App permissions:
+   שמע Pro -> "Release to production, exclude devices, and use Play App Signing" + "Release apps to testing tracks".
+   No account permissions. New permissions can take a few hours to reach the API.

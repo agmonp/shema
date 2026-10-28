@@ -1,7 +1,13 @@
 # Build a signed release Android App Bundle (.aab) for Google Play Console upload.
 param(
     [string]$VersionName = "1.0.0",
-    [int]$VersionCode = 1
+    [int]$VersionCode = 1,
+    # -Upload: send the bundle to Google Play right after the build (play_upload.py, service-account key)
+    [switch]$Upload,
+    [ValidateSet("draft", "completed", "inProgress")]
+    [string]$Status = "draft",
+    [double]$Fraction = 0.2,
+    [string]$Notes = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -50,3 +56,13 @@ Write-Host "SUCCESS! Bundle created successfully:" -ForegroundColor Green
 Write-Host "File: $targetAab" -ForegroundColor Green
 Write-Host "Size: $sizeMb MB" -ForegroundColor Green
 Write-Host "Ready to be uploaded to Google Play Console (https://play.google.com/console)!" -ForegroundColor Cyan
+
+# 5. Upload to Google Play (optional)
+if ($Upload) {
+    Write-Host ""
+    Write-Host "Uploading to Google Play ($Status)..." -ForegroundColor Yellow
+    & python (Join-Path $PSScriptRoot "play_upload.py") $targetAab --status $Status --fraction $Fraction --notes $Notes
+    if ($LASTEXITCODE -ne 0) {
+        throw "Upload to Google Play failed (the .aab is still in dist)"
+    }
+}
