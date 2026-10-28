@@ -15,8 +15,8 @@ android {
         applicationId = "app.shema.listener"
         minSdk = 29
         targetSdk = 36
-        versionCode = 116
-        versionName = "1.0.19"
+        versionCode = 117
+        versionName = "1.0.20"
 
         // NDK ABI filters: arm64-v8a covers virtually 100% of modern Android devices
         ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
@@ -73,6 +73,7 @@ dependencies {
     implementation("com.microsoft.onnxruntime:onnxruntime-android:1.22.0")
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")
     implementation("com.android.billingclient:billing-ktx:8.0.0")
+    implementation("com.google.android.play:review:2.0.2")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
 }

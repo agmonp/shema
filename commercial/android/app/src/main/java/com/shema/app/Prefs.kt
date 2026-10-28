@@ -75,6 +75,16 @@ object Prefs {
         return t
     }
 
+    /** Play In-App Review: asked right after reading a conversation, from the 3rd one and 3 days after install, at most
+     *  once in 90 days (Play also limits how often its window appears; it may show nothing) */
+    fun convOpens(c: Context) = p(c).getInt("conv_opens", 0)
+    fun convOpened(c: Context) = p(c).edit().putInt("conv_opens", convOpens(c) + 1).apply()
+    fun reviewDue(c: Context): Boolean {
+        val now = System.currentTimeMillis(); val day = 86_400_000L
+        return convOpens(c) >= 3 && now - firstInstallTime(c) >= 3 * day && now - p(c).getLong("review_at", 0L) >= 90 * day
+    }
+    fun setReviewAsked(c: Context) = p(c).edit().putLong("review_at", System.currentTimeMillis()).apply()
+
     fun isDisclosureAccepted(c: Context) = p(c).getBoolean("disclosure_accepted", false)
     fun setDisclosureAccepted(c: Context, v: Boolean) = p(c).edit().putBoolean("disclosure_accepted", v).apply()
 

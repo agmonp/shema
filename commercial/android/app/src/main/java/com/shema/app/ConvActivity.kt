@@ -106,6 +106,7 @@ class ConvActivity : Activity() {
                 if (r == null) { status.text = "המחשב לא זמין. הצפייה בשיחה עובדת כשהטלפון ברשת הבית (או ב-Tailscale)."; status.setTextColor(col.rose); return@post }
                 p?.let { people = try { JSONArray(it) } catch (e: Exception) { JSONArray() } }
                 show(JSONObject(r), keepView)
+                if (!keepView) Prefs.convOpened(this)          // a conversation really read (for the rating request)
             }
         }
     }

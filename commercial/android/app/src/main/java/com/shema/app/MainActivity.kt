@@ -778,6 +778,24 @@ class MainActivity : Activity(), BillingManager.BillingCallback {
         refreshChecklist()
         refreshCalls()
         billingManager.checkActiveSubscriptions()
+        maybeAskReview()
+    }
+
+    // ------------------------------------------------------------ rating request (Play In-App Review)
+    private var convOpensSeen = -1
+
+    /** Right after the user comes back from reading a conversation (the value moment), when Prefs.reviewDue. Play draws
+     *  its own window, or nothing if it decides not to (quota); the app never learns whether a rating was given. */
+    private fun maybeAskReview() {
+        val n = Prefs.convOpens(this)
+        val backFromConv = convOpensSeen in 0 until n
+        convOpensSeen = n
+        if (screen != "home" || !backFromConv || !Prefs.reviewDue(this)) return
+        Prefs.setReviewAsked(this)
+        val rm = com.google.android.play.core.review.ReviewManagerFactory.create(this)
+        rm.requestReviewFlow().addOnCompleteListener { t ->
+            if (t.isSuccessful && !isDestroyed && screen == "home") rm.launchReviewFlow(this, t.result)
+        }
     }
 
     // ------------------------------------------------------------ phone calls
