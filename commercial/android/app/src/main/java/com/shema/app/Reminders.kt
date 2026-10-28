@@ -209,6 +209,7 @@ object Reminders {
 
 class ReminderReceiver : BroadcastReceiver() {
     override fun onReceive(c: Context, i: Intent) {
+        if (i.action == BootReceiver.REARM) { Reminders.rearm(c); return }     // a minute after a restart / update
         val done = goAsync()                                // the buttons talk to the PC: off the main thread
         thread { try { Reminders.onReceive(c, i) } finally { done.finish() } }
     }
