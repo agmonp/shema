@@ -18,12 +18,14 @@ class BootReceiver : BroadcastReceiver() {
     }
 
     companion object {
-        /** one tap opens the app, which starts listening (an activity may start a microphone service) */
+        /** one tap opens the app, which starts listening (an activity may start a microphone service).
+         *  The launcher intent, not MainActivity::class: Play's Android 15 check follows a class reference from boot
+         *  code into MainActivity -> startForegroundService(ListenService) and flags it (1.0.17 / 1.0.18). */
         fun askToStart(c: Context, why: String = "הטלפון הופעל מחדש") {
             val nm = c.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             nm.createNotificationChannel(NotificationChannel("restart", "הפעלה מחדש", NotificationManager.IMPORTANCE_HIGH))
-            val open = PendingIntent.getActivity(c, 0, Intent(c, MainActivity::class.java).putExtra("autostart", true),
-                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+            val launch = c.packageManager.getLaunchIntentForPackage(c.packageName) ?: return
+            val open = PendingIntent.getActivity(c, 0, launch, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
             nm.notify(2, Notification.Builder(c, "restart")
                 .setSmallIcon(R.drawable.ic_stat)
                 .setContentTitle("שמע Pro כבוי")
