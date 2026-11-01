@@ -160,6 +160,9 @@ MIGRATIONS = [   # columns added after the first version (2026-10-06 afternoon)
     # 2026-10-20: a reminder the user asked for on this item ("YYYY-MM-DDTHH:MM", local time). NULL = never reminded:
     # nothing is reminded on its own, not even a confirmed item; the paired phone delivers it
     ("tasks", "remind_at", "TEXT"),
+    # 2026-11-01: a meeting's one line ("what it was about", from its summary) and title_auto = 1 when Shema named it
+    # (me_period.fill); a title the user typed has title_auto NULL and is never changed
+    ("meetings", "oneline", "TEXT"), ("meetings", "title_auto", "INTEGER"),
 ]
 
 
@@ -1313,6 +1316,7 @@ class Worker(threading.Thread):
                     last_close = time.time()
                     close_conversations()
                 finish_meetings()                         # cheap when no meeting waits
+                name_meetings()                           # title + one line once a summary is ready (and older ones)
                 did = self.step()
             except Exception as exc:  # noqa: BLE001
                 log(f"worker error {exc!r}")
@@ -1901,6 +1905,8 @@ def meeting_seen(c, mid, device, st, cal=None):
     """A recording of meeting mid arrived (store_chunk): create the meeting, or bring a finished one back for a
     new summary (a late recording)."""
     title = (cal or "").replace("📋", "").replace("פגישה:", "").strip()[:80] or None
+    if title == "פגישה":                                  # the calendar marker of an untitled meeting is not its title
+        title = None
     now = iso(datetime.now())
     c.execute("INSERT OR IGNORE INTO meetings (id, device, title, started, status, updated) VALUES (?,?,?,?,'recording',?)",
               (mid, device, title, iso(st), now))
@@ -1923,6 +1929,16 @@ def meeting_end(device, mid, t0=None, t1=None, title=None):
                   "WHERE id=?", (iso(t1) if t1 else None, iso(now), title, iso(now), mid))
     log(f"meeting {mid} ended ({device})")
     return {"ok": True, "id": mid}
+
+
+def name_meetings():
+    """Summarised meetings without a title get a short one, and every one gets a line about what it was about
+    (me_period.fill: a few per pass, older meetings too; a title the user typed is kept)."""
+    import me_period
+    try:
+        me_period.fill(db, lambda system, user: _ollama_json(system, user), limit=3, log=log)
+    except Exception as exc:  # noqa: BLE001
+        log(f"meeting names failed {exc!r}")
 
 
 def conv_meeting(c, cid):
@@ -2225,11 +2241,21 @@ def meeting_texts(v):
 
 
 def meetings_list(c, device=None, limit=30):
-    q = "SELECT m.id, m.device, m.title, m.started, m.ended, m.status, k.topic, k.seconds, k.people, " \
+    import me_period
+    me_period.ensure(c)
+    q = "SELECT m.id, m.device, m.title, m.started, m.ended, m.status, k.topic, k.seconds, k.people, m.oneline, " \
+        "m.title_auto, " \
         "(SELECT count(*) FROM tasks t WHERE t.conv_id=m.conv_id AND t.state IN ('open','confirmed') " \
         "AND coalesce(t.kind,'')!='decision') AS open_tasks FROM meetings m " \
         "LEFT JOIN conversations k ON k.id=m.conv_id" + (" WHERE m.device=?" if device else "") + " ORDER BY m.started DESC LIMIT ?"
-    return [dict(r) for r in c.execute(q, ((clean_device(device), limit) if device else (limit,)))]
+    out = []
+    for r in c.execute(q, ((clean_device(device), limit) if device else (limit,))):
+        m = dict(r)
+        m["title"] = me_period.shown_title(m["title"], m["topic"])     # never the "פגישה" placeholder
+        if m["started"] and m["ended"]:
+            m["seconds"] = max(0, (datetime.fromisoformat(m["ended"]) - datetime.fromisoformat(m["started"])).total_seconds())
+        out.append(m)
+    return out
 
 
 def meetings_done(c, device):
@@ -3739,6 +3765,10 @@ def api(path, qs):
                 f"WHERE t.state IN ({','.join('?' * len(states))}) ORDER BY k.start DESC, t.id LIMIT 150", states)]
         if path == "/home/api/me":
             return me_stats(c, qs.get("d", [datetime.now().strftime("%Y-%m-%d")])[0])
+        if path == "/home/api/me_period":                 # the phone's "אני" screen: one day / week (me_period.py)
+            import me_period
+            return me_period.report(c, owner_id(), qs.get("k", ["week"])[0],
+                                    qs.get("d", [datetime.now().strftime("%Y-%m-%d")])[0])
         if path == "/home/api/digest":
             return digest()
         if path == "/home/api/privacy":
