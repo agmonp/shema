@@ -33,10 +33,13 @@ object MePeriods {
         kind == "day" && s == today -> "היום"
         kind == "day" && s == today.minusDays(1) -> "אתמול"
         kind == "day" -> "${heDay(s)} ${s.format(dmy)}"
-        isCurrent(kind, s, today) -> "השבוע · ${s.format(dmy)}–${end(kind, s).format(dmy)}"
-        isCurrent(kind, next(kind, s), today) -> "השבוע שעבר · ${s.format(dmy)}–${end(kind, s).format(dmy)}"
-        else -> "${s.format(dmy)}–${end(kind, s).format(dmy)}"
+        isCurrent(kind, s, today) -> "השבוע · " + ltr("${s.format(dmy)}–${end(kind, s).format(dmy)}")
+        isCurrent(kind, next(kind, s), today) -> "השבוע שעבר · " + ltr("${s.format(dmy)}–${end(kind, s).format(dmy)}")
+        else -> ltr("${s.format(dmy)}–${end(kind, s).format(dmy)}")
     }
+
+    /** a date range keeps its order inside Hebrew text ("25/10–31/10", not "31/10–25/10") */
+    fun ltr(s: String) = "⁦$s⁩"
 
     fun heDay(d: LocalDate) = "יום " + listOf("שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת", "ראשון")[d.dayOfWeek.value - 1]
 

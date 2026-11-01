@@ -71,6 +71,7 @@
         <activity android:name=".ConvActivity" android:exported="false" />
         <activity android:name=".EnrollActivity" android:exported="false" />
         <activity android:name=".MeetingActivity" android:exported="false" android:launchMode="singleTop" />
+        <activity android:name=".MeActivity" android:exported="false" />
 
         <!-- Receive voice notes / shared audio -->
         <activity

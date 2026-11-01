@@ -241,7 +241,7 @@ class MainActivity : Activity(), BillingManager.BillingCallback {
 
             val row = LinearLayout(this@MainActivity).apply { orientation = LinearLayout.HORIZONTAL }
             searchBtn = button("🔎 חפש או שאל") { startActivity(Intent(this@MainActivity, SearchActivity::class.java)) }
-            meetBtn = button("📋 הקלט פגישה") { openWhenListening(MeetingActivity::class.java) }
+            meetBtn = button("📋 פגישות") { startActivity(Intent(this@MainActivity, MeetingActivity::class.java)) }
             row.addView(searchBtn, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
             row.addView(meetBtn, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = px(8) })
             addView(row)
@@ -281,119 +281,84 @@ class MainActivity : Activity(), BillingManager.BillingCallback {
     private var meKind = "day"
     private var meJson: String? = null
 
-    /** /home/api/me2 (the PC's "אני" tab: tone, questions, raised voice, per person, trend); older PCs only have
-     *  /home/api/me (minutes, share, pace, fillers). Called from a background thread. */
+    /**
+     * The "אני" card: the PC's answer for today / this week (me2 on the owner's server, me_period on 1.0.22+ PCs, /me on
+     * the oldest), saved on the phone (LocalStore) so it is never blank: with the PC away the saved one is shown with
+     * when it was received. A week with nothing heard yet (Sunday) shows the last week that has something.
+     * Called from a background thread. The full screen is MeActivity.
+     */
     private fun loadMe() {
         val k = meKind
-        val m2 = Net.call(this, "GET", "/home/api/me2?k=$k&d=${day()}", timeoutMs = 20000)
-            ?.takeIf { it.trimStart().startsWith("{") && !it.contains("\"error\"") }
-        val old = if (m2 == null && k == "day") Net.call(this, "GET", "/home/api/me?d=${day()}", timeoutMs = 15000) else null
-        ui.post { if (!isDestroyed && k == meKind) drawMe(m2, old) }
+        val store = LocalStore.of(this)
+        val today = java.time.LocalDate.now()
+        val now = System.currentTimeMillis()
+        val fetch = { p: String -> if (Prefs.paired(this)) Net.call(this, "GET", p, timeoutMs = 20000) else null }
+        var s = MePeriods.start(k, today)
+        var r = MeRepo.load(k, s, today, store, now, fetch)
+        if (k == "week" && !MePeriods.hasData(r.json)) MeRepo.fallback(k, today, store, now, fetch = fetch)?.let { s = it.first; r = it.second }
+        ui.post { if (!isDestroyed && k == meKind) drawMe(r, s) }
     }
 
     private fun pct(v: Double) = "${Math.round(v * 100)}%"
 
-    private fun drawMe(m2: String?, old: String?) {
-        val key = meKind + "|" + (m2 ?: "") + "|" + (old ?: "")
-        if (m2 == null && old == null && meJson != null) return  // keep the last good view while the PC is away
+    private fun drawMe(r: MeResult, s: java.time.LocalDate) {
+        val key = meKind + "|" + s + "|" + r.fromCache + "|" + (r.json?.toString() ?: "")
         if (key == meJson) return
         meJson = key
         meBox.removeAllViews()
-        if (m2 == null && old == null) return
+        if (!Prefs.paired(this) && r.json == null) return              // nothing to say before the PC is paired
         meBox.gap(12)
         val card = card()
-        // title + היום / השבוע
         val head = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
         head.addView(text("אני", 13f, c.faint, bold = true), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        if (m2 != null || meKind == "week") for ((k, t) in listOf("day" to "היום", "week" to "השבוע")) {
+        for ((k, t) in listOf("day" to "היום", "week" to "השבוע")) {
             head.addView(View(this), LinearLayout.LayoutParams(px(6), 1))
             head.addView(smallBtn(t) { if (meKind != k) { meKind = k; thread { loadMe() } } }.apply {
                 if (k == meKind) { setTextColor(c.accent); background = round(c.surface2, 12, c.accent) } })
         }
         card.addView(head)
-        val when_ = if (meKind == "day") "היום" else "השבוע"
         fun line(t: String, color: Int = c.ink, size: Float = 15f) { card.gap(6); card.addView(text(t, size, color)) }
-
-        if (m2 == null) {                                          // older PC: the basic numbers only
-            val o = try { org.json.JSONObject(old!!) } catch (e: Exception) { return }
-            if (o.optInt("seconds") <= 0) { line("עוד לא שמעתי אותך מדבר $when_.", c.dim, 14f); meBox.addView(card); return }
-            line("דיברת ${Math.round(o.optInt("seconds") / 60.0)} דק׳ ב-${o.optInt("conversations")} שיחות" +
-                (if (!o.isNull("share")) " · ${pct(o.optDouble("share"))} מהדיבור" else ""), c.ink)
-            if (!o.isNull("pace") && !o.isNull("pace_usual")) {
-                val r = o.optDouble("pace") / o.optDouble("pace_usual")
-                line(if (r > 1.08) "קצב הדיבור מהיר מהרגיל שלך" else if (r < 0.92) "קצב הדיבור איטי מהרגיל שלך" else "קצב הדיבור כרגיל", c.dim, 14f)
-            }
-            line("קטעת ${o.optInt("cut_others")} פעמים · קטעו אותך ${o.optInt("was_cut")}", c.dim, 14f)
-            meBox.addView(card); return
-        }
-
-        val j = try { org.json.JSONObject(m2) } catch (e: Exception) { return }
-        val me = j.optJSONObject("me") ?: org.json.JSONObject()
-        if (me.optInt("lines") <= 0) { line("עוד לא שמעתי אותך מדבר $when_.", c.dim, 14f); meBox.addView(card); return }
-        line("דיברת ${me.optDouble("minutes").let { if (it < 10) it.toString() else Math.round(it).toString() }} דק׳ ב-${me.optInt("conversations")} שיחות" +
-            (if (!me.isNull("share")) " · ${pct(me.optDouble("share"))} מהדיבור" else ""), c.ink, 15f)
-        // tone (classified at night on the PC); ratios as words: "a : b" reads backwards in RTL
-        if (me.optInt("classified") == 0) line("הטון של המשפטים ינותח במחשב בלילה.", c.faint, 13f)
+        val today = java.time.LocalDate.now()
+        if (!MePeriods.isCurrent(meKind, s, today)) line(MePeriods.label(meKind, s, today) + " (השבוע רק התחיל)", c.faint, 12f)
+        if (r.fromCache) line("📦 " + MePeriods.savedNotice(r.fetchedMs), c.accent, 12f)
+        val j = r.json
+        val when_ = if (meKind == "day") "היום" else "השבוע"
+        if (j == null) line("המחשב לא זמין עכשיו, ועוד אין ניתוח שמור. כשהמחשב יחזור, הניתוח יופיע כאן.", c.dim, 14f)
+        else if (!MePeriods.hasData(j)) line("עוד לא שמעתי אותך מדבר $when_.", c.dim, 14f)
         else {
-            val pos = me.optInt("pos"); val neg = me.optInt("neg")
-            val tone = when {
-                pos + neg < 3 -> "רוב המשפטים ניטרליים"
-                neg == 0 -> "$pos משפטים חיוביים, אף לא אחד שלילי"
-                pos >= neg -> "חיובי פי ${me.optDouble("ratio")} מהשלילי ($pos מול $neg)"
-                else -> "יותר שלילי מחיובי: $pos משפטים חיוביים מול $neg שליליים"
+            val me = j.optJSONObject("me2")?.optJSONObject("me")
+            val st = j.optJSONObject("period")?.optJSONObject("stats")
+            val old = j.optJSONObject("me")
+            if (me != null && me.optInt("lines") > 0) {
+                line("דיברת ${me.optDouble("minutes").let { if (it < 10) it.toString() else Math.round(it).toString() }} דק׳ ב-${me.optInt("conversations")} שיחות" +
+                    (if (!me.isNull("share")) " · ${pct(me.optDouble("share"))} מהדיבור" else ""))
+                if (me.optInt("classified") > 0) {
+                    val pos = me.optInt("pos"); val neg = me.optInt("neg")
+                    line("☺ " + when { pos + neg < 3 -> "רוב המשפטים ניטרליים"; neg == 0 -> "$pos משפטים חיוביים, אף לא אחד שלילי"
+                        pos >= neg -> "חיובי פי ${me.optDouble("ratio")} מהשלילי"; else -> "יותר שלילי מחיובי ($pos מול $neg)" },
+                        if (neg > 0 && pos < neg) c.rose else c.sage, 14f)
+                }
+            } else if (old != null && old.optInt("seconds") > 0) {
+                line("דיברת ${Math.round(old.optInt("seconds") / 60.0)} דק׳ ב-${old.optInt("conversations")} שיחות" +
+                    (if (!old.isNull("share")) " · ${pct(old.optDouble("share"))} מהדיבור" else ""))
             }
-            line("☺ $tone", if (neg > 0 && pos < neg) c.rose else c.sage)
-            if (neg > 0) line("לפי גוטמן, בקשר טוב יש פי 5 משפטים חיוביים מהשליליים.", c.faint, 12f)
-        }
-        // listening + voice
-        val q = me.optInt("questions")
-        line("❓ $q שאלות (${Math.round(100.0 * q / me.optInt("lines"))}% מהמשפטים)", c.dim, 14f)
-        val raised = me.optInt("raised")
-        if (raised > 0) line("🔊 הרמת קול $raised " + (if (raised == 1) "פעם" else "פעמים"), c.rose, 14f)
-        val cutO = me.optInt("cut_others"); val cutM = me.optInt("was_cut")
-        if (cutO + cutM > 0) line("✂ קטעת $cutO פעמים · קטעו אותך $cutM", c.dim, 14f)
-        // the warm and the hard words (only what happened)
-        val tags = me.optJSONObject("tags"); val he = j.optJSONObject("tag_he")
-        if (tags != null && he != null) {
-            val warm = listOf("praise", "thanks", "empathy").filter { tags.optInt(it) > 0 }.map { "${he.optString(it)} ${tags.optInt(it)}" }
-            val hard = listOf("blame", "sarcasm", "curse").filter { tags.optInt(it) > 0 }.map { "${he.optString(it)} ${tags.optInt(it)}" }
-            if (warm.isNotEmpty()) line("💛 " + warm.joinToString(" · "), c.dim, 13f)
-            if (hard.isNotEmpty()) line("⚡ " + hard.joinToString(" · "), c.dim, 13f)
-        }
-        // with whom (the top two by sentences)
-        val people = j.optJSONArray("people")
-        if (people != null && people.length() > 0) {
-            card.gap(8)
-            for (i in 0 until minOf(2, people.length())) {
-                val p = people.getJSONObject(i)
-                val ps = if (!p.isNull("pos_share")) " · ${pct(p.optDouble("pos_share"))} חיובי" else ""
-                val share = if (!p.isNull("my_share")) " · דיברת ${pct(p.optDouble("my_share"))} מהזמן" else ""
-                card.addView(text("עם ${p.optString("name")}: ${p.optInt("lines")} משפטים$share$ps", 13f, c.dim))
+            if (st != null) {
+                val parts = mutableListOf("${st.optInt("conversations")} שיחות")
+                if (st.optInt("meetings") > 0) parts += "${st.optInt("meetings")} פגישות"
+                if (st.optInt("decisions") + st.optInt("tasks") > 0) parts += "${st.optInt("decisions") + st.optInt("tasks")} החלטות ומשימות"
+                line(parts.joinToString(" · "), c.dim, 14f)
+                j.optJSONObject("period")?.optJSONArray("topics")?.let { t ->
+                    if (t.length() > 0) line("נושאים: " + (0 until minOf(3, t.length())).joinToString(" · ") { t.getJSONObject(it).optString("text") }, c.dim, 13f)
+                }
             }
         }
-        // trend: share of positive sentences, oldest on the left, today on the right
-        val tr = j.optJSONArray("trend")
-        if (tr != null && tr.length() >= 3) {
-            val vals = (0 until tr.length()).map { tr.getJSONObject(it).let { o -> if (o.isNull("pos_share")) -1.0 else o.optDouble("pos_share") } }
-            if (vals.count { it >= 0 } >= 2) {
-                card.gap(10)
-                card.addView(text(if (meKind == "day") "חיוביות ב-${vals.size} הימים האחרונים" else "חיוביות ב-${vals.size} השבועות האחרונים", 12f, c.faint))
-                card.addView(object : View(this) {
-                    val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
-                    override fun onDraw(cv: android.graphics.Canvas) {
-                        val n = vals.size; val w = width.toFloat() / n; val h = height.toFloat()
-                        for ((i, v) in vals.withIndex()) {
-                            val x = i * w + w * 0.18f
-                            if (v < 0) { paint.color = c.surface2; cv.drawRect(x, h - px(2), x + w * 0.64f, h, paint); continue }
-                            paint.color = if (i == n - 1) c.accent else if (v >= 0.5) c.sage else c.rose
-                            cv.drawRoundRect(x, h - maxOf(px(3).toFloat(), (h * v).toFloat()), x + w * 0.64f, h, px(2).toFloat(), px(2).toFloat(), paint)
-                        }
-                    }
-                }.apply { layoutDirection = View.LAYOUT_DIRECTION_LTR }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, px(40)))
-            }
-        }
-        card.gap(8)
-        card.addView(text("הניתוח המלא בלשונית \"אני\" במחשב", 12f, c.faint))
+        card.gap(10)
+        card.addView(text("לניתוח המלא ›", 14f, c.accent, bold = true).apply {
+            isClickable = true; setPadding(0, px(4), 0, px(2))
+            setOnClickListener { startActivity(Intent(this@MainActivity, MeActivity::class.java).putExtra("kind", meKind)) }
+        })
+        card.isClickable = true
+        card.setOnClickListener { startActivity(Intent(this@MainActivity, MeActivity::class.java).putExtra("kind", meKind)) }
         meBox.addView(card)
     }
 
@@ -1340,7 +1305,7 @@ class MainActivity : Activity(), BillingManager.BillingCallback {
         if (screen == "home") loadToday()
 
         val meeting = Meeting.active(this)
-        meetBtn.text = if (meeting) "🔴 פגישה מוקלטת · ${(System.currentTimeMillis() - Meeting.start(this)) / 60_000} דק׳" else "📋 הקלט פגישה"
+        meetBtn.text = if (meeting) "🔴 פגישה מוקלטת · ${(System.currentTimeMillis() - Meeting.start(this)) / 60_000} דק׳" else "📋 פגישות"
         meetBtn.background = round(if (meeting) c.rec else c.surface2, 16, if (meeting) null else Color.parseColor("#33FFECD6"))
         refreshAlerts()
 

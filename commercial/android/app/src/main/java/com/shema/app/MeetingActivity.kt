@@ -132,7 +132,7 @@ class MeetingActivity : Activity() {
         setContentView(host)
         picker = Picker(this, host, "פגישה", "פגישות",
             commit = { ids -> (Net.call(this, "POST", "/home/api/delete_items", JSONObject().put("meetings", JSONArray(ids))) != null)
-                .also { ok -> if (ok) Meeting.forget(this, ids) } },
+                .also { ok -> if (ok) { Meeting.forget(this, ids); LocalStore.of(this).forgetMeetings(ids) } } },
             redraw = { if (alive) render() })
         resultId = intent?.getStringExtra("id") ?: ""
         startTitle = intent?.getStringExtra("title") ?: ""
@@ -156,11 +156,99 @@ class MeetingActivity : Activity() {
         }
     }
 
-    // ------------------------------------------------------------ start
+    // ------------------------------------------------------------ meetings: the list, and "record a new meeting"
+    // 2026-11-01: the home button is "פגישות". It opens the past meetings (the PC's list with each one's title and one
+    // line about what it was about, kept on the phone for when the PC is away, plus this phone's own meetings the PC
+    // has not answered for yet) and a prominent "הקלט פגישה חדשה" that opens the start form below.
+    private var form = false
+    private var listAt = 0L
+    private var listFresh: Boolean? = null               // null = still asking the PC
+
     private fun showStart() {
+        if (form || startTitle.isNotEmpty()) showForm() else showList()
+    }
+
+    private fun showList() {
         showing = ""
         body.removeAllViews()
-        body.addView(text("📋 הקלטת פגישה", 24f, bold = true))
+        body.addView(text("📋 פגישות", 24f, bold = true))
+        gap(14)
+        body.addView(button("🎙 הקלט פגישה חדשה", primary = true) { form = true; render() })
+        val (saved, at) = LocalStore.of(this).meetings()
+        val serverIds = saved.map { it.optString("id") }.toSet()
+        // this phone's meetings the PC does not list yet (just ended, or the PC is away)
+        val local = Meeting.history(this).let { h -> (0 until h.length()).map { h.getJSONObject(it) } }.filter { it.optString("id") !in serverIds }
+        data class Row(val id: String, val title: String, val line: String?, val start: Long, val ms: Long)
+        val rows = (saved.map { m ->
+            val s = parseIso(m.optString("started")); val e = parseIso(m.optString("ended"))
+            val ms = if (!m.isNull("seconds") && m.optDouble("seconds") > 0) (m.optDouble("seconds") * 1000).toLong() else if (e > s) e - s else 0L
+            Row(m.optString("id"), m.optString("title").takeIf { it.isNotBlank() && it != "null" } ?: m.optString("topic").takeIf { it.isNotBlank() && it != "null" } ?: "פגישה",
+                m.optString("oneline").takeIf { it.isNotBlank() && it != "null" }
+                    ?: when (m.optString("status")) {
+                        "recording", "ended", "summarising" -> "הסיכום בהכנה במחשב…"
+                        "empty" -> "לא נשמע בה דיבור"
+                        else -> null
+                    }, s, ms)
+        } + local.map { m ->
+            Row(m.optString("id"), m.optString("title").ifEmpty { "פגישה" }, "ממתין לסיכום מהמחשב", m.optLong("start"), m.optLong("end") - m.optLong("start"))
+        }).sortedByDescending { it.start }
+        if (listFresh == false && at > 0) { gap(10); body.addView(text("📦 " + MePeriods.savedNotice(at), 13f, col.accent)) }
+        gap(22)
+        picker.clear()
+        val head = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        head.addView(text(if (rows.isEmpty()) "" else "פגישות קודמות (${rows.size})", 14f, col.faint), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        if (rows.isNotEmpty()) head.addView(text("בחר", 14f, col.dim, true).apply { setPadding(px(12), px(6), px(12), px(6)); background = round(col.surface2, 14)
+            contentDescription = "בחירת פגישות למחיקה"; isClickable = true; setOnClickListener { picker.start() } })
+        body.addView(head)
+        if (rows.isEmpty()) {
+            body.addView(card().apply {
+                addView(text(if (listFresh == null) "טוען את הפגישות…" else "עוד אין פגישות", 16f, bold = true))
+                if (listFresh != null) addView(text(if (listFresh == true || at > 0) "פגישה שתקליט תופיע כאן עם כותרת ושורה על מה דיברו, אחרי שהמחשב יסכם אותה."
+                    else "המחשב לא זמין עכשיו. כשיחזור, הפגישות יופיעו כאן.", 14f, col.dim))
+            })
+        }
+        gap(6)
+        for (m in rows) {
+            val open = { resultId = m.id; lastResult = null; render() }
+            val row = card().apply {
+                orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+                val inner = LinearLayout(this@MeetingActivity).apply { orientation = LinearLayout.VERTICAL }
+                inner.addView(text(m.title, 16f, bold = true).apply { maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END })
+                m.line?.let { inner.addView(text(it, 14f, col.dim).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }) }
+                inner.addView(text(listOf(when_(m.start), mins(m.ms)).filter { it.isNotEmpty() }.joinToString(" · "), 13f, col.faint))
+                addView(inner, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                isClickable = true; setOnClickListener { open() }
+            }
+            val mark = text("", 14f, col.ink, true).apply { gravity = Gravity.CENTER }
+            row.addView(mark, LinearLayout.LayoutParams(px(24), px(24)).apply { marginStart = px(10) })
+            picker.row(m.id, row, mark, open)
+            body.addView(row)
+            gap(8)
+        }
+        refreshList()
+    }
+
+    /** the PC's meetings list -> LocalStore (at most every 20 s), then the list again */
+    private fun refreshList() {
+        if (System.currentTimeMillis() - listAt < 20_000 || !Prefs.paired(this)) { if (!Prefs.paired(this)) listFresh = false; return }
+        listAt = System.currentTimeMillis()
+        thread {
+            val r = Net.call(this, "GET", "/home/api/meetings", timeoutMs = 15000)
+            val a = try { r?.let { JSONArray(it) } } catch (e: Exception) { null }
+            if (a != null) LocalStore.of(this).putMeetings(a, System.currentTimeMillis())
+            ui.post {
+                listFresh = a != null
+                if (alive && !Meeting.active(this) && resultId.isEmpty() && !form && !picker.on) showList()
+            }
+        }
+    }
+
+    private fun showForm() {
+        showing = ""
+        body.removeAllViews()
+        body.addView(text("‹ כל הפגישות", 14f, col.accent, true).apply {
+            isClickable = true; setPadding(0, 0, 0, px(10)); setOnClickListener { form = false; startTitle = ""; render() } })
+        body.addView(text("📋 פגישה חדשה", 24f, bold = true))
         gap(6)
         body.addView(text("לחץ התחל כשהפגישה מתחילה, וסיים כשהיא נגמרת. המחשב מתמלל, ואחרי כמה דקות תקבל כאן סיכום, החלטות, משימות ותמלול מלא, מוכנים לשליחה.", 15f, col.dim))
         gap(16)
@@ -174,34 +262,7 @@ class MeetingActivity : Activity() {
         body.addView(button("▶ התחל פגישה", primary = true) { begin(title.text.toString().trim()) })
         gap(10)
         body.addView(text("ההקלטה רצה גם מחוץ לבית וגם כשההקשבה מושתקת, עד שתלחץ סיים. ספר למשתתפים שהפגישה מוקלטת.", 13f, col.faint))
-        val h = Meeting.history(this)
-        if (h.length() > 0) {
-            gap(22)
-            picker.clear()
-            val head = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-            head.addView(text("פגישות אחרונות", 14f, col.faint), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-            head.addView(text("בחר", 14f, col.dim, true).apply { setPadding(px(12), px(6), px(12), px(6)); background = round(col.surface2, 14)
-                contentDescription = "בחירת פגישות למחיקה"; isClickable = true; setOnClickListener { picker.start() } })
-            body.addView(head)
-            gap(6)
-            for (i in 0 until minOf(h.length(), 10)) {
-                val m = h.getJSONObject(i)
-                val open = { resultId = m.optString("id"); lastResult = null; render() }
-                val row = card().apply {
-                    orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
-                    val inner = LinearLayout(this@MeetingActivity).apply { orientation = LinearLayout.VERTICAL }
-                    inner.addView(text(m.optString("title").ifEmpty { "פגישה" }, 16f, bold = true))
-                    inner.addView(text(when_(m.optLong("start")) + " · " + mins(m.optLong("end") - m.optLong("start")), 13f, col.dim))
-                    addView(inner, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-                    isClickable = true; setOnClickListener { open() }
-                }
-                val mark = text("", 14f, col.ink, true).apply { gravity = Gravity.CENTER }
-                row.addView(mark, LinearLayout.LayoutParams(px(24), px(24)).apply { marginStart = px(10) })
-                picker.row(m.optString("id"), row, mark, open)
-                body.addView(row)
-                gap(8)
-            }
-        }
+        body.addView(text("אם לא תיתן שם, שמע ייתן לפגישה כותרת קצרה לפי הסיכום.", 13f, col.faint).apply { setPadding(0, px(6), 0, 0) })
     }
 
     private fun begin(title: String) {
@@ -217,7 +278,7 @@ class MeetingActivity : Activity() {
         val id = "m" + System.currentTimeMillis()
         startForegroundService(Intent(this, ListenService::class.java).setAction(ListenService.ACTION_MEETING_START)
             .putExtra("id", id).putExtra("title", title))
-        resultId = ""
+        resultId = ""; form = false; startTitle = ""
         ui.postDelayed({ render() }, 400)
     }
 
@@ -387,7 +448,7 @@ class MeetingActivity : Activity() {
         val more = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         more.addView(button("העתק") { copy(j) }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = px(8) })
         more.addView(button("סכם שוב") { resummarise() }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = px(8) })
-        more.addView(button("פגישה חדשה") { resultId = ""; lastResult = null; startTitle = ""; render() }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        more.addView(button("פגישה חדשה") { resultId = ""; lastResult = null; startTitle = ""; form = true; render() }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         body.addView(more)
         gap(10)
         body.addView(text("הסיכום והמשימות נכתבו אוטומטית מהתמלול. כדאי לעבור עליהם לפני שליחה.", 12f, col.faint))

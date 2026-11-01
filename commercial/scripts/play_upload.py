@@ -67,6 +67,7 @@ def main():
     ap.add_argument("--status", default="draft", choices=["draft", "completed", "inProgress"])
     ap.add_argument("--fraction", type=float, default=0.2)
     ap.add_argument("--notes", default="")
+    ap.add_argument("--notes-en", default="", help="English release notes (only if the listing has English)")
     ap.add_argument("--key", default=os.environ.get("SHEMA_PLAY_KEY") or DEFAULT_KEY)
     ap.add_argument("--name", default="", help="release name; default: the version in the file name (shema-pro-v1.0.19.aab)")
     ap.add_argument("--existing", type=int, default=0, help="a versionCode already uploaded: only set the track (no upload)")
@@ -96,6 +97,8 @@ def main():
             rel["userFraction"] = a.fraction
         if a.notes.strip():
             rel["releaseNotes"] = [{"language": "iw-IL", "text": a.notes.strip()[:500]}]
+        if a.notes_en.strip():
+            rel.setdefault("releaseNotes", []).append({"language": "en-US", "text": a.notes_en.strip()[:500]})
         call(tok, "PUT", API + f"/edits/{edit}/tracks/{a.track}", {"track": a.track, "releases": [rel]})
         try:
             call(tok, "POST", API + f"/edits/{edit}:commit")

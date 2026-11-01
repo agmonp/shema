@@ -15,8 +15,8 @@ android {
         applicationId = "app.shema.listener"
         minSdk = 29
         targetSdk = 36
-        versionCode = 118
-        versionName = "1.0.21"
+        versionCode = 119
+        versionName = "1.0.22"
 
         // NDK ABI filters: arm64-v8a covers virtually 100% of modern Android devices
         ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
@@ -76,4 +76,8 @@ dependencies {
     implementation("com.google.android.play:review:2.0.2")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
+
+    // JVM unit tests (app/src/test): org.json is only a stub in android.jar
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20240303")
 }
