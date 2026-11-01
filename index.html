@@ -5,9 +5,19 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#090c15">
 <meta name="description" content="שמע Pro — זיכרון קולי אישי. תמלול עברית, זיהוי דוברים, סיכומי שיחות ומשימות אצלך במחשב, ללא ענן.">
-<meta property="og:title" content="שמע Pro — החיים קורים. שמע זוכר.">
-<meta property="og:description" content="זיכרון קולי אישי חכם לשיחות החיים — פרטיות בלי ענן. 14 ימי ניסיון חינם.">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="שמע">
+<meta property="og:locale" content="he_IL">
+<meta property="og:url" content="https://shema.agmonp.com/">
+<meta property="og:title" content="שמע — זיכרון קולי פרטי. הורדה למחשב ולטלפון">
+<meta property="og:description" content="מקליטים בטלפון, מתמללים בעברית על המחשב שלך, בלי ענן. קובץ התקנה אחד ל-Windows + שמע Pro מ-Google Play.">
 <meta property="og:image" content="https://raw.githubusercontent.com/agmonp/shema/main/docs/pc-day.png">
+<meta property="og:image:width" content="1100">
+<meta property="og:image:height" content="1260">
+<meta property="og:image:alt" content="המסך של שמע במחשב: סיכום יומי וציר זמן של שיחות">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="canonical" href="https://shema.agmonp.com/">
+<link rel="icon" type="image/svg+xml" href="shema-icon.svg">
 <title>שמע Pro — זיכרון קולי פרטי | תמלול עברית וסיכומי שיחות ללא ענן</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -81,6 +91,42 @@ nav { display: flex; align-items: center; justify-content: space-between; height
 }
 .btn.gold:hover { box-shadow: 0 12px 45px rgba(255, 191, 66, 0.5); }
 .nav-cta { font-size: 13px; padding: 10px 20px; }
+[hidden] { display: none !important; }
+.btn.big { font-size: 19px; padding: 18px 34px; }
+a:focus-visible, button:focus-visible, summary:focus-visible { outline: 3px solid var(--mint); outline-offset: 3px; }
+.mark img { width: 38px; height: 38px; display: block; border-radius: 12px; }
+.mark.logo { background: none; box-shadow: 0 0 28px rgba(234, 164, 94, 0.35); }
+
+/* download block */
+.get { display: flex; flex-direction: column; align-items: center; gap: 12px; margin: 34px 0 10px; }
+.get .alt { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; align-items: center; }
+.dlmeta { font-size: 13px; color: #8d98af; min-height: 1.4em; direction: rtl; }
+.play-badge {
+  display: inline-flex; align-items: center; gap: 10px; padding: 9px 18px; border-radius: 12px;
+  background: #000; border: 1px solid rgba(255, 255, 255, 0.35); color: #fff; line-height: 1.15; text-align: right;
+}
+.play-badge:hover { border-color: #fff; }
+.play-badge svg { width: 26px; height: 26px; flex: none; }
+.play-badge small { display: block; font-size: 11px; color: #c9cede; }
+.play-badge b { font-size: 17px; font-weight: 700; direction: ltr; }
+.smartscreen {
+  max-width: 560px; margin: 16px auto 0; font-size: 13.5px; color: #a5adc1; line-height: 1.6;
+  border: 1px solid var(--line); border-radius: 12px; padding: 10px 16px; background: rgba(255, 255, 255, 0.04);
+}
+.smartscreen b { color: #e2e8f5; }
+.start-steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; counter-reset: s; }
+.start-steps li {
+  list-style: none; background: linear-gradient(155deg, #1b2030, #111622); border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 22px; padding: 28px; display: flex; flex-direction: column; gap: 10px;
+}
+.start-steps li:before {
+  counter-increment: s; content: counter(s); font-size: 40px; font-weight: 900; line-height: 1;
+  background: linear-gradient(#cbbaff, #70e7c7); -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.start-steps h3 { margin: 0; font-size: 21px; }
+.start-steps p { margin: 0; color: #aab3c6; font-size: 15px; }
+.start-steps .btn, .start-steps .play-badge { align-self: flex-start; margin-top: auto; }
+.start-steps .btn { font-size: 14px; padding: 10px 18px; }
 
 .hero { position: relative; min-height: 800px; padding: 100px 0 75px; isolation: isolate; overflow: hidden; }
 .glow { position: absolute; pointer-events: none; z-index: -1; filter: blur(30px); border-radius: 50%; }
@@ -235,6 +281,7 @@ footer .container { display: flex; justify-content: space-between; gap: 20px; fl
   .reverse .panel { order: -1; }
   .gallery { grid-template-columns: repeat(2, 1fr); }
   .flow { grid-template-columns: repeat(2, 1fr); }
+  .start-steps { grid-template-columns: 1fr; padding: 0; }
   section { padding: 75px 0; }
 }
 @media (max-width: 560px) {
@@ -242,7 +289,8 @@ footer .container { display: flex; justify-content: space-between; gap: 20px; fl
   .nav-cta { padding: 8px 14px; font-size: 12px; }
   .hero { padding-top: 60px; }
   .hero h1 { font-size: 48px; letter-spacing: -2px; }
-  .hero-actions .btn { width: 100%; }
+  .hero-actions .btn, .get > .btn { width: 100%; }
+  .btn.big { font-size: 17px; padding: 16px 20px; }
   .signal { height: 95px; margin: 5px auto -6px; }
   .showcase { transform: none; border-radius: 12px; padding: 5px; }
   .screen { border-radius: 9px; }
@@ -264,9 +312,10 @@ footer .container { display: flex; justify-content: space-between; gap: 20px; fl
 <header>
   <nav class="container">
     <a class="brand" href="#top" aria-label="שמע Pro, חזרה לראש העמוד">
-      <span class="mark">◉</span> שמע <span class="pro-pill">PRO</span>
+      <span class="mark logo"><img src="shema-icon.svg" alt=""></span> שמע <span class="pro-pill">PRO</span>
     </a>
     <div class="links">
+      <a href="#start">איך מתחילים</a>
       <a href="#features">יכולות</a>
       <a href="#screens">הצצה</a>
       <a href="#how">איך זה עובד</a>
@@ -274,9 +323,7 @@ footer .container { display: flex; justify-content: space-between; gap: 20px; fl
       <a href="#privacy">פרטיות</a>
       <a href="#faq">שאלות נפוצות</a>
     </div>
-    <a class="btn nav-cta primary" href="https://play.google.com/store/apps/details?id=app.shema.listener" target="_blank" rel="noopener">
-      📱 הורדה ב-Google Play
-    </a>
+    <a class="btn nav-cta primary" href="#download">⬇ הורדה</a>
   </nav>
 </header>
 
@@ -289,18 +336,28 @@ footer .container { display: flex; justify-content: space-between; gap: 20px; fl
       <span class="eyebrow"><span class="dot"></span> זיכרון קולי פרטי · תמלול עברית מקומי · 14 ימי ניסיון חינם</span>
       <h1>החיים קורים.<br><span class="gradient">שמע זוכר.</span></h1>
       <p class="lead">
-        הסיפור שהילד סיפר, הרעיון שעלה בדרך, ההבטחה מהפגישה. 
-        <strong style="color:#f4f4ff">שמע Pro</strong> הופך שיחות לזיכרון שאפשר לחפש, להבין ולחזור אליו — עם AI שרץ מקומית אצלך במחשב, בלי שום ענן.
+        <strong style="color:#f4f4ff">שמע</strong> הוא זיכרון קולי פרטי: הטלפון מקליט, המחשב שלך מתמלל בעברית ומסכם, והכל נשאר אצלך בבית, בלי ענן.
       </p>
 
-      <div class="hero-actions">
-        <a class="btn primary" href="https://play.google.com/store/apps/details?id=app.shema.listener" target="_blank" rel="noopener">
-          📱 התקנה מ-Google Play (ניסיון חינם)
+      <div class="get" id="download">
+        <a class="btn primary big" id="playBig" hidden href="https://play.google.com/store/apps/details?id=app.shema.listener" target="_blank" rel="noopener">
+          📱 התקן את שמע Pro מ-Google Play
         </a>
-        <a class="btn outline" href="https://github.com/agmonp/shema/releases/latest" target="_blank" rel="noopener">
-          💻 הורדת שרת המחשב (Windows)
+        <a class="btn primary big" id="pcBtn" href="https://github.com/agmonp/shema/releases/latest/download/ShemaSetup.exe">
+          ⬇ הורד את שמע למחשב (Windows)
         </a>
+        <div class="dlmeta" id="dlmeta">קובץ התקנה אחד · ל-Windows 10 ו-11 (64 ביט)</div>
+        <div class="alt" id="playSmall">
+          <a class="play-badge" href="https://play.google.com/store/apps/details?id=app.shema.listener" target="_blank" rel="noopener" aria-label="שמע Pro ב-Google Play">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 2.5v19l15.5-9.5z" fill="#76f4c5"/></svg>
+            <span><small>לטלפון אנדרואיד, ב-</small><b>Google Play</b></span>
+          </a>
+        </div>
       </div>
+      <p class="smartscreen" id="smartscreen">
+        אם Windows מציג "Windows הגן על המחשב שלך": לוחצים <b>מידע נוסף</b>, ואז <b>הפעל בכל זאת</b>.
+        ההתקנה מורידה את מודלי התמלול (כמה GB) ולוקחת כמה דקות.
+      </p>
 
       <p class="subnote">
         התנסו ב-14 ימי ניסיון חינם מלאים · לאחר מכן ₪99.90 לשנה בלבד (פחות מ-₪8.5 לחודש)
@@ -327,6 +384,35 @@ footer .container { display: flex; justify-content: space-between; gap: 20px; fl
         <span><b>●</b> סיכומי שיחות ומשימות ב-AI</span>
         <span><b>●</b> פרטיות בלי ענן</span>
       </div>
+    </div>
+  </section>
+
+  <!-- Getting started -->
+  <section id="start" class="highlight">
+    <div class="container">
+      <div class="section-head center reveal">
+        <span class="section-tag">GETTING STARTED</span>
+        <h2>איך מתחילים?<br><span class="gradient">שלושה צעדים.</span></h2>
+      </div>
+      <ol class="start-steps">
+        <li class="reveal">
+          <h3>מתקינים במחשב</h3>
+          <p>מורידים את <b>ShemaSetup.exe</b> ולוחצים עליו פעמיים. ההתקנה מכינה הכל לבד, ובסוף נפתח המסך של שמע.</p>
+          <a class="btn primary" href="https://github.com/agmonp/shema/releases/latest/download/ShemaSetup.exe">⬇ הורד למחשב (Windows)</a>
+        </li>
+        <li class="reveal">
+          <h3>מתקינים בטלפון</h3>
+          <p>מתקינים את <b>שמע Pro</b> מ-Google Play בטלפון האנדרואיד. 14 ימי ניסיון חינם.</p>
+          <a class="play-badge" href="https://play.google.com/store/apps/details?id=app.shema.listener" target="_blank" rel="noopener" aria-label="שמע Pro ב-Google Play">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 2.5v19l15.5-9.5z" fill="#76f4c5"/></svg>
+            <span><small>להורדה ב-</small><b>Google Play</b></span>
+          </a>
+        </li>
+        <li class="reveal">
+          <h3>מחברים ב-QR</h3>
+          <p>במסך של שמע במחשב לוחצים <b>📱 חבר טלפון</b>. באפליקציה לוחצים "חבר למחשב" וסורקים את ה-QR. זהו.</p>
+        </li>
+      </ol>
     </div>
   </section>
 
@@ -447,7 +533,7 @@ footer .container { display: flex; justify-content: space-between; gap: 20px; fl
         <div class="step reveal">
           <b>01</b>
           <h3>התקנה פשוטה במחשב</h3>
-          <p>מורידים את חבילת שמע למחשב ומריצים את Install.bat בלחיצה כפולה. כל המודלים יורדים ומוגדרים אוטומטית.</p>
+          <p>מורידים קובץ התקנה אחד, ShemaSetup.exe, ולוחצים עליו פעמיים. כל המודלים יורדים ומוגדרים אוטומטית.</p>
         </div>
         <div class="step reveal">
           <b>02</b>
@@ -581,7 +667,7 @@ footer .container { display: flex; justify-content: space-between; gap: 20px; fl
           <p>
             ב-3 צעדים קלים:<br>
             1. מתקינים את אפליקציית שמע Pro בטלפון דרך Google Play.<br>
-            2. מורידים את חבילת המחשב (Windows) ומריצים את Install.bat בלחיצה כפולה.<br>
+            2. מורידים למחשב (Windows) את <a href="https://github.com/agmonp/shema/releases/latest/download/ShemaSetup.exe" style="color:var(--mint);text-decoration:underline">ShemaSetup.exe</a> ולוחצים עליו פעמיים.<br>
             3. סורקים את קוד ה-QR המופיע במחשב בעזרת הטלפון כדי לחבר אותם, ומלמדים את המערכת את הקול שלכם בכמה משפטים קצרים!
           </p>
         </details>
@@ -608,8 +694,8 @@ footer .container { display: flex; justify-content: space-between; gap: 20px; fl
         <a href="https://play.google.com/store/apps/details?id=app.shema.listener" class="btn primary" target="_blank" rel="noopener">
           📱 התחלת 14 ימי ניסיון ב-Google Play
         </a>
-        <a href="https://github.com/agmonp/shema/releases/latest" class="btn outline" target="_blank" rel="noopener">
-          💻 הורדת שרת המחשב (Windows)
+        <a href="https://github.com/agmonp/shema/releases/latest/download/ShemaSetup.exe" class="btn outline">
+          ⬇ הורד את שמע למחשב (Windows)
         </a>
       </div>
       <p class="subnote">
@@ -625,13 +711,34 @@ footer .container { display: flex; justify-content: space-between; gap: 20px; fl
     <div class="footer-links">
       <a href="privacy.html">מדיניות פרטיות</a>
       <a href="privacy.html#מחיקת-הקלטות">מחיקת נתונים</a>
-      <a href="https://github.com/agmonp/shema" target="_blank" rel="noopener">GitHub</a>
-      <a href="https://github.com/agmonp/shema/issues" target="_blank" rel="noopener">תמיכה ודיווח</a>
+      <a href="https://github.com/agmonp/shema/issues" target="_blank" rel="noopener">יצירת קשר ותמיכה</a>
+      <a href="https://github.com/agmonp/shema" target="_blank" rel="noopener" style="opacity:.6">קוד מקור</a>
     </div>
   </div>
 </footer>
 
 <script>
+// Android phone: the store first, the PC download second
+if (/Android/i.test(navigator.userAgent)) {
+  document.getElementById('playBig').hidden = false;
+  document.getElementById('playSmall').hidden = true;
+  document.getElementById('smartscreen').hidden = true;
+  const pc = document.getElementById('pcBtn');
+  pc.className = 'btn outline';
+  pc.textContent = '💻 להורדה למחשב (Windows)';
+}
+// version and size of the newest installer, when GitHub answers (the button works without it)
+fetch('https://api.github.com/repos/agmonp/shema/releases/latest')
+  .then(r => r.ok ? r.json() : Promise.reject())
+  .then(rel => {
+    const a = (rel.assets || []).find(x => x.name === 'ShemaSetup.exe');
+    if (!a) return;
+    const mb = (a.size / 1048576).toFixed(1);
+    document.getElementById('dlmeta').textContent =
+      `גרסה ${rel.tag_name.replace(/^v/, '')} · ${mb} MB · ל-Windows 10 ו-11 (64 ביט)`;
+  })
+  .catch(() => {});
+
 const signal = document.getElementById('signal');
 for (let i = 0; i < 128; i++) {
   const s = document.createElement('span');

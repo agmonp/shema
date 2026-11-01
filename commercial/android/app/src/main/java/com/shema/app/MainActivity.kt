@@ -943,7 +943,7 @@ class MainActivity : Activity(), BillingManager.BillingCallback {
     // ------------------------------------------------------------ Desktop Onboarding & Helper
     private fun shareDesktopDownload() {
         val url = getString(R.string.desktop_download_url)
-        val text = "הורדת תוכנת שמע למחשב (ללא ענן): $url\nהתקן על מחשב Windows והפעל את Install.bat."
+        val text = "הורדת שמע למחשב (ללא ענן): $url\nפותחים את הקישור במחשב Windows, לוחצים \"הורד את שמע למחשב\" ומפעילים את הקובץ שירד."
         val sendIntent = Intent().apply {
             action = Intent.ACTION_SEND
             putExtra(Intent.EXTRA_TEXT, text)
@@ -955,14 +955,14 @@ class MainActivity : Activity(), BillingManager.BillingCallback {
     private fun showDesktopGuide() {
         val msg = "כיצד לחבר את שמע למחשב ב-3 צעדים:\n\n" +
             "1. שלח לעצמך את הקישור ופתח אותו במחשב Windows.\n" +
-            "2. פתח את קובץ ה-ZIP והפעל את Install.bat (ההתקנה מתקינה את מודלי ה-AI המקומיים).\n" +
+            "2. לחץ \"הורד את שמע למחשב\" והפעל את ShemaSetup.exe (ההתקנה מתקינה את מודלי ה-AI המקומיים).\n" +
             "3. בסיום יפתח מסך שמע בדפדפן. לחץ על 'חבר טלפון' וסרוק את קוד ה-QR עם האפליקציה הזו.\n\n" +
             "הכל עובד ברשת הביתית ללא שום שרת ענן!"
         AlertDialog.Builder(this).setTitle("התקנת תוכנת המחשב").setMessage(msg).setPositiveButton("הבנתי", null).show()
     }
 
     private fun openPrivacyPolicy() {
-        startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/agmonp/shema#פרטיות")))
+        startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(getString(R.string.desktop_download_url) + "privacy.html")))
     }
 
     // ------------------------------------------------------------ Google Play Prominent Disclosure

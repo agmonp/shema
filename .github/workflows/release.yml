@@ -1,0 +1,45 @@
+name: Windows installer for a release
+# On every version tag (v1.2.3): builds the PC zip + ShemaSetup.exe and attaches them to the release of that tag.
+# A release that already exists (the dashboard's "gh release create") gets the files replaced; a tag without a release
+# gets a DRAFT release, which is published by hand. The asset name stays ShemaSetup.exe, so
+# https://github.com/agmonp/shema/releases/latest/download/ShemaSetup.exe always downloads the newest published one.
+on:
+  push:
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to build, e.g. v1.0.15"
+        required: true
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: windows-2025
+    env:
+      TAG: ${{ github.event.inputs.tag || github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.TAG }}
+      - name: Inno Setup
+        shell: pwsh
+        run: choco install innosetup -y --no-progress
+      - name: Build zip + ShemaSetup.exe
+        shell: pwsh
+        run: |
+          $v = $env:TAG.TrimStart("v")
+          python commercial/dashboard/server.py --zip $v
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Attach to the release
+        shell: pwsh
+        run: |
+          $v = $env:TAG.TrimStart("v")
+          $files = "commercial/dist/shema-windows-v$v.zip", "commercial/dist/ShemaSetup.exe"
+          gh release view $env:TAG *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $env:TAG @files --clobber
+          } else {
+            gh release create $env:TAG @files --draft --title "שמע Pro $env:TAG — תוכנת שרת למחשב (Windows)" --notes "גרסה $v"
+          }
