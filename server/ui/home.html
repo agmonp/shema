@@ -114,8 +114,11 @@ button.gold:hover{color:var(--gold);border-color:var(--gold)}
 .source .sub{color:var(--faint);font-size:13px}
 .source .pc{margin-inline-start:auto;font-size:13px;color:var(--dim);background:var(--surface2);border-radius:20px;padding:4px 12px}
 .days{display:flex;gap:6px;overflow-x:auto;padding:12px 0 6px}
-.days button{background:var(--surface2);border:1px solid var(--line2);border-radius:20px;padding:5px 12px;white-space:nowrap;font-size:14px}
+.days button{background:var(--surface2);border:1px solid var(--line2);border-radius:14px;padding:6px 14px;white-space:nowrap;font-size:15px;
+  display:flex;flex-direction:column;align-items:center;line-height:1.2;min-width:58px;flex:none}
+.days button small{font-size:12px;color:var(--dim);font-weight:400}
 .days button.on{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:700}
+.days button.on small{color:var(--accent-ink)}
 .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:14px 16px;margin:12px 0}
 .card h2{font-size:16px;margin:0 0 8px;font-weight:700;display:flex;align-items:center;gap:8px}
 .card h2 .act{margin-inline-start:auto;font-size:13px;font-weight:500;color:var(--accent);border:1px solid var(--line2);border-radius:16px;padding:2px 10px}
@@ -318,6 +321,8 @@ mark{background:rgba(234,164,94,.3);color:inherit;border-radius:3px}
 .nowbar .tp{color:var(--ink);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:40ch}
 .nowbar .more{margin-inline-start:auto;color:var(--faint)}
 .nowbar:hover{border-color:var(--line2)}
+#phones .nowbar{width:100%;text-align:start;font:inherit;color:var(--dim);cursor:pointer}
+.nowbar .w{color:var(--rose)}
 .nowopen{margin-top:6px}
 .brief{display:grid;gap:2px;margin:0}
 .brief .it{display:flex;gap:10px;align-items:baseline;padding:7px 8px;border-radius:10px;cursor:pointer;text-align:start;width:100%}
@@ -583,29 +588,65 @@ function phoneCard(p){
     ${!p.online && p.seconds_ago > 3600 ? `<div class="phacts"><span class="legend" style="margin:0">לא מתחבר? ודא שהטלפון ברשת הבית ו"שמע" פתוח בו, או</span>
       <button onclick="showPair()">חבר מחדש</button><button data-forget="${esc(p.code)}" data-name="${esc(p.device)}">הסר מהרשימה</button></div>` : ""}</div>`;
 }
+// 2026-11-01: ONE connection line for the whole page (it was two: the phones line on top and "שומע דיבור" in the day
+// page). Closed: state · phones · last speech · analysing · warnings. Open: the phone cards and the latest lines.
+let SRC = null, LIVE = null, BAR_HTML = "";
 function source(s){
+  SRC = s;
+  $("#pairbtn").hidden = (s.phones || []).length > 0;   // once a phone is paired the QR is a secondary action
+  PHONES = s.phones || [];
+  phoneOnline = PHONES.some(x => x.online);
+  drawBar();
+}
+function phoneWarn(p){
+  const q = +p.queued || 0, oldest = +p.oldest || 0;
+  return [p.vpn === "0" && !p.online ? "Tailscale כבוי?" : "", p.bat && +p.bat > 0 && +p.bat < 15 && p.charging !== "1" ? "סוללה חלשה" : "",
+    q && oldest > 48 * 3600 ? `${q} ממתינים` : "", !p.online && p.seconds_ago > 3600 ? "לא מחובר" : ""].filter(Boolean);
+}
+function drawBar(){
+  const s = SRC; if (!s) return;
   const ph = s.phones || [];
-  phoneOnline = ph.some(x => x.online);
-  PHONES = ph;
-  $("#pairbtn").hidden = ph.length > 0;          // once a phone is paired the QR is a secondary action (phone details)
-  if (!ph.length) {
-    $("#phones").innerHTML = `<div class="pcards"><div class="pcard"><h3><span class="dot"></span>אין טלפון מחובר</h3><div class="legend">הטלפון (אפליקציית "שמע") מקליט כל היום. אפשר גם להקליט ישירות במחשב: שיחה בחדר, שיחת וידאו או סרטון.</div>
-      <div style="margin-top:8px"><button class="pairbtn" onclick="showPair()">📱 חבר טלפון</button></div></div></div>`;
-  } else {
-    const open = PH_OPEN;
-    $("#phones").innerHTML = `<button class="phline${open ? " open" : ""}" id="phtoggle" title="${open ? "סגור" : "פרטי הטלפונים: כיסוי ההקלטה היום, סוללה, חיבור"}">
-        ${ph.map(phoneChip).join("")}<span class="phmore">${open ? "סגור ▴" : "פרטים ▾"}</span></button>
-      ${open ? `<div class="pcards">${ph.map(phoneCard).join("")}</div>
-      <div class="legend2">${LEG.map(([k, c, t]) => `<span><b style="background:${c}"></b>${t}</span>`).join("")}<span style="margin-inline-start:auto">🖥 ${s.pc_has_mic ? "המחשב מנתח, ואפשר להקליט גם בו" : "המחשב מנתח · מקליט בו רק את שמע המחשב (אין מיקרופון)"}</span></div>
-      <div class="phacts"><button id="phnew">📱 חבר טלפון נוסף או מחליף</button><button id="phshare">💌 שתף את שמע עם חבר</button></div>` : ""}`;
-    $("#phtoggle").onclick = () => { PH_OPEN = !PH_OPEN; try { localStorage.setItem("shema_ph_open", PH_OPEN ? "1" : ""); } catch (e) {} source(s); };
-    if (open) {
-      $("#phnew").onclick = showPair; $("#phshare").onclick = shareApp;
-      document.querySelectorAll("[data-forget]").forEach(b => b.onclick = async () => {
-        if (!confirm(`להסיר את ${b.dataset.name} מהרשימה? (אם הטלפון עדיין מחובר, הוא יופיע שוב בפעם הבאה שהוא שולח)`)) return;
-        const r = await POST("/home/api/forget_phone", {device: b.dataset.forget}); toast(r.ok ? "הוסר מהרשימה" : (r.msg || "לא הצליח")); status(); });
-    }
+  if (!ph.length) { BAR_HTML = ""; return oldSource(s); }
+  const on = ph.filter(p => p.online), L = LIVE;
+  const speaking = on.some(p => /שומע דיבור/.test(p.state || "")), listening = on.length > 0;
+  const state = speaking ? "שומע דיבור" : listening ? "מקליט" : "לא מקליט כרגע";
+  const lastU = L && L.utterances.length ? L.utterances[L.utterances.length - 1] : null;
+  const lastS = lastU ? Math.max(0, Math.round((Date.now() - new Date(lastU.t0)) / 1000)) : null;
+  const lastTxt = lastS == null ? "" : lastS < 60 ? "דיבור אחרון עכשיו" : "דיבור אחרון " + ago(Math.floor(lastS / 60) * 60);
+  const warns = ph.flatMap(p => phoneWarn(p).map(w => `${ph.length > 1 ? first(p.device) + ": " : ""}${w}`));
+  const proc = L && (L.queue || L.worker_busy) ? `⏳ מנתח${L.queue ? " " + L.queue : ""}` : "";
+  const c = L && L.conversation, U = L ? L.utterances.slice(-8) : [], open = PH_OPEN;
+  const html = `<button class="nowbar ${speaking ? "speak" : listening ? "listen" : ""}" id="phtoggle" aria-expanded="${open}"
+      title="${open ? "סגור" : "פרטי הטלפונים והמשפטים האחרונים"}"><span class="dot"></span><b>${state}</b>
+      ${on.length ? `<span class="sep">·</span><span class="tp">${on.map(p => esc(p.device)).join(", ")}</span>` : ""}
+      ${lastTxt ? `<span class="sep">·</span><span>${lastTxt}</span>` : ""}
+      ${c && c.status === "open" && c.topic ? `<span class="sep">·</span><span class="tp">${esc(c.topic)}</span>` : ""}
+      ${proc ? `<span class="sep">·</span><span>${proc}</span>` : ""}
+      ${warns.length ? `<span class="sep">·</span><span class="w">⚠ ${esc(warns.join(" · "))}</span>` : ""}
+      <span class="more">${open ? "סגור ▴" : "פרטים ▾"}</span></button>
+    ${open ? `<div class="pcards">${ph.map(phoneCard).join("")}</div>
+      <div class="legend2">${LEG.map(([k, cl, t]) => `<span><b style="background:${cl}"></b>${t}</span>`).join("")}<span style="margin-inline-start:auto">🖥 ${s.pc_has_mic ? "המחשב מנתח, ואפשר להקליט גם בו" : "המחשב מנתח · מקליט בו רק את שמע המחשב (אין מיקרופון)"}</span></div>
+      <div class="phacts"><button id="phnew">📱 חבר טלפון נוסף או מחליף</button><button id="phshare">💌 שתף את שמע עם חבר</button></div>
+      ${L ? `<div class="card live nowopen">${c ? `<h2>${esc(c.topic || "השיחה עכשיו")}<button class="act" onclick="location.hash='c${c.id}'">לשיחה המלאה</button></h2>` : ""}
+        ${c && c.summary ? `<div class="sum">${c.status === "open" ? '<span class="chip prov">סיכום ביניים</span> ' : ""}${esc(c.summary)}</div>` : ""}
+        ${U.length ? U.map(uttRow).join("") : `<div class="legend">אין משפטים ב-15 הדקות האחרונות.</div>`}
+        ${L.sounds.filter(x => SND[x.tag]).length ? `<div class="chips">${L.sounds.filter(x => SND[x.tag]).map(x => `<span class="chip">${SND[x.tag]} ${esc(x.tag)} ${hm(x.t0)}</span>`).join("")}</div>` : ""}</div>` : ""}` : ""}`;
+  if (html === BAR_HTML) return;                         // a redraw every 4 s swallowed clicks: only when something changed
+  BAR_HTML = html;
+  const box = $("#phones");
+  box.innerHTML = html;
+  $("#phtoggle").onclick = () => { PH_OPEN = !PH_OPEN; try { localStorage.setItem("shema_ph_open", PH_OPEN ? "1" : ""); } catch (e) {} drawBar(); };
+  if (open) {
+    $("#phnew").onclick = showPair; $("#phshare").onclick = shareApp;
+    box.querySelectorAll("[data-forget]").forEach(b => b.onclick = async () => {
+      if (!confirm(`להסיר את ${b.dataset.name} מהרשימה? (אם הטלפון עדיין מחובר, הוא יופיע שוב בפעם הבאה שהוא שולח)`)) return;
+      const r = await POST("/home/api/forget_phone", {device: b.dataset.forget}); toast(r.ok ? "הוסר מהרשימה" : (r.msg || "לא הצליח")); status(); });
+    if (L) bindWho(box, U);
   }
+}
+function oldSource(s){                                   // no phone yet: how to connect one
+  $("#phones").innerHTML = `<div class="pcards"><div class="pcard"><h3><span class="dot"></span>אין טלפון מחובר</h3><div class="legend">הטלפון (אפליקציית "שמע") מקליט כל היום. אפשר גם להקליט ישירות במחשב: שיחה בחדר, שיחת וידאו או סרטון.</div>
+    <div style="margin-top:8px"><button class="pairbtn" onclick="showPair()">📱 חבר טלפון</button></div></div></div>`;
 }
 // the closed phones line: one chip per phone (state, battery, hours recorded today) + any warning
 let PH_OPEN = (() => { try { return !!localStorage.getItem("shema_ph_open"); } catch (e) { return false; } })();
@@ -638,39 +679,12 @@ async function status(){
 }
 
 async function live(){
-  const L = await J("/home/api/live");
-  const box = $("#livebox");
-  if (!box || document.querySelector(".sheet")) return;          // the box lives in the day page (under the timeline)
-  if (location.hash && location.hash !== "#") { box.innerHTML = ""; live.key = null; return; }   // only on the main tab
-  // redraw only when something changed: a redraw every 4 s swallowed clicks on "מי זה?"
-  const on = PHONES.filter(p => p.online);
-  const key = JSON.stringify([L.utterances.map(u => [u.id, u.name]), L.conversation, L.queue, L.worker_busy, L.sounds,
-    on.map(p => [p.device, p.state]), LIVE_OPEN, Math.floor(Date.now() / 60000)]);
-  if (key === live.key) return;
-  live.key = key;
-  if (!on.length && !L.utterances.length) { box.innerHTML = ""; return; }
-  // one quiet line: what is recording, whether speech is heard, when the last line came, from where.
-  // Only facts about the recording; nothing is read into silence.
-  const c = L.conversation, U = L.utterances.slice(-8);
-  const speaking = on.some(p => /שומע דיבור/.test(p.state || "")), listening = on.length > 0;
-  const lastU = L.utterances.length ? L.utterances[L.utterances.length - 1] : null;
-  const lastS = lastU ? Math.max(0, Math.round((Date.now() - new Date(lastU.t0)) / 1000)) : null;
-  const state = speaking ? "שומע דיבור" : listening ? "מקליט" : "לא מקליט כרגע";
-  const proc = L.queue || L.worker_busy ? `<span>⏳ מנתח${L.queue ? " " + L.queue : ""}</span>` : "";
-  box.innerHTML = `<button class="nowbar ${speaking ? "speak" : listening ? "listen" : ""}" id="nowtoggle" aria-expanded="${LIVE_OPEN}">
-      <span class="dot"></span><b>${state}</b>
-      ${on.length ? `<span class="sep">·</span><span>${on.map(p => esc(p.device)).join(", ")}</span>` : ""}
-      <span class="sep">·</span><span>${lastS != null ? "דיבור אחרון " + ago(lastS) : "עוד אין משפטים מנותחים מ-15 הדקות האחרונות"}</span>
-      ${c && c.status === "open" && c.topic ? `<span class="sep">·</span><span class="tp">${esc(c.topic)}</span>` : ""}
-      ${proc}<span class="more">${LIVE_OPEN ? "סגור ▴" : U.length ? `${U.length} משפטים אחרונים ▾` : "פרטים ▾"}</span></button>
-    ${LIVE_OPEN ? `<div class="card live nowopen">${c ? `<h2>${esc(c.topic || "השיחה עכשיו")}<button class="act" onclick="location.hash='c${c.id}'">לשיחה המלאה</button></h2>` : ""}
-      ${c && c.summary ? `<div class="sum">${c.status === "open" ? '<span class="chip prov">סיכום ביניים</span> ' : ""}${esc(c.summary)}</div>` : ""}
-      ${U.length ? U.map(uttRow).join("") : `<div class="legend">אין משפטים ב-15 הדקות האחרונות.</div>`}
-      ${L.sounds.filter(s => SND[s.tag]).length ? `<div class="chips">${L.sounds.filter(s => SND[s.tag]).map(s => `<span class="chip">${SND[s.tag]} ${esc(s.tag)} ${hm(s.t0)}</span>`).join("")}</div>` : ""}</div>` : ""}`;
-  $("#nowtoggle").onclick = () => { LIVE_OPEN = !LIVE_OPEN; try { localStorage.setItem("shema_now_open", LIVE_OPEN ? "1" : ""); } catch (e) {} live.key = null; live(); };
-  if (LIVE_OPEN) bindWho(box, U);
+  // the latest lines + what is being analysed feed the one connection line (drawBar); it redraws only on a change
+  try { LIVE = await J("/home/api/live"); } catch (e) { return; }
+  const box = $("#livebox"); if (box) box.innerHTML = "";
+  if (document.querySelector(".sheet")) return;
+  drawBar();
 }
-let LIVE_OPEN = (() => { try { return !!localStorage.getItem("shema_now_open"); } catch (e) { return false; } })();
 
 // ---------------------------------------------------------------- home v2: what matters today + ask
 const BRIEF_K = {decision: "החלטה", task: "משימה", open: "פתוח", marked: "סימנת", highlight: "בולט", teach: "קולות"};
@@ -1011,10 +1025,18 @@ function keys(e){
   else if (e.key === " " && WHO_AUDIO && !e.target.closest("button")) { e.preventDefault(); WHO_AUDIO.paused ? WHO_AUDIO.play() : WHO_AUDIO.pause(); }
 }
 
+function dayName(d){
+  const t = todayLocal(), y = new Date(Date.now() - 864e5);
+  if (d === t) return "היום";
+  if (d === `${y.getFullYear()}-${p2(y.getMonth() + 1)}-${p2(y.getDate())}`) return "אתמול";
+  return ["ראשון", "שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת"][new Date(d + "T12:00:00").getDay()];
+}
 async function days(){
   const d = await J("/home/api/days");
   if (!day) day = d.length ? d[0].day : new Date().toISOString().slice(0, 10);
-  $("#days").innerHTML = d.map(x => `<button data-d="${x.day}" class="${x.day === day ? "on" : ""}">${x.day.slice(8)}/${x.day.slice(5, 7)} · ${x.conversations}</button>`).join("");
+  // 2026-11-01: the weekday and the date, no counts in the chip (the count is in the tooltip)
+  $("#days").innerHTML = d.map(x => `<button data-d="${x.day}" class="${x.day === day ? "on" : ""}" title="${x.conversations} שיחות"
+    aria-label="${esc(dayName(x.day))} ${+x.day.slice(8)}/${+x.day.slice(5, 7)}${x.day === day ? " (נבחר)" : ""}"><small>${esc(dayName(x.day))}</small>${+x.day.slice(8)}/${+x.day.slice(5, 7)}</button>`).join("");
   document.querySelectorAll("#days button").forEach(b => b.onclick = () => { day = b.dataset.d;
     if (location.hash.startsWith("#sounds")) showSounds(); else { location.hash = ""; route(); } });
 }
