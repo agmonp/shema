@@ -1,8 +1,11 @@
 name: Windows installer for a release
-# On every version tag (v1.2.3): builds the PC zip + ShemaSetup.exe and attaches them to the release of that tag.
-# A release that already exists (the dashboard's "gh release create") gets the files replaced; a tag without a release
-# gets a DRAFT release, which is published by hand. The asset name stays ShemaSetup.exe, so
+# On every version tag (v1.2.3): builds the PC zip + ShemaSetup.exe on a GitHub-hosted runner and attaches them to the
+# release of that tag. A release that already exists (the dashboard's "gh release create") gets the files replaced; a
+# tag without a release gets a DRAFT release, which is published by hand. The asset name stays ShemaSetup.exe, so
 # https://github.com/agmonp/shema/releases/latest/download/ShemaSetup.exe always downloads the newest published one.
+# Code signing (SignPath Foundation): ShemaSetup.exe is signed once the repo has the variables SIGNPATH_ORGANIZATION_ID,
+# SIGNPATH_PROJECT_SLUG, SIGNPATH_SIGNING_POLICY_SLUG and the secret SIGNPATH_API_TOKEN. Every request waits for a manual
+# approval in SignPath (up to an hour). Without those settings the unsigned exe is attached, as before.
 on:
   push:
     tags: ["v*.*.*"]
@@ -13,6 +16,7 @@ on:
         required: true
 permissions:
   contents: write
+  actions: read
 jobs:
   build:
     runs-on: windows-2025
@@ -32,6 +36,34 @@ jobs:
           $v = $env:TAG.TrimStart("v")
           python commercial/dashboard/server.py --zip $v
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Upload unsigned exe
+        id: upload-unsigned
+        uses: actions/upload-artifact@v4
+        with:
+          name: ShemaSetup-unsigned
+          path: commercial/dist/ShemaSetup.exe
+          if-no-files-found: error
+      - name: Sign with SignPath
+        if: ${{ vars.SIGNPATH_ORGANIZATION_ID != '' }}
+        uses: signpath/github-action-submit-signing-request@v3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          github-artifact-id: ${{ steps.upload-unsigned.outputs.artifact-id }}
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 3600
+          output-artifact-directory: signed
+      - name: Pick the exe to release
+        shell: pwsh
+        run: |
+          if (Test-Path signed/ShemaSetup.exe) {
+            $sig = Get-AuthenticodeSignature signed/ShemaSetup.exe
+            "Signature: $($sig.Status) $($sig.SignerCertificate.Subject)"
+            if ($sig.Status -ne "Valid") { throw "the signed exe does not verify" }
+            Copy-Item signed/ShemaSetup.exe commercial/dist/ShemaSetup.exe -Force
+          } else { "Unsigned (no SignPath settings yet)" }
       - name: Attach to the release
         shell: pwsh
         run: |
