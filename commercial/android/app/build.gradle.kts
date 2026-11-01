@@ -15,8 +15,8 @@ android {
         applicationId = "app.shema.listener"
         minSdk = 29
         targetSdk = 36
-        versionCode = 119
-        versionName = "1.0.22"
+        versionCode = 120
+        versionName = "1.0.23"
 
         // NDK ABI filters: arm64-v8a covers virtually 100% of modern Android devices
         ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
