@@ -16,7 +16,8 @@
   <a href="#התקנה-ב-4-צעדים">התקנה</a> ·
   <a href="#סיור-במסכים">סיור במסכים</a> ·
   <a href="#פרטיות">פרטיות</a> ·
-  <a href="#הקלטה-וחוק">הקלטה וחוק</a>
+  <a href="#הקלטה-וחוק">הקלטה וחוק</a> ·
+  <a href="#code-signing-policy">Code signing policy</a>
 </p>
 
 <p align="center">
@@ -230,6 +231,32 @@ flowchart LR
 ## עדכון
 
 במסך של שמע במחשב יש כפתור עדכון. אפשר גם להוריד שוב את [`ShemaSetup.exe`](https://shema.agmonp.com/) ולהריץ אותו. הנתונים, הקולות שלימדת וקוד הגישה נשארים. המתקין גם מוריד את האפליקציה העדכנית לטלפון. כדי לעדכן את הטלפון פותחים בו שוב את הקישור מ"📱 חבר טלפון", וההתקנה מעל הגרסה הקיימת שומרת את ההגדרות.
+
+<div dir="ltr">
+
+## Code signing policy
+
+Free code signing provided by [SignPath.io](https://about.signpath.io), certificate by [SignPath Foundation](https://signpath.org).
+
+Only `ShemaSetup.exe` is signed: the Windows installer that the download page ([shema.agmonp.com](https://shema.agmonp.com/)) links to. It is built from this repository's source by [`.github/workflows/release.yml`](.github/workflows/release.yml) on GitHub-hosted runners (Inno Setup packs `server/` and `install/`), and only that build is signed. Python, ffmpeg, Ollama, PyTorch and the speech models are not bundled: the installer downloads them from their own publishers.
+
+Team roles:
+
+- Committers and reviewers: [agmonp](https://github.com/agmonp)
+- Approvers: [agmonp](https://github.com/agmonp)
+
+Every signing request is approved by hand. The maintainer uses multi-factor authentication on GitHub and SignPath.
+
+Privacy: recordings, transcripts, summaries and voice prints stay on the user's own PC; there is no Shema server. The program transfers nothing else to other networked systems unless the user or the person installing it asks for it, with these exceptions, all downloads that send no user data:
+
+- The installer downloads Python, ffmpeg and Ollama (winget), PyTorch (download.pytorch.org) and the speech models (Hugging Face, GitHub).
+- While the PC screen is open, it checks this repository's public GitHub releases for a new version (can be turned off: `"update_check": false` in `config.json`), and every 90 days it checks Hugging Face for a newer Hebrew speech model.
+- Song recognition (Shazam) sends a sound signature only if the user turns it on; it is off by default.
+- The phone app sends audio only to the PC whose address and access code the user scanned.
+
+Privacy policy: [shema.agmonp.com/privacy.html](https://shema.agmonp.com/privacy.html) · [GitHub privacy statement](https://docs.github.com/site-policy/privacy-policies/github-general-privacy-statement)
+
+</div>
 
 ## הסרה
 

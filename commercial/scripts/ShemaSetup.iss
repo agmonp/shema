@@ -19,6 +19,12 @@ AppVerName=שמע {#AppVersion}
 AppVersion={#AppVersion}
 AppPublisher=Shema
 AppPublisherURL=https://shema.agmonp.com/
+; file properties of ShemaSetup.exe (SignPath checks product name + version before it signs)
+VersionInfoProductName=Shema
+VersionInfoDescription=Shema Setup
+VersionInfoCompany=Shema
+VersionInfoVersion={#AppVersion}
+VersionInfoProductVersion={#AppVersion}
 AppSupportURL=https://github.com/agmonp/shema/issues
 SourceDir={#Src}
 DefaultDirName={localappdata}\Shema\setup
