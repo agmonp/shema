@@ -170,6 +170,21 @@ Get-CimInstance Win32_Process -Filter "Name like 'python%'" -ErrorAction Silentl
     Where-Object { $_.CommandLine -and $_.CommandLine -like "*$App\home_listener.py*" } |
     ForEach-Object { Write-Host "stopping pid $($_.ProcessId)"; Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 
+# the port: -Port when given, else the one this install already uses (config.json), else 8770; a port that another
+# program holds (for example a second Shema server) moves to the next free one, and config.json remembers it
+if (-not $PSBoundParameters.ContainsKey("Port")) {
+    try { $p = (Get-Content (Join-Path $Data "config.json") -Raw -Encoding UTF8 | ConvertFrom-Json).port; if ($p) { $Port = [int]$p } } catch { }
+}
+Start-Sleep 1
+$want = $Port
+while (Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyContinue) {
+    $Port++
+    if ($Port -gt $want + 30) { Fail "לא נמצא פורט פנוי ליד $want. סגור תוכנה שתופסת אותו והרץ שוב את ההתקנה (ShemaSetup.exe)." }
+}
+if ($Port -ne $want) { Say "הפורט $want תפוס על ידי תוכנה אחרת במחשב, ולכן שמע ישתמש בפורט $Port." "Warning" }
+Write-Host "Port: $Port"
+Set-Content -Path (Join-Path $ShemaHome "port.txt") -Value $Port -Encoding ASCII   # ShemaSetup.exe opens this port at the end
+
 # ------------------------------------------------------------------ 6. code + Python environment
 Step "6/11 Program files and Python packages (several GB the first time)"
 & robocopy "$Src\server" $App /MIR /XD __pycache__ /NFL /NDL /NJH /NJS /NP | Out-Null
@@ -178,6 +193,20 @@ if (-not (Test-Path "$Venv\Scripts\python.exe")) { & $py -m venv $Venv }
 $vpy = "$Venv\Scripts\python.exe"
 $vpyw = "$Venv\Scripts\pythonw.exe"
 if (-not (Test-Path $vpy)) { Fail "יצירת סביבת ה-Python נכשלה ($Venv)." }
+# a venv left by an older install can be without pip (a pip self-upgrade that stopped halfway): repair it, else rebuild it
+& $vpy -m pip --version 2>$null | Out-Null
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "pip is missing in $Venv : repairing"
+    & $vpy -m ensurepip --upgrade --default-pip 2>&1 | Out-Null
+    & $vpy -m pip --version 2>$null | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "rebuilding $Venv"
+        Remove-Item $Venv -Recurse -Force -ErrorAction SilentlyContinue
+        & $py -m venv $Venv
+        & $vpy -m pip --version 2>$null | Out-Null
+        if ($LASTEXITCODE -ne 0) { Fail "סביבת ה-Python נוצרה בלי pip ($Venv). מחק את התיקייה הזו והרץ שוב את ההתקנה (ShemaSetup.exe)." }
+    }
+}
 & $vpy -m pip install --upgrade pip --disable-pip-version-check -q
 $torchWant = if ($device -eq "cuda") { "cu128" } else { "cpu" }
 $torchHave = "$(& $vpy -c "import torch; print(torch.__version__)" 2>$null)".Trim()
@@ -223,7 +252,7 @@ if (Test-Path $cfgPath) { try { $haveOwner = [bool]((Get-Content $cfgPath -Raw -
 if (-not $haveOwner -and -not $Owner) {
     $Owner = AskText "איך קוראים לך? הקול הראשי (שלך) ייקרא בשם הזה במסכים ובסיכומים." ""
 }
-$cfgArgs = @("--device", $device, "--compute", $compute, "--summary", $summary)
+$cfgArgs = @("--device", $device, "--compute", $compute, "--summary", $summary, "--port", $Port)
 if ($Owner) { $cfgArgs += @("--owner", $Owner) }
 if ($ts) { $cfgArgs += @("--remote", $ts) }
 & $vpy -X utf8 "$App\setup_config.py" @cfgArgs

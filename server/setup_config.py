@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 r"""setup_config.py -- create or update config.json (called by install\install.ps1; safe to run again).
 
-    python -X utf8 setup_config.py --device cuda --compute float16 --summary gemma3:12b [--owner NAME] [--remote IP]
+    python -X utf8 setup_config.py --device cuda --compute float16 --summary gemma3:12b [--owner NAME] [--remote IP] [--port 8770]
 
 Keeps what already exists (access code, owner, the speech model asr_update chose, the user's own settings) and
 only fills in / refreshes the hardware choices.
@@ -22,6 +22,7 @@ def main():
     ap.add_argument("--summary", required=True, help="Ollama model for summaries")
     ap.add_argument("--owner", default="", help="the owner's name (the main voice)")
     ap.add_argument("--remote", default="", help="this PC's Tailscale IPv4, if any")
+    ap.add_argument("--port", type=int, default=0, help="the server's port (the background task passes none)")
     ap.add_argument("--show", action="store_true", help="print owner_name and exit")
     a = ap.parse_args()
     CONFIG.parent.mkdir(parents=True, exist_ok=True)
@@ -44,6 +45,8 @@ def main():
         cfg["owner_name"] = a.owner.strip()[:60]
     if a.remote.strip():
         cfg["remote"] = a.remote.strip()
+    if a.port:
+        cfg["port"] = a.port
     tmp = CONFIG.with_suffix(".tmp")
     json.dump(cfg, open(tmp, "w", encoding="utf-8"), indent=1, ensure_ascii=False)
     tmp.replace(CONFIG)

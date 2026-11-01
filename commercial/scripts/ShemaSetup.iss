@@ -52,7 +52,7 @@ Source: "requirements.txt"; DestDir: "{app}"; Flags: ignoreversion
 Source: "LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 
 [Run]
-Filename: "http://localhost:8770/home#pair"; Description: "פתח את שמע"; Flags: postinstall shellexec nowait skipifsilent; Check: InstallOk
+Filename: "{code:HomeUrl}"; Description: "פתח את שמע"; Flags: postinstall shellexec nowait skipifsilent; Check: InstallOk
 
 [UninstallRun]
 Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\install\uninstall.ps1"" -Confirmed"; Flags: waituntilterminated; RunOnceId: "ShemaUninstall"
@@ -64,6 +64,19 @@ var
 function InstallOk: Boolean;
 begin
   Result := Ok;
+end;
+
+{ install.ps1 writes the port it chose (8770, or the next free one) to %LOCALAPPDATA%\Shema\port.txt }
+function HomeUrl(Param: String): String;
+var
+  Port: AnsiString;
+begin
+  if not LoadStringFromFile(ExpandConstant('{localappdata}\Shema\port.txt'), Port) then
+    Port := '8770';
+  Port := Trim(Port);
+  if Port = '' then
+    Port := '8770';
+  Result := 'http://localhost:' + Port + '/home#pair';
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);

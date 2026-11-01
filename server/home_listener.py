@@ -53,7 +53,15 @@ DB = HOME / "home.sqlite"
 CONFIG = paths.CONFIG
 PAGE = PROJ / "ui" / "home.html"
 VOICE = paths.VOICE
-PORT = int(os.getenv("HOME_PORT") or os.getenv("SHEMA_PORT") or "8770")
+def _cfg_port():
+    """the port the installer chose (config.json "port"): the logon task starts the server without HOME_PORT"""
+    try:
+        return int(json.load(open(CONFIG, encoding="utf-8-sig")).get("port") or 0)
+    except (OSError, ValueError, TypeError, AttributeError):
+        return 0
+
+
+PORT = int(os.getenv("HOME_PORT") or os.getenv("SHEMA_PORT") or _cfg_port() or 8770)
 CONV_GAP = 90             # s of silence that ends a conversation
 AUDIO_DAYS = 14          # policy "days" only
 # Audio policy (config.json "audio_policy"; the installer sets "archive"):
