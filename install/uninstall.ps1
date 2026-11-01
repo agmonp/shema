@@ -1,7 +1,7 @@
 ﻿# Shema (שמע) -- uninstall the PC side. Removes the background task, the firewall rules, the program, the Python
 # environment, the models and the shortcuts. ASKS before deleting your data (recordings, transcripts, voices).
 # Python, ffmpeg, Ollama and Tailscale stay installed (other programs may use them): remove them in Settings > Apps.
-param([string]$ShemaHome = "", [switch]$Quiet)
+param([string]$ShemaHome = "", [switch]$Quiet, [switch]$Confirmed)   # -Confirmed: the Windows uninstaller already asked
 $ErrorActionPreference = "Continue"
 if (-not $ShemaHome) { $ShemaHome = Join-Path $env:LOCALAPPDATA "Shema" }
 $RTL = 0x180000
@@ -14,7 +14,7 @@ function Ask([string]$text) {
     return ((Read-Host "y/n") -match '^(y|yes)')
 }
 
-if (-not (Ask "להסיר את שמע מהמחשב? (בשלב הבא תישאל לגבי ההקלטות והנתונים)")) { exit 0 }
+if (-not $Confirmed -and -not (Ask "להסיר את שמע מהמחשב? (בשלב הבא תישאל לגבי ההקלטות והנתונים)")) { exit 0 }
 
 Write-Host "Stopping the server ..."
 try { Stop-ScheduledTask -TaskName "Shema" -ErrorAction Stop } catch { }

@@ -1,4 +1,4 @@
-﻿# Shema (שמע) -- installer for the PC side. Run Install.bat (double click). Safe to run again: it updates, it does not break.
+﻿# Shema (שמע) -- installer for the PC side. Run by ShemaSetup.exe, or Install.bat (double click) from the zip. Safe to run again: it updates, it does not break.
 #
 #   What it does: checks the PC, picks the speech / summary models for this hardware, installs Python 3.11, ffmpeg and
 #   Ollama (winget), a private Python environment, the models, the access code and config.json, a firewall rule for the
@@ -7,7 +7,7 @@
 #
 #   Everything goes to %LOCALAPPDATA%\Shema   (app, venv, models, data, app.apk)
 #
-#   Options (for testing / advanced):  -Port 8770  -ShemaHome DIR  -Owner NAME  -Quiet  -Test  -SkipOllama  -SkipModels  -Apk FILE
+#   Options (for testing / advanced):  -NoLaunch (ShemaSetup.exe opens the page itself)  -Port 8770  -ShemaHome DIR  -Owner NAME  -Quiet  -Test  -SkipOllama  -SkipModels  -Apk FILE
 #   -Test: nothing outside ShemaHome is touched (no task, no firewall rule, no shortcuts, no winget installs).
 param(
     [int]$Port = 8770,
@@ -19,7 +19,8 @@ param(
     [switch]$SkipModels,
     [string]$Apk = "",
     [string]$Python = "",
-    [string]$Repo = "agmonp/shema"
+    [string]$Repo = "agmonp/shema",
+    [switch]$NoLaunch
 )
 $ErrorActionPreference = "Continue"
 $ProgressPreference = "SilentlyContinue"
@@ -82,7 +83,7 @@ Write-Host "Windows build $build, free space on $($drive.Name): $freeGb GB"
 if ($freeGb -lt 15) { Fail "אין מספיק מקום פנוי בכונן $($drive.Name): (יש $freeGb GB, צריך לפחות 15 GB)." }
 $winget = Get-Command winget -ErrorAction SilentlyContinue
 if (-not $winget -and -not $Test) {
-    Fail "חסר winget (מנהל ההתקנות של Windows). התקן את App Installer מ-Microsoft Store והרץ שוב את Install.bat."
+    Fail "חסר winget (מנהל ההתקנות של Windows). התקן את App Installer מ-Microsoft Store והרץ שוב את ההתקנה (ShemaSetup.exe)."
 }
 
 # ------------------------------------------------------------------ 2. graphics card -> models
@@ -157,7 +158,7 @@ if (-not $py) { Fail "לא הצלחתי להתקין את Python 3.11. התקן 
 Write-Host "Python: $py"
 $ff = FindFfmpeg
 if (-not $ff) { WingetInstall "Gyan.FFmpeg" "ffmpeg"; $ff = FindFfmpeg }
-if (-not $ff) { Fail "לא הצלחתי להתקין את ffmpeg. הרץ: winget install Gyan.FFmpeg ואז שוב את Install.bat." }
+if (-not $ff) { Fail "לא הצלחתי להתקין את ffmpeg. הרץ: winget install Gyan.FFmpeg ואז שוב את ההתקנה (ShemaSetup.exe)." }
 $opus = (& $ff -hide_banner -encoders 2>$null | Select-String libopus)
 Write-Host "ffmpeg: $ff  (libopus: $([bool]$opus))"
 if (-not $opus) { Say "ל-ffmpeg שנמצא אין libopus. שמע יעבוד, אבל הארכיון יישמר בפורמט גדול יותר. מומלץ: winget install Gyan.FFmpeg" "Warning" }
@@ -186,7 +187,7 @@ if ($torchHave -notlike "2.11.0+$torchWant") {
     if ($LASTEXITCODE -ne 0) { Fail "התקנת torch נכשלה. בדוק את החיבור לאינטרנט והרץ שוב (פרטים ב-$ShemaHome\install.log)." }
 }
 & $vpy -m pip install --disable-pip-version-check -r "$Src\requirements.txt"
-if ($LASTEXITCODE -ne 0) { Fail "התקנת ספריות ה-Python נכשלה. הרץ שוב את Install.bat (פרטים ב-$ShemaHome\install.log)." }
+if ($LASTEXITCODE -ne 0) { Fail "התקנת ספריות ה-Python נכשלה. הרץ שוב את ההתקנה (ShemaSetup.exe) (פרטים ב-$ShemaHome\install.log)." }
 
 # ------------------------------------------------------------------ 7. models
 Step "7/11 Models"
@@ -242,15 +243,15 @@ if ($errs.Count -gt 0) {
     if ($stJson.blocked_by_policy) {
         Fail ("Windows חסם ספריות ש'שמע' צריך:`n$list`n`n" +
               "זו החסימה של Smart App Control. ההתקנה לא מכבה אותה. האפשרויות: להתקין את צד המחשב על מחשב אחר, " +
-              "או לכבות בעצמך את Smart App Control (בלתי הפיך בלי התקנה מחדש של Windows) ולהריץ שוב את Install.bat.")
+              "או לכבות בעצמך את Smart App Control (בלתי הפיך בלי התקנה מחדש של Windows) ולהריץ שוב את ההתקנה (ShemaSetup.exe).")
     }
-    Fail "ספריות לא נטענו:`n$list`n`nהרץ שוב את Install.bat. אם זה חוזר, הפרטים ב-$ShemaHome\install.log"
+    Fail "ספריות לא נטענו:`n$list`n`nהרץ שוב את ההתקנה (ShemaSetup.exe). אם זה חוזר, הפרטים ב-$ShemaHome\install.log"
 }
 Write-Host "torch / faster_whisper / sherpa_onnx: OK  (CUDA: $($stJson.cuda))"
 if ($device -eq "cuda" -and -not $stJson.cuda) {
     & $vpy -X utf8 "$App\setup_config.py" --device cpu --compute int8 --summary $summary | Out-Null
     $device = "cpu"
-    Say "כרטיס ה-NVIDIA לא זמין ל-Python (בדרך כלל דרייבר ישן). שמע יעבוד על המעבד בינתיים. אחרי עדכון דרייבר של NVIDIA הרץ שוב את Install.bat." "Warning"
+    Say "כרטיס ה-NVIDIA לא זמין ל-Python (בדרך כלל דרייבר ישן). שמע יעבוד על המעבד בינתיים. אחרי עדכון דרייבר של NVIDIA הרץ שוב את ההתקנה (ShemaSetup.exe)." "Warning"
 }
 
 # ------------------------------------------------------------------ 10. Ollama (summaries) + the phone app
@@ -270,7 +271,7 @@ if (-not $SkipOllama) {
         }
         Write-Host "ollama pull $summary ..."
         & $ollama pull $summary
-        if ($LASTEXITCODE -ne 0) { Say "הורדת מודל הסיכומים ($summary) נכשלה. השיחות יתומללו, והסיכומים יופיעו אחרי שתריץ שוב את Install.bat." "Warning" }
+        if ($LASTEXITCODE -ne 0) { Say "הורדת מודל הסיכומים ($summary) נכשלה. השיחות יתומללו, והסיכומים יופיעו אחרי שתריץ שוב את ההתקנה (ShemaSetup.exe)." "Warning" }
     } else {
         Say "Ollama לא הותקן, לכן לא יהיו סיכומי שיחות. אפשר להתקין מ-ollama.com ולהריץ שוב." "Warning"
     }
@@ -302,7 +303,7 @@ New-NetFirewallRule -DisplayName 'Shema server (home network)' -Group 'Shema' -D
     Set-Content -Path $fwFile -Value $fw -Encoding UTF8
     Say "עכשיו Windows ישאל אם לאשר שינוי (חלון כחול). זה פותח את הפורט $Port לטלפון שלך, רק ברשת הביתית הפרטית."
     try { Start-Process powershell -Verb RunAs -Wait -WindowStyle Hidden -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$fwFile`"" }
-    catch { Say "כלל חומת האש לא נוסף (האישור נדחה). הטלפון לא יוכל להתחבר עד שתריץ שוב את Install.bat ותאשר." "Warning" }
+    catch { Say "כלל חומת האש לא נוסף (האישור נדחה). הטלפון לא יוכל להתחבר עד שתריץ שוב את ההתקנה (ShemaSetup.exe) ותאשר." "Warning" }
     Remove-Item $fwFile -ErrorAction SilentlyContinue
     $pub = Get-NetConnectionProfile -ErrorAction SilentlyContinue | Where-Object { $_.NetworkCategory -eq "Public" -and $_.InterfaceAlias -notlike "*Tailscale*" }
     if ($pub) {
@@ -311,7 +312,7 @@ New-NetFirewallRule -DisplayName 'Shema server (home network)' -Group 'Shema' -D
     }
     if (-not $ts) {
         Say ("Tailscale לא מותקן במחשב. בלעדיו הטלפון שולח הקלטות רק כשהוא בבית; מחוץ לבית הן נשמרות בטלפון ונשלחות כשחוזרים.`n`n" +
-             "כדי לקבל הקלטות גם מבחוץ: התקן Tailscale (חינם) במחשב ובטלפון, התחבר לאותו חשבון, והרץ שוב את Install.bat.")
+             "כדי לקבל הקלטות גם מבחוץ: התקן Tailscale (חינם) במחשב ובטלפון, התחבר לאותו חשבון, והרץ שוב את ההתקנה (ShemaSetup.exe).")
     }
 
     # background start at logon (no window)
@@ -359,7 +360,7 @@ if ($up) {
          "2. באפליקציה: 'חבר למחשב' וסורקים את ה-QR הגדול.`n" +
          "3. באפליקציה: 'ללמד את הקול שלי' (25 שניות).`n`n" +
          "הסמל 'שמע' בשולחן העבודה פותח את המסך בכל פעם.")
-    Start-Process "http://localhost:$Port/home#pair"
+    if (-not $NoLaunch) { Start-Process "http://localhost:$Port/home#pair" }
 } else {
     Say "ההתקנה הסתיימה אבל השרת עוד לא עונה. נסה בעוד דקה את הסמל 'שמע' בשולחן העבודה. אם זה לא עובד: $ShemaHome\data\listener.log" "Warning"
 }

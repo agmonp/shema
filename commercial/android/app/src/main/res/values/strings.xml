@@ -2,5 +2,6 @@
 <resources>
     <string name="app_name">שמע Pro</string>
     <string name="subscription_yearly_id">shema_pro_yearly</string>
-    <string name="desktop_download_url">https://github.com/agmonp/shema/releases/latest</string>
+    <!-- the landing page: the one place that links to the PC installer (ShemaSetup.exe) and the privacy policy -->
+    <string name="desktop_download_url" translatable="false">https://shema.agmonp.com/</string>
 </resources>

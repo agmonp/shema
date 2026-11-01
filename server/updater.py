@@ -94,7 +94,7 @@ def apply(port, enabled=True):
     """the user pressed "update": download + unpack + start update.ps1 (which restarts this server)"""
     s = status(enabled)
     if not s["installed"]:
-        return {"ok": False, "msg": "עדכון בלחיצה עובד רק בהתקנה הרגילה. אפשר להוריד את הגרסה ולהריץ Install.bat."}
+        return {"ok": False, "msg": "עדכון בלחיצה עובד רק בהתקנה הרגילה. אפשר להוריד את ShemaSetup.exe מ-shema.agmonp.com ולהריץ אותו."}
     if not s["newer"] or not s["can_update"]:
         return {"ok": False, "msg": "אין גרסה חדשה להתקנה"}
     if s["state"] in ("downloading", "installing"):
@@ -148,4 +148,4 @@ def _run(version, url, port):
         if r.returncode:
             raise RuntimeError("task: " + (r.stderr or r.stdout)[-300:])
     except Exception as exc:  # noqa: BLE001
-        _set("failed", f"העדכון נכשל ({type(exc).__name__}). אפשר לנסות שוב, או להוריד ולהריץ Install.bat.")
+        _set("failed", f"העדכון נכשל ({type(exc).__name__}). אפשר לנסות שוב, או להוריד ולהריץ את ShemaSetup.exe מ-shema.agmonp.com.")

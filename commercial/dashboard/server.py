@@ -261,6 +261,11 @@ def make_zip(version):
         for f in files:
             z.write(ROOT / f, f)
     print(f"Created {out} ({out.stat().st_size} bytes, {len(files)} files)")
+    # the one-file installer the landing page links to (same files, Inno Setup)
+    r = subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
+                        str(ROOT / "commercial" / "scripts" / "build_setup.ps1"), version])
+    if r.returncode:
+        raise SystemExit("ShemaSetup.exe was not built (see above)")
 
 
 def mark_uploaded():

@@ -353,10 +353,10 @@ async function loadRelease() {
     (pcDirty ? ` ${pcDirty} קבצים שונו ועוד לא נשמרו (קודם commit).` : "");
   const v = p.next, zip = `shema-windows-v${v}.zip`;
   const notes = (p.commits_since.map(l => "- " + l.replace(/^\w+ /, "")).join("\n") || "- ");
-  const ghCmd = `gh release create v${v} "commercial\\dist\\${zip}" -R agmonp/shema -t "שמע Pro v${v} — תוכנת שרת למחשב (Windows)" -n "${notes.replace(/"/g, "'")}"`;
+  const ghCmd = `gh release create v${v} "commercial\\dist\\${zip}" "commercial\\dist\\ShemaSetup.exe" -R agmonp/shema -t "שמע Pro v${v} — תוכנת שרת למחשב (Windows)" -n "${notes.replace(/"/g, "'")}"`;
   $("#pcSteps").innerHTML = (needPc || pcDirty) ?
     step(1, pcDirty ? "todo" : "done", pcDirty ? "קודם לשמור את השינויים ב־GitHub (בכרטיס למטה)." : "השינויים שמורים ב־GitHub.") +
-    step(2, p.zips.includes(zip) ? "done" : "", `לבנות את ה־ZIP: <b>${zip}</b> <button class="small" id="buildZip" data-v="${v}" ${rel.build.running ? "disabled" : ""}>בנה</button>`) +
+    step(2, p.zips.includes(zip) ? "done" : "", `לבנות את ה־ZIP ואת קובץ ההתקנה: <b>${zip}</b> + <b>ShemaSetup.exe</b> <button class="small" id="buildZip" data-v="${v}" ${rel.build.running ? "disabled" : ""}>בנה</button>`) +
     step(3, "", `לפרסם (מעתיקים ומריצים בחלון פקודה, בתיקייה ${esc(rel.root)}):<div class="cmd">${esc(ghCmd)}</div>
       <div class="row"><button class="small" id="copyGh">📋 העתק</button><button class="small" data-open="github">פתח את דף הגרסאות</button></div>`)
     : '<p class="faint">אין מה לשחרר.</p>';

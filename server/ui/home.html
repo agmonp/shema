@@ -22,6 +22,11 @@ body{background:var(--bg);color:var(--ink);font:15px/1.55 "Segoe UI",Heebo,Arial
 .pair .qr.small img{width:120px;height:120px}
 .pair ol{margin:0;padding-inline-start:20px;flex:1;min-width:220px}
 .pair ol li{margin:4px 0}
+.pair a.play{color:var(--accent);text-decoration:underline;font-weight:700;white-space:nowrap}
+.pair a.qrlink{display:block;color:inherit;text-decoration:none;border-radius:12px}
+.pair a.qrlink:hover .legend{color:var(--accent)}
+.pair .copylink{font-size:12px;color:var(--dim);border:1px solid var(--line2);border-radius:10px;padding:0 8px;margin-inline-start:6px}
+.pair .copylink:hover{color:var(--accent);border-color:var(--accent)}
 .pair code{direction:ltr;display:inline-block;background:var(--surface2);border-radius:6px;padding:1px 6px;font-size:13px;user-select:all}
 button{font:inherit;color:inherit;cursor:pointer;background:none;border:0}
 .wrap{max-width:1100px;margin:0 auto;padding:18px 16px 60px}
@@ -1850,26 +1855,28 @@ async function showPair(){
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const P = await r.json();
     const qr = qrcode(0, "M"); qr.addData(P.uri); qr.make();
-    const playStore = "https://play.google.com/store/apps/details?id=app.shema.listener";
-    const aq = qrcode(0, "M"); aq.addData(playStore); aq.make();
+    const aq = qrcode(0, "M"); aq.addData(PLAY_URL); aq.make();
+    const playA = `href="${PLAY_URL}" target="_blank" rel="noopener"`;   // opens in a new browser tab, not over this page
     body = `<div class="pair">
       <div><div class="qr">${qr.createImgTag(6, 0)}</div><div class="legend" style="text-align:center">QR לחיבור המכשיר</div></div>
       <ol>
-        <li>מורידים את אפליקציית <b>שמע Pro</b> מ-Google Play (סורקים את ה-QR הקטן במצלמה או מחפשים "שמע Pro").</li>
+        <li>מורידים את אפליקציית <b>שמע Pro</b> מ-<a class="play" ${playA}>Google Play</a><button class="copylink" id="copyplay" title="${PLAY_URL}">העתק קישור</button>
+          (סורקים את ה-QR הקטן במצלמה או מחפשים "שמע Pro").</li>
         <li>פותחים את האפליקציה בטלפון, לוחצים "חבר למחשב" וסורקים את ה-QR הגדול. זהו!</li>
       </ol>
-      <div><div class="qr small" style="padding:8px">${aq.createImgTag(3, 0)}</div><div class="legend" style="text-align:center">הורדה ב-Google Play</div></div></div>
+      <a class="qrlink" ${playA} aria-label="שמע Pro ב-Google Play"><div class="qr small" style="padding:8px">${aq.createImgTag(3, 0)}</div><div class="legend" style="text-align:center">הורדה ב-Google Play</div></a></div>
       <div class="kv" style="margin-top:12px"><span>כתובת בבית</span><code>${esc(P.server)}</code>
         <span>כתובת מבחוץ</span>${P.remote ? `<code>${esc(P.remote)}</code>` : '<span>אין (Tailscale לא מותקן: הקלטה תגיע רק כשהטלפון בבית)</span>'}
         <span>קוד גישה</span><code>${esc(P.token)}</code></div>
       <div class="legend">הטלפון והמחשב צריכים להיות באותה רשת Wi-Fi בבית. הקוד הוא הסיסמה של המחשב שלך: אל תשתף את ה-QR.</div>`;
   } catch (e) {
-    body = e.message !== "remote" ? `<div class="legend">לא הצלחנו להציג את ה-QR (${esc(e.message)}). סגרו ופתחו שוב את החלון. אם זה חוזר, הריצו שוב את Install.bat.</div>` :
+    body = e.message !== "remote" ? `<div class="legend">לא הצלחנו להציג את ה-QR (${esc(e.message)}). סגרו ופתחו שוב את החלון. אם זה חוזר, הריצו שוב את ההתקנה (ShemaSetup.exe).</div>` :
       `<div class="legend">את ה-QR אפשר לראות רק במחשב שבו "שמע" מותקן (הוא מכיל את קוד הגישה). פתח שם את <code>http://localhost:8770/home</code>.</div>`;
   }
   sh.innerHTML = `<div class="box" style="max-width:760px"><button class="x">×</button><h3>📱 חבר טלפון</h3><div id="pairbody">${body}</div>
     <div class="legend" id="pairwait">ממתין לטלפון… ברגע שהוא מתחבר, ה-QR נסגר לבד.</div></div>`;
   document.body.appendChild(sh);
+  sh.querySelector("#copyplay")?.addEventListener("click", () => copyText(PLAY_URL, "הקישור ל-Google Play הועתק."));
   // the QR stays only until a phone really connects: a phone that was not online when the window opened sends a heartbeat
   const before = Object.fromEntries(PHONES.map(p => [p.code, p.online]));
   let tries = 0;
@@ -2170,7 +2177,7 @@ function showUpdate(){
     <div id="updst" class="legend"></div>
     <div class="row" style="display:flex;gap:8px;margin-top:10px">${can ? `<button class="ok" id="updgo">עדכן עכשיו</button>` : ""}
       ${U.page ? `<a class="back" href="${esc(U.page)}" target="_blank" rel="noopener" style="text-decoration:none;padding:8px 14px">להורדה ידנית ›</a>` : ""}</div>
-    ${!can ? `<div class="legend">${U.installed ? "העדכון בלחיצה עובד רק מהמסך של המחשב עצמו." : "בהתקנה הזו העדכון ידני: מורידים את ה-ZIP ומריצים Install.bat."}</div>` : `<div class="legend">לוקח דקה-שתיים. השרת נעצר ועולה מחדש לבד; אם משהו לא מצליח, הגרסה הקודמת חוזרת.</div>`}</div>`;
+    ${!can ? `<div class="legend">${U.installed ? "העדכון בלחיצה עובד רק מהמסך של המחשב עצמו." : "בהתקנה הזו העדכון ידני: מורידים את ShemaSetup.exe מ-shema.agmonp.com ומריצים אותו."}</div>` : `<div class="legend">לוקח דקה-שתיים. השרת נעצר ועולה מחדש לבד; אם משהו לא מצליח, הגרסה הקודמת חוזרת.</div>`}</div>`;
   document.body.appendChild(sh);
   const close = () => sh.remove();
   sh.querySelector(".x").onclick = close; sh.onclick = e => { if (e.target === sh) close(); };
