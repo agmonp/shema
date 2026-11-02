@@ -236,9 +236,7 @@ flowchart LR
 
 ## Code signing policy
 
-Free code signing provided by [SignPath.io](https://about.signpath.io), certificate by [SignPath Foundation](https://signpath.org).
-
-Only `ShemaSetup.exe` is signed: the Windows installer that the download page ([shema.agmonp.com](https://shema.agmonp.com/)) links to. It is built from this repository's source by [`.github/workflows/release.yml`](.github/workflows/release.yml) on GitHub-hosted runners (Inno Setup packs `server/` and `install/`), and only that build is signed. Python, ffmpeg, Ollama, PyTorch and the speech models are not bundled: the installer downloads them from their own publishers.
+`ShemaSetup.exe` is not code-signed yet, so Windows and Edge warn before running it (the download page explains how to continue). When signing is added, only `ShemaSetup.exe` will be signed: the Windows installer that the download page ([shema.agmonp.com](https://shema.agmonp.com/)) links to. It is built from this repository's source by [`.github/workflows/release.yml`](.github/workflows/release.yml) on GitHub-hosted runners (Inno Setup packs `server/` and `install/`), and only that build is signed. Python, ffmpeg, Ollama, PyTorch and the speech models are not bundled: the installer downloads them from their own publishers.
 
 Team roles:
 
