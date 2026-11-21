@@ -3,7 +3,6 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { PerformanceMonitor } from '@react-three/drei'
 import * as THREE from 'three'
 import { store } from '../store'
-import { audio } from '../audio/engine'
 import {
   coreVertex, coreFragment, ringVertex, ringFragment,
   glowVertex, glowFragment, particleVertex, particleFragment,
@@ -130,7 +129,7 @@ const RING_COUNT = 6
 function Experience() {
   const mobile = store.isMobile
   const { gl, camera, size } = useThree()
-  const coreGeo = useMemo(() => buildCore(mobile ? 8 : 10), [mobile])
+  const coreGeo = useMemo(() => buildCore(mobile ? 14 : 24), [mobile])
   const edgeGeo = useMemo(() => new THREE.EdgesGeometry(new THREE.IcosahedronGeometry(1.08, 1), 1), [])
   const ringGeo = useMemo(() => ringGeometry(mobile ? 160 : 256), [mobile])
   const partGeo = useMemo(() => particleGeometry(mobile ? 520 : 1400), [mobile])
@@ -203,10 +202,8 @@ function Experience() {
     S.stage += (store.stage - S.stage) * k
     const s = S.stage
 
-    // sound in -> pulse (the demo counts double)
-    const lvl = Math.max(audio.level() * (store.demoPlaying ? 1 : 0.35), store.demoLevel)
-    S.audio += (lvl - S.audio) * (1 - Math.exp(-d * 12))
-    store.audio = S.audio
+    // the silent demo's simulated speech -> pulse
+    S.audio += (store.demoLevel - S.audio) * (1 - Math.exp(-d * 12))
     S.mx += (store.mouseX - S.mx) * (1 - Math.exp(-d * 3))
     S.my += (store.mouseY - S.my) * (1 - Math.exp(-d * 3))
 

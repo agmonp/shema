@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import {
   AudioWaveform, Users, ListChecks, Languages, Lock, Search, Smartphone, Laptop,
-  Scissors, Ear, Sunset, Star, TrendingUp, type LucideIcon,
+  Scissors, Ear, Sunset, Star, TrendingUp, CloudOff, KeyRound, type LucideIcon,
 } from 'lucide-react'
 import DownloadButtons, { useReleaseMeta } from './DownloadButtons'
 import AudioDemo from './AudioDemo'
@@ -40,21 +40,6 @@ function Cell({ icon: Icon, title, children, className = '', accent = false }: {
 }
 const P = ({ children }: { children: ReactNode }) => <p className="mt-2.5 text-[15px] leading-relaxed text-mute">{children}</p>
 
-function WindowsNote({ center = false }: { center?: boolean }) {
-  return (
-    <details className={`mt-5 max-w-md text-[13px] text-mute ${center ? 'mx-auto' : ''}`}>
-      <summary className="cursor-pointer list-none underline decoration-white/20 underline-offset-4 hover:text-bone/80">
-        Windows מזהיר בהתקנה? כך ממשיכים
-      </summary>
-      <p className="mt-2 leading-relaxed">
-        הקובץ עוד לא חתום. ב-Edge: <b className="font-medium text-bone/80">⋯ ← שמור ← הצג עוד ← שמור בכל זאת</b>.
-        במסך "Windows הגן על המחשב שלך": <b className="font-medium text-bone/80">מידע נוסף ← הפעל בכל זאת</b>.
-        ההתקנה מורידה את מודלי התמלול (כמה GB) ולוקחת כמה דקות.
-      </p>
-    </details>
-  )
-}
-
 // ---------------------------------------------------------------- 1. Hero
 export function Hero() {
   const meta = useReleaseMeta()
@@ -77,7 +62,6 @@ export function Hero() {
             <p className="mt-4 text-[13px] text-mute">
               {meta && <>גרסה <bdi>{meta.ver}</bdi> · <bdi>{meta.mb}</bdi> · </>}{TRIAL_DAYS} ימי ניסיון חינם · אחר כך {PRICE_YEAR} לשנה
             </p>
-            <WindowsNote />
           </div>
         </div>
       </div>
@@ -218,6 +202,41 @@ export function Personal() {
   )
 }
 
+/** Phone -> home network (pairing key) -> PC, with the cloud crossed out above the path. */
+function PrivacyFlow() {
+  const node = (Icon: LucideIcon, label: string, sub: string, gold = false) => (
+    <div className="flex flex-col items-center gap-3 text-center">
+      <div className={`grid h-16 w-16 place-items-center rounded-full border ${gold ? 'border-gold/45' : 'border-white/[.14]'} bg-obsidian/60`}>
+        <Icon size={24} strokeWidth={1.25} className={gold ? 'text-gold' : 'text-bone/80'} aria-hidden="true" />
+      </div>
+      <div>
+        <p className="text-[13px] text-bone/90">{label}</p>
+        <p className="mt-0.5 text-[11.5px] text-mute">{sub}</p>
+      </div>
+    </div>
+  )
+  const link = (
+    <div className="relative mt-8 flex-1 border-t border-dashed border-gold/55">
+      <span className="absolute left-0 top-1/2 h-1.5 w-1.5 -translate-y-1/2 rotate-45 border-b border-l border-gold/70" />
+    </div>
+  )
+  return (
+    <figure className="my-10 md:my-12" aria-label="ההקלטות עוברות מהטלפון למחשב שלכם ברשת הביתית, בלי ענן">
+      <div className="mb-6 flex items-center justify-center gap-2 text-[12px] text-mute">
+        <CloudOff size={16} strokeWidth={1.25} aria-hidden="true" />
+        <span className="tracking-[.12em]">בלי ענן באמצע</span>
+      </div>
+      <div className="flex items-start justify-between gap-3">
+        {node(Smartphone, 'טלפון', 'מקליט ומסנן')}
+        {link}
+        {node(KeyRound, 'רשת הבית', 'מפתח צימוד', true)}
+        {link}
+        {node(Laptop, 'המחשב שלכם', 'מתמלל ושומר')}
+      </div>
+    </figure>
+  )
+}
+
 // ---------------------------------------------------------------- 5. Bento + final download
 export function Features() {
   return (
@@ -234,7 +253,8 @@ export function Features() {
               ההקלטות, התמלילים, חתימות הקול והסיכומים נשמרים רק במחשב שלכם. כל מודלי ה-AI רצים אצלכם.
               לשמע אין שרת ענן שמקבל את המידע שלכם.
             </P>
-            <div className="mt-auto flex flex-wrap gap-2 pt-10 text-[13px] text-bone/70">
+            <PrivacyFlow />
+            <div className="mt-auto flex flex-wrap gap-2 pt-8 text-[13px] text-bone/70">
               {['פרטי לשעה', 'אזורים פרטיים', 'לא להקליט אדם מסוים', 'מחיקה בלחיצה'].map((p) => (
                 <span key={p} className="hairline rounded-full px-3.5 py-1.5">{p}</span>
               ))}
@@ -281,7 +301,6 @@ export function Features() {
             </h2>
             <p className="mx-auto mt-6 max-w-xl text-[17px] text-mute">שלושה צעדים: מתקינים במחשב, מתקינים בטלפון, וסורקים QR.</p>
             <DownloadButtons className="mt-10 justify-center" />
-            <WindowsNote center />
           </div>
         </div>
       </div>

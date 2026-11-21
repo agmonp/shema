@@ -59,14 +59,30 @@ uniform float uTime, uLiquid, uFacet, uAudio, uBreath;
 varying vec3 vN;
 varying vec3 vPos;
 varying float vDisp;
+float field(vec3 s, float t){
+  return snoise(s * 1.4 + vec3(t, t * 0.7, -t)) * 0.7 + snoise(s * 2.6 - t * 1.3) * 0.3;
+}
 void main(){
   vec3 sph = normalize(aSphere);
+  float t = uTime * 0.28;
+  float amp = uLiquid * 0.075 + uAudio * 0.2 * (1.0 - 0.85 * uFacet);
+  float d = field(sph, t);
+
+  // smooth surface normal of the displaced sphere (finite differences), so the glass shades
+  // as one continuous surface: no per-triangle facets or blocky highlights
+  vec3 tA = normalize(cross(sph, abs(sph.y) < 0.99 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0)));
+  vec3 tB = cross(sph, tA);
+  float e = 0.03;
+  vec3 sA = normalize(sph + tA * e), sB = normalize(sph + tB * e);
+  vec3 p0 = sph * (1.0 + d * amp);
+  vec3 pA = sA * (1.0 + field(sA, t) * amp);
+  vec3 pB = sB * (1.0 + field(sB, t) * amp);
+  vec3 nSmooth = normalize(cross(pA - p0, pB - p0));
+  if (dot(nSmooth, sph) < 0.0) nSmooth = -nSmooth;
+
   vec3 base = mix(sph, position * 1.08, uFacet);
-  vec3 n = normalize(mix(sph, aFaceN, uFacet));
-  float t = uTime * 0.32;
-  float d = snoise(sph * 1.5 + vec3(t, t * 0.7, -t)) * 0.65 + snoise(sph * 3.1 - t * 1.4) * 0.3;
-  float amp = uLiquid * 0.12 + uAudio * 0.26 * (1.0 - 0.85 * uFacet);
-  float breath = 1.0 + sin(uTime * 0.85) * 0.045 * uBreath;
+  vec3 n = normalize(mix(nSmooth, aFaceN, uFacet));
+  float breath = 1.0 + sin(uTime * 0.85) * 0.04 * uBreath;
   vec3 p = base * breath * (1.0 + uAudio * 0.08 * uFacet) + sph * d * amp;
   vDisp = d;
   vec4 mv = modelViewMatrix * vec4(p, 1.0);
@@ -82,41 +98,51 @@ varying vec3 vN;
 varying vec3 vPos;
 varying float vDisp;
 void main(){
+  // smooth glass uses the interpolated normal only; the crystal uses the true flat facet normal
   vec3 dN = normalize(cross(dFdx(vPos), dFdy(vPos)));
-  vec3 N = normalize(mix(vN, dN, 0.12 + 0.88 * uFacet));
+  vec3 N = normalize(mix(normalize(vN), dN, uFacet));
   vec3 V = normalize(-vPos);
-  float ndv = max(dot(N, V), 0.0);
-  float fres = pow(1.0 - ndv, 2.6);
+  float ndv = clamp(dot(N, V), 0.0, 1.0);
+  float fres = pow(1.0 - ndv, 3.0);
+  float rim = smoothstep(0.55, 1.0, 1.0 - ndv);
 
-  vec3 obs = vec3(0.050, 0.050, 0.058);     // obsidian
+  vec3 obs = vec3(0.035, 0.035, 0.042);     // obsidian
   vec3 silver = vec3(0.86, 0.86, 0.89);     // bone / brushed silver
   vec3 champ = vec3(0.831, 0.686, 0.478);   // #D4AF7A
 
   vec3 L1 = normalize(vec3(0.55, 0.8, 0.65));
   vec3 L2 = normalize(vec3(-0.7, -0.2, 0.5));
+  vec3 H1 = normalize(L1 + V);
   float diff = max(dot(N, L1), 0.0);
-  float spec = pow(max(dot(reflect(-L1, N), V), 0.0), mix(40.0, 90.0, uFacet));
-  float spec2 = pow(max(dot(reflect(-L2, N), V), 0.0), 30.0);
 
-  // 1. frosted obsidian glass: dark body, silver rim, a champagne kiss at grazing angles
-  float sky = smoothstep(-0.1, 0.9, N.y);                       // soft studio reflection from above
-  vec3 liquid = obs * 1.6 + silver * fres * 1.05 + champ * pow(fres, 3.0) * 0.55;
-  liquid += silver * sky * 0.16 + silver * 0.06 * (0.5 + 0.5 * vDisp) * uLiquid;
-  liquid += silver * diff * 0.07;
-  // 2. faceted smoked crystal: each facet catches a slightly different amount of light
+  // 1. translucent obsidian glass: dark see-through body, Fresnel rim, champagne edge glow
+  float sky = smoothstep(0.15, 1.0, N.y) * (1.0 - ndv);          // soft studio window from above
+  float sheen = pow(max(dot(N, H1), 0.0), 60.0);                // one small round highlight
+  float bloom = pow(max(dot(N, H1), 0.0), 8.0) * 0.06;          // and its wide soft falloff
+  vec3 glass = obs + silver * fres * 0.9 + silver * sky * 0.22;
+  glass += champ * rim * 0.55 + champ * pow(fres, 6.0) * 0.6;
+  glass += silver * (sheen * 0.55 + bloom);
+  float aGlass = mix(0.28, 0.96, fres);
+
+  // 2. faceted smoked crystal (unchanged look)
   float facet = 0.5 + 0.5 * dot(N, normalize(vec3(0.3, 0.9, 0.4)));
-  vec3 crystal = obs * 1.5 + silver * facet * 0.13 + silver * fres * 0.7 + champ * diff * 0.08;
-  // 3. champagne metal, breathing
-  vec3 warm = champ * (0.28 + 0.42 * diff) + mix(champ, vec3(1.0, 0.94, 0.84), 0.5) * fres * 0.95;
-  warm *= 0.92 + 0.08 * sin(uTime * 0.85);
+  float spec = pow(max(dot(reflect(-L1, N), V), 0.0), 90.0);
+  vec3 crystal = obs * 1.7 + silver * facet * 0.13 + silver * fres * 0.7 + champ * diff * 0.08;
+  crystal += silver * spec * 1.2;
+  float aCrystal = mix(0.86, 0.98, fres);
 
-  vec3 col = mix(mix(liquid, crystal, uFacet), warm, uWarm);
-  col += mix(silver, champ, 0.3 + 0.5 * uWarm) * spec * (0.7 + 0.5 * uFacet);
-  col += champ * spec2 * 0.18;
-  col += champ * uAudio * 0.45;
+  // 3. champagne glass, breathing: warm see-through body with a glowing gold rim
+  float breathe = 0.85 + 0.15 * sin(uTime * 0.85);
+  vec3 warm = champ * 0.10 * breathe + champ * fres * 1.15 + mix(champ, vec3(1.0, 0.95, 0.86), 0.6) * rim * 0.45;
+  warm += champ * sky * 0.18 + vec3(1.0, 0.95, 0.86) * (sheen * 0.45 + bloom);
+  float aWarm = mix(0.32, 0.96, fres);
+
+  vec3 col = mix(mix(glass, crystal, uFacet), warm, uWarm);
+  col += champ * pow(max(dot(reflect(-L2, N), V), 0.0), 30.0) * 0.12 * uFacet;
+  col += champ * uAudio * 0.4;
   col *= 1.0 - uDim * 0.55;
 
-  float alpha = mix(0.86, 0.98, fres) * (1.0 - uDim * 0.55);
+  float alpha = mix(mix(aGlass, aCrystal, uFacet), aWarm, uWarm) * (1.0 - uDim * 0.55);
   gl_FragColor = vec4(col, alpha);
 }
 `

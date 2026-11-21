@@ -3,6 +3,8 @@ import gsap from 'gsap'
 import { ScrollTrigger } from 'gsap/ScrollTrigger'
 import Lenis from 'lenis'
 import Navbar from './components/Navbar'
+import InstallTip from './components/InstallTip'
+import Showcase from './components/Showcase'
 import { Hero, Clarity, Business, Personal, Features, Footer } from './components/Sections'
 import { store } from './store'
 
@@ -102,10 +104,12 @@ export default function App() {
         <Hero />
         <Clarity />
         <Business />
+        <Showcase />
         <Personal />
         <Features />
       </main>
       <div className="relative z-10"><Footer /></div>
+      <InstallTip />
     </>
   )
 }

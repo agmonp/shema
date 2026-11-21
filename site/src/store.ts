@@ -8,11 +8,9 @@ export const store = {
   /** Pointer position, -1..1 on both axes. */
   mouseX: 0,
   mouseY: 0,
-  /** 0..1 loudness from the Web Audio analyser. */
-  audio: 0,
-  /** The live demo is playing: the crystal pulses harder. */
+  /** The live demo is playing. */
   demoPlaying: false,
-  /** 0..1 simulated speech level from the silent demo. */
+  /** 0..1 simulated speech level from the silent demo; the 3D core pulses with it. */
   demoLevel: 0,
   isMobile: mq('(max-width: 767px)'),
   reducedMotion: mq('(prefers-reduced-motion: reduce)'),

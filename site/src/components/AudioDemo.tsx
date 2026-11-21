@@ -1,11 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Pause, Play, RotateCcw } from 'lucide-react'
-import { audio } from '../audio/engine'
 import { store } from '../store'
-import { DEMO_AUDIO_URL } from '../config'
 
-// A silent, visual simulation of a 10-second meeting. With DEMO_AUDIO_URL set, the same timeline
-// follows the real clip's clock instead, and the 3D core listens to its sound.
+// A silent, purely visual simulation of a 10-second meeting: no audio is ever played.
 export const DEMO_LENGTH = 10
 
 /** Who speaks when (seconds); the transcript types itself during each turn. */
@@ -39,7 +36,6 @@ export default function AudioDemo() {
   const [playing, setPlaying] = useState(false)
   const [t, setT] = useState(-1) // seconds into the clip; -1 = not started
   const canvas = useRef<HTMLCanvasElement>(null)
-  const clip = useRef<HTMLAudioElement | null>(null)
   const clock = useRef({ start: 0, offset: 0 })
   const tRef = useRef(-1)
 
@@ -54,18 +50,10 @@ export default function AudioDemo() {
     [],
   )
 
-  const now = () =>
-    clip.current ? clip.current.currentTime : clock.current.offset + (performance.now() - clock.current.start) / 1000
+  const now = () => clock.current.offset + (performance.now() - clock.current.start) / 1000
 
   useEffect(() => {
-    if (DEMO_AUDIO_URL) {
-      const el = new Audio(DEMO_AUDIO_URL)
-      el.preload = 'auto'
-      el.crossOrigin = 'anonymous'
-      clip.current = el
-    }
     return () => {
-      clip.current?.pause()
       store.demoPlaying = false
       store.demoLevel = 0
     }
@@ -92,8 +80,7 @@ export default function AudioDemo() {
           store.demoPlaying = false
         }
         tRef.current = time
-        const lvl = DEMO_AUDIO_URL ? audio.level() : levelAt(time)
-        store.demoLevel = lvl
+        store.demoLevel = levelAt(time)
         if (Math.floor(time * 10) !== lastTenth) { lastTenth = Math.floor(time * 10); setT(time) }
       } else {
         store.demoLevel *= 0.9
@@ -101,7 +88,7 @@ export default function AudioDemo() {
 
       const head = Math.max(0, time) / DEMO_LENGTH
       const gw = w / BARS
-      const live = playing ? (DEMO_AUDIO_URL ? audio.level() : levelAt(time)) : 0
+      const live = playing ? levelAt(time) : 0
       // RTL: time runs from right to left
       for (let i = 0; i < BARS; i++) {
         const p = (i + 0.5) / BARS
@@ -128,33 +115,44 @@ export default function AudioDemo() {
     return () => cancelAnimationFrame(raf)
   }, [playing, shape])
 
+  const root = useRef<HTMLDivElement>(null)
+  const started = useRef(false)
+
+  const start = () => {
+    started.current = true
+    const restart = tRef.current < 0 || tRef.current >= DEMO_LENGTH
+    if (restart) { tRef.current = 0; setT(0) }
+    clock.current = { start: performance.now(), offset: restart ? 0 : tRef.current }
+    store.demoPlaying = true
+    setPlaying(true)
+  }
+
+  // start by itself the first time the card is mostly on screen
+  useEffect(() => {
+    const el = root.current
+    if (!el) return
+    const io = new IntersectionObserver(([e]) => {
+      if (e.isIntersecting && !started.current) { start(); io.disconnect() }
+    }, { threshold: 0.45 })
+    io.observe(el)
+    return () => io.disconnect()
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
   const toggle = () => {
     if (playing) {
-      if (clip.current) clip.current.pause()
-      else clock.current.offset = now()
+      clock.current.offset = now()
       store.demoPlaying = false
       setPlaying(false)
       return
     }
-    const restart = tRef.current < 0 || tRef.current >= DEMO_LENGTH
-    if (restart) { tRef.current = 0; setT(0) }
-    if (clip.current) {
-      audio.attachMedia(clip.current)
-      if (restart) clip.current.currentTime = 0
-      void clip.current.play()
-    } else {
-      clock.current = { start: performance.now(), offset: restart ? 0 : tRef.current }
-    }
-    audio.click()
-    store.demoPlaying = true
-    setPlaying(true)
+    start()
   }
 
   const done = t >= DEMO_LENGTH
   const secs = Math.max(0, Math.min(DEMO_LENGTH, Math.floor(t)))
 
   return (
-    <div data-dense className="surface rounded-[28px] p-6 md:p-8">
+    <div ref={root} data-dense className="surface rounded-[28px] p-6 md:p-8">
       <div className="flex items-center justify-between gap-4">
         <div>
           <p className="eyebrow">נסו את זה עכשיו</p>
@@ -192,7 +190,7 @@ export default function AudioDemo() {
         })}
       </div>
 
-      <div className="mt-5 grid gap-px overflow-hidden rounded-2xl border border-white/[.06] bg-white/[.06] md:grid-cols-3">
+      <div className={`mt-5 grid gap-px overflow-hidden rounded-2xl border border-white/[.06] bg-white/[.06] md:grid-cols-3 ${fade(t >= SUMMARY.at)}`}>
         <div className={`bg-surface p-4 ${fade(t >= SUMMARY.at)}`}>
           <p className="eyebrow mb-2">סיכום מנהלים</p>
           <p className="text-[14px] leading-snug text-bone/90">{SUMMARY.text}</p>
@@ -213,7 +211,7 @@ export default function AudioDemo() {
         </div>
       </div>
       <p className="mt-4 text-[11.5px] text-mute/80">
-        {DEMO_AUDIO_URL ? 'הקלטה לדוגמה.' : 'הדמיה ויזואלית, בלי קול.'} בשמע האמיתי התמלול והסיכום רצים על המחשב שלכם.
+        הדמיה ויזואלית. בשמע האמיתי התמלול והסיכום רצים על המחשב שלכם.
       </p>
     </div>
   )
