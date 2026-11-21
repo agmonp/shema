@@ -101,6 +101,13 @@ class MeetingActivity : Activity() {
     private var pulse: ValueAnimator? = null
     private var alive = false
     private var startTitle = ""
+    private lateinit var host: FrameLayout
+    // 2026-11-21: "✂ בחר קטע" in the transcript (Segment): a part's summary and audio only
+    private var seg: Segment? = null
+    private var segFor = ""
+    private var segLines: List<JSONObject> = emptyList()
+    private var segAudio = false
+    private val trRows = ArrayList<TextView>()
 
     private fun px(v: Int) = (v * dp).toInt()
     private fun round(color: Int, r: Int) = GradientDrawable().apply { setColor(color); cornerRadius = px(r).toFloat() }
@@ -127,7 +134,7 @@ class MeetingActivity : Activity() {
             orientation = LinearLayout.VERTICAL; layoutDirection = View.LAYOUT_DIRECTION_RTL
             setPadding(px(18), px(22), px(18), px(96))
         }
-        val host = FrameLayout(this)
+        host = FrameLayout(this)
         host.addView(ScrollView(this).apply { setBackgroundColor(col.bg); addView(body) })
         setContentView(host)
         picker = Picker(this, host, "פגישה", "פגישות",
@@ -146,9 +153,10 @@ class MeetingActivity : Activity() {
 
     override fun onResume() { super.onResume(); alive = true; render() }
     override fun onStop() { picker.flush(); super.onStop() }
-    override fun onPause() { alive = false; showing = ""; pulse?.cancel(); pulse = null; super.onPause() }
+    override fun onPause() { seg?.stop(); alive = false; showing = ""; pulse?.cancel(); pulse = null; super.onPause() }
 
     private fun render() {
+        seg?.let { if (segFor != resultId || Meeting.active(this)) it.cancel() }
         when {
             Meeting.active(this) -> showRecording()
             resultId.isNotEmpty() -> showResult()
@@ -341,6 +349,7 @@ class MeetingActivity : Activity() {
     private fun showResult() {
         showing = resultId
         lastResult?.let { if (it.optJSONObject("meeting")?.optString("status") == "done") { drawResult(it); return } }
+        seg?.cancel()
         body.removeAllViews()
         val m = Meeting.known(this, resultId)
         body.addView(text(m?.optString("title")?.ifEmpty { null } ?: "פגישה", 22f, bold = true))
@@ -430,19 +439,42 @@ class MeetingActivity : Activity() {
         val lines = j.optJSONArray("lines") ?: JSONArray()
         val tr = card()
         tr.addView(text("תמלול מלא · ${lines.length()} שורות", 14f, col.faint))
-        val trBody = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; visibility = View.GONE }
+        val mid = mt.optString("id")
+        segLines = (0 until lines.length()).map { lines.getJSONObject(it) }
+        segAudio = j.optBoolean("has_audio")
+        val sg = seg?.takeIf { segFor == mid } ?: Segment(this, "meeting", mid, { segLines }, { segAudio }, { paintRows() })
+            .also { seg?.cancel(); seg = it; segFor = mid }
+        val trBody = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; visibility = if (sg.active) View.VISIBLE else View.GONE }
+        trRows.clear()
         for (i in 0 until lines.length()) {
             val u = lines.getJSONObject(i)
             val n = u.optString("name").takeIf { it.isNotEmpty() && it != "null" } ?: "לא מזוהה"
-            trBody.addView(text(u.optString("t0").drop(11).take(5) + "  " + n + ": " + u.optString("text"), 14f, col.ink).apply { setPadding(0, px(4), 0, px(4)) })
+            val row = text(u.optString("t0").drop(11).take(5) + "  " + n + ": " + u.optString("text"), 14f, col.ink).apply {
+                setPadding(px(6), px(5), px(6), px(5)); tag = this.text.toString(); isClickable = true
+                setOnClickListener { if (sg.active) sg.tap(i) }
+            }
+            trRows += row
+            trBody.addView(row)
         }
-        val toggle = button("הצג תמלול") {}
+        val toggle = button(if (sg.active) "הסתר תמלול" else "הצג תמלול") {}
         toggle.setOnClickListener {
             trBody.visibility = if (trBody.visibility == View.GONE) View.VISIBLE else View.GONE
             toggle.text = if (trBody.visibility == View.GONE) "הצג תמלול" else "הסתר תמלול"
         }
         tr.addView(View(this), LinearLayout.LayoutParams(1, px(8)))
-        tr.addView(toggle); tr.addView(trBody)
+        val trButtons = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        trButtons.addView(toggle, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = px(8) })
+        if (lines.length() > 0) trButtons.addView(button("✂ בחר קטע") {
+            if (sg.active) sg.cancel() else { trBody.visibility = View.VISIBLE; toggle.text = "הסתר תמלול"; sg.start() }
+        }.apply { contentDescription = "בחר קטע מתוך הפגישה: הקש על משפט ההתחלה ועל משפט הסוף" },
+            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        tr.addView(trButtons)
+        (sg.banner.parent as? ViewGroup)?.removeView(sg.banner)
+        tr.addView(sg.banner, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = px(8) })
+        tr.addView(trBody)
+        (sg.bar.parent as? ViewGroup)?.removeView(sg.bar)
+        host.addView(sg.bar, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM))
+        paintRows()
         body.addView(tr)
         gap(14)
         val more = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
@@ -452,6 +484,27 @@ class MeetingActivity : Activity() {
         body.addView(more)
         gap(10)
         body.addView(text("הסיכום והמשימות נכתבו אוטומטית מהתמלול. כדאי לעבור עליהם לפני שליחה.", 12f, col.faint))
+    }
+
+    /** the transcript rows as the chosen part says (Segment.mark), and room under them for the part's bar */
+    private fun paintRows() {
+        val sg = seg ?: return
+        for ((i, r) in trRows.withIndex()) {
+            val m = sg.mark(i)
+            val flag = sg.label(m)
+            val base = r.tag as? String ?: ""
+            r.text = if (flag.isEmpty()) base else android.text.SpannableString("\u200F $flag \u00A0 $base").apply {
+                setSpan(android.text.style.BackgroundColorSpan(col.accent), 1, flag.length + 3, 0)
+                setSpan(android.text.style.ForegroundColorSpan(col.accentInk), 1, flag.length + 3, 0)
+                setSpan(android.text.style.StyleSpan(Typeface.BOLD), 1, flag.length + 3, 0)
+            }
+            r.background = when (m) {
+                Segment.START, Segment.END, Segment.BOTH -> GradientDrawable().apply { setColor(Color.parseColor("#29EAA45E")); cornerRadius = px(10).toFloat(); setStroke(px(1), col.accent) }
+                Segment.IN -> round(Color.parseColor("#1AEAA45E"), 10)
+                else -> null
+            }
+        }
+        body.setPadding(body.paddingLeft, body.paddingTop, body.paddingRight, px(if (sg.bar.visibility == View.VISIBLE) 280 else 96))
     }
 
     private fun section(head: String, items: List<String>, bullets: Boolean = true) {

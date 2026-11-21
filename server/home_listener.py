@@ -3817,6 +3817,15 @@ def api(path, qs):
                                        "ORDER BY t0", (day,))]
             return {"day": day, "conversations": convs, "sounds": sounds, "talk": talk, "media": media,
                     "segs": segs, "daily": dict(daily) if daily else None}
+        if path == "/home/api/segment_summary":           # "סכם את הקטע": kind=conv|meeting&id=&from=&to=&ds=&de=
+            try:
+                b = seg_bounds(qs)
+            except SegError as exc:
+                return {"ok": False, "error": str(exc)}
+            if not b:
+                return {"ok": False, "error": "לא נבחר קטע"}
+            kind = "meeting" if (qs.get("kind") or ["conv"])[0] == "meeting" else "conv"
+            return segment_summary(c, kind, (qs.get("id") or ["0"])[0], b)
         if path == "/home/api/meeting":
             return meeting_view(c, (qs.get("id") or [""])[0])
         if path == "/home/api/meetings":
@@ -4087,8 +4096,11 @@ class Handler(BaseHTTPRequestHandler):
         if m and m.group(1) == "conv" and not m.group(2).isdigit():
             m = None
         if m and self._authed():                           # a whole meeting / conversation: speech only, chapters = the real clock time
-            try:
-                f, info = (meeting_audio if m.group(1) == "meeting" else conv_audio)(m.group(2))
+            try:                                           # ?from=&to=&ds=&de= -> only that part (seg_bounds)
+                f, info = (meeting_audio if m.group(1) == "meeting" else conv_audio)(
+                    m.group(2), seg_bounds(urllib.parse.parse_qs(u.query)))
+            except SegError as exc:
+                return self._send(400, {"error": str(exc)})
             except Exception as exc:  # noqa: BLE001
                 log(f"{m.group(1)} audio failed {exc!r}")
                 return self._send(500, {"error": "יצירת הקובץ נכשלה"})
@@ -4157,20 +4169,121 @@ def _ffmeta(v):
     return re.sub(r"([=;#\\\n])", r"\\\1", str(v))
 
 
-def meeting_audio_plan(c, mid):
+def _meeting_rows(c, mid):
+    return c.execute("SELECT u.id, u.t0, u.t1, u.name, k.id AS chunk, k.start, k.seconds, k.file FROM utterances u "
+                     "JOIN chunks k ON k.id=u.chunk_id WHERE k.ctx=? AND u.t0 IS NOT NULL ORDER BY u.t0, u.id",
+                     (MEET_PREFIX + mid,)).fetchall()
+
+
+def _conv_rows(c, cid):
+    return c.execute("SELECT u.id, u.t0, u.t1, u.name, k.id AS chunk, k.start, k.seconds, k.file FROM utterances u "
+                     "JOIN chunks k ON k.id=u.chunk_id WHERE u.conv_id=? AND u.t0 IS NOT NULL AND u.media IS NULL "
+                     "ORDER BY u.t0, u.id", (cid,)).fetchall()
+
+
+def meeting_audio_plan(c, mid, bounds=None):
     """What goes into a meeting's speech-only file: [{"file", "off", "dur", "t"}] pieces in order (t = the real clock
     time of the piece's first sample) and chapters [{"t", "at", "who"}] (at = seconds into the file). Only the stretches
-    with a line in them; the chapters carry the meeting's real time, so 03:10 in the file still reads as 14:12:30."""
-    return _speech_plan(c.execute("SELECT u.t0, u.t1, u.name, k.id AS chunk, k.start, k.seconds, k.file FROM utterances u "
-                                  "JOIN chunks k ON k.id=u.chunk_id WHERE k.ctx=? AND u.t0 IS NOT NULL ORDER BY u.t0, u.id",
-                                  (MEET_PREFIX + mid,)).fetchall())
+    with a line in them; the chapters carry the meeting's real time, so 03:10 in the file still reads as 14:12:30.
+    bounds (seg_bounds): only the part of the meeting between those two lines (raises SegError when they are not in it)."""
+    rows = _meeting_rows(c, mid)
+    return _speech_plan(rows, seg_window(rows, bounds) if bounds else None)
 
 
-def conv_audio_plan(c, cid):
+def conv_audio_plan(c, cid, bounds=None):
     """The same for one conversation: its own lines (TV / radio lines left out), wherever their recordings are."""
-    return _speech_plan(c.execute("SELECT u.t0, u.t1, u.name, k.id AS chunk, k.start, k.seconds, k.file FROM utterances u "
-                                  "JOIN chunks k ON k.id=u.chunk_id WHERE u.conv_id=? AND u.t0 IS NOT NULL AND u.media IS NULL "
-                                  "ORDER BY u.t0, u.id", (cid,)).fetchall())
+    rows = _conv_rows(c, cid)
+    return _speech_plan(rows, seg_window(rows, bounds) if bounds else None)
+
+
+# ------------------------------------------------------------------ a part of a recording ("✂ בחר קטע" on the phone)
+# 2026-11-21: the user picks a first and a last line of a conversation / meeting (and moves either edge by ±5 s) and gets
+# the audio of that part only and a summary of that part only. ?from=<utt id>&to=<utt id>&ds=<s>&de=<s>; ds / de move
+# the start / end in seconds (negative = earlier). No parameters = the whole recording, exactly as before.
+SEG_SHIFT_MAX = 120.0
+
+
+class SegError(ValueError):
+    """bad segment bounds: the message is shown to the user as is"""
+
+
+def seg_bounds(qs):
+    """query dict -> (from_id, to_id, ds, de), or None when no segment was asked for. SegError on bad values."""
+    if not (qs.get("from") or qs.get("to")):
+        return None
+    try:
+        a = int((qs.get("from") or qs.get("to"))[0])
+        b = int((qs.get("to") or qs.get("from"))[0])
+        ds = float((qs.get("ds") or ["0"])[0] or 0)
+        de = float((qs.get("de") or ["0"])[0] or 0)
+    except (TypeError, ValueError):
+        raise SegError("גבולות הקטע לא תקינים") from None
+    if not (abs(ds) <= SEG_SHIFT_MAX and abs(de) <= SEG_SHIFT_MAX):     # also NaN / inf
+        raise SegError("אפשר להזיז גבול עד שתי דקות")
+    return a, b, ds, de
+
+
+def seg_window(rows, bounds):
+    """rows (with id, t0, t1) + bounds -> (T0, T1): the real clock time of the part. The two lines may come in either
+    order; ds always moves the earlier edge and de the later one."""
+    a, b, ds, de = bounds
+    by = {r["id"]: r for r in rows}
+    if a not in by or b not in by:
+        raise SegError("המשפט שנבחר לא שייך להקלטה הזו")
+    ra, rb = by[a], by[b]
+    if (ra["t0"], a) > (rb["t0"], b):
+        ra, rb = rb, ra
+    t0 = datetime.fromisoformat(ra["t0"]) + timedelta(seconds=ds)
+    t1 = max(datetime.fromisoformat(rb["t1"] or rb["t0"]), datetime.fromisoformat(ra["t1"] or ra["t0"])) + timedelta(seconds=de)
+    if (t1 - t0).total_seconds() < 0.3:
+        raise SegError("הקטע ריק: הסוף לפני ההתחלה")
+    return t0, t1
+
+
+def _seg_name(kind, ident, win):
+    return f"{kind}-{ident}-{win[0]:%H-%M}-{win[1]:%H-%M}.m4a"
+
+
+def segment_summary(c, kind, ident, bounds):
+    """A summary of only the lines inside the part, with the same model and prompt as the whole conversation / meeting
+    summary. Nothing is saved: the conversation's own summary stays as it is."""
+    if kind == "meeting":
+        mid = meet_id(ident)
+        cv = c.execute("SELECT id FROM conversations WHERE ctx=? ORDER BY id LIMIT 1", (MEET_PREFIX + (mid or ""),)).fetchone()
+        if not cv:
+            return {"ok": False, "error": "הפגישה לא נמצאה"}
+        cid = cv["id"]
+    else:
+        cid = int(ident)
+        if not c.execute("SELECT 1 FROM conversations WHERE id=?", (cid,)).fetchone():
+            return {"ok": False, "error": "השיחה לא נמצאה"}
+    rows = [dict(x) for x in c.execute("SELECT * FROM utterances WHERE conv_id=? AND media IS NULL AND t0 IS NOT NULL "
+                                       "ORDER BY t0, id", (cid,))]
+    try:
+        win = seg_window(rows, bounds)
+    except SegError as exc:
+        return {"ok": False, "error": str(exc)}
+    dt = datetime.fromisoformat
+    U = [u for u in rows if dt(u["t1"] or u["t0"]) > win[0] and dt(u["t0"]) < win[1]]
+    head = {"ok": True, "t0": iso(win[0]), "t1": iso(win[1]), "lines": len(U), "people": sorted({u["name"] for u in U if u["name"]})}
+    if not U:
+        return dict(head, summary=None, error="אין דיבור בקטע הזה")
+    import home_analyze
+    z = datetime.fromisoformat(U[0]["t0"])
+    for u in U:
+        u["t0s"] = (datetime.fromisoformat(u["t0"]) - z).total_seconds()
+        u["t1s"] = u["t0s"] + (u["seconds"] or 0)
+    dyn = home_analyze.dynamics([{"t0": u["t0s"], "t1": u["t1s"], "speaker": u["speaker"], "name": u["name"]} for u in U])
+    s = summarise_meeting(U, dyn) if kind == "meeting" else summarise(U, [], dyn)
+    out = dict(head, topic=s.get("topic"), summary=s.get("summary"), mood=s.get("mood"), model=s.get("model"),
+               per_person=s.get("per_person") or {}, moments=s.get("moments") or [])
+    if kind == "meeting":
+        out.update(decisions=s.get("decisions") or [], next_steps=s.get("next_steps") or [],
+                   tasks=[{"who": t.get("owner") or t.get("who"), "what": t.get("what"), "due": t.get("due")}
+                          for t in s.get("tasks") or []])
+    if not out["summary"]:
+        out["error"] = "הקטע קצר מדי לסיכום"
+    return out
 
 
 def conv_has_audio(c, cid):
@@ -4179,16 +4292,22 @@ def conv_has_audio(c, cid):
                           "AND k.file IS NOT NULL AND u.media IS NULL LIMIT 1", (cid,)).fetchone())
 
 
-def _speech_plan(rows):
+def _speech_plan(rows, win=None):
+    """win = (T0, T1) real clock: only what is inside it (a line across an edge is cut at the edge)."""
     pieces, chapters, missing = [], [], set()
     for r in rows:
+        t0, t1 = datetime.fromisoformat(r["t0"]), datetime.fromisoformat(r["t1"] or r["t0"])
+        if win and (t1 <= win[0] or t0 >= win[1]):
+            continue
         if not r["file"] or not os.path.exists(r["file"]):
             missing.add(r["chunk"])
             continue
         st = datetime.fromisoformat(r["start"])
-        t0, t1 = datetime.fromisoformat(r["t0"]), datetime.fromisoformat(r["t1"] or r["t0"])
         a = max(0.0, (t0 - st).total_seconds() - MEET_PAD_S)
         b = (t1 - st).total_seconds() + MEET_PAD_S
+        if win:
+            a = max(a, (win[0] - st).total_seconds())
+            b = min(b, (win[1] - st).total_seconds())
         if r["seconds"]:
             b = min(b, float(r["seconds"]))
         if b <= a:
@@ -4217,8 +4336,9 @@ def _export_dir():
     return EXPORTS
 
 
-def meeting_audio(mid):
+def meeting_audio(mid, bounds=None):
     """Build (or reuse) one m4a of a meeting: speech only, chapters named by the real clock time and who spoke.
+    bounds (seg_bounds): only that part, file meeting-<id>-HH-MM-HH-MM.m4a (SegError when the bounds are bad).
     -> (path, info) or (None, reason)."""
     mid = meet_id(mid)
     _export_dir()
@@ -4226,27 +4346,38 @@ def meeting_audio(mid):
         m = c.execute("SELECT id, title, started, ended FROM meetings WHERE id=?", (mid,)).fetchone()
         if not m:
             return None, "הפגישה לא נמצאה"
-        pieces, chapters, missing = meeting_audio_plan(c, mid)
+        rows = _meeting_rows(c, mid)
+    win = seg_window(rows, bounds) if bounds else None
+    pieces, chapters, missing = _speech_plan(rows, win)
     if not pieces:
-        return None, ("ההקלטה של הפגישה לא נשמרה (לפי הגדרת שמירת ההקלטות)" if missing else "אין בפגישה הזו דיבור מוקלט")
-    return _speech_m4a(pieces, chapters, missing, f"meeting-{mid}", "meeting", m["started"], m["title"] or "פגישה", "הפגישה")
+        return None, ("ההקלטה של הפגישה לא נשמרה (לפי הגדרת שמירת ההקלטות)" if missing
+                      else "אין דיבור מוקלט בקטע הזה" if win else "אין בפגישה הזו דיבור מוקלט")
+    return _speech_m4a(pieces, chapters, missing, f"meeting-{mid}" + ("-seg" if win else ""), "meeting",
+                       iso(win[0]) if win else m["started"], m["title"] or "פגישה", "הפגישה",
+                       name=_seg_name("meeting", mid, win) if win else None)
 
 
-def conv_audio(cid):
-    """The same for a regular conversation -> (path, info) or (None, reason). File name conversation-YYYY-MM-DD-HHMM.m4a."""
+def conv_audio(cid, bounds=None):
+    """The same for a regular conversation -> (path, info) or (None, reason). File name conversation-YYYY-MM-DD-HHMM.m4a,
+    or for a part (bounds) conversation-<id>-HH-MM-HH-MM.m4a by the real clock."""
     cid = int(cid)
     _export_dir()
     with db() as c:
         cv = c.execute("SELECT id, topic, start FROM conversations WHERE id=?", (cid,)).fetchone()
         if not cv:
             return None, "השיחה לא נמצאה"
-        pieces, chapters, missing = conv_audio_plan(c, cid)
+        rows = _conv_rows(c, cid)
+    win = seg_window(rows, bounds) if bounds else None
+    pieces, chapters, missing = _speech_plan(rows, win)
     if not pieces:
-        return None, ("ההקלטה של השיחה לא נשמרה (לפי הגדרת שמירת ההקלטות)" if missing else "אין בשיחה הזו דיבור מוקלט")
-    return _speech_m4a(pieces, chapters, missing, f"conversation-{cid}", "conversation", cv["start"], cv["topic"] or "שיחה", "השיחה")
+        return None, ("ההקלטה של השיחה לא נשמרה (לפי הגדרת שמירת ההקלטות)" if missing
+                      else "אין דיבור מוקלט בקטע הזה" if win else "אין בשיחה הזו דיבור מוקלט")
+    return _speech_m4a(pieces, chapters, missing, f"conversation-{cid}" + ("-seg" if win else ""), "conversation",
+                       iso(win[0]) if win else cv["start"], cv["topic"] or "שיחה", "השיחה",
+                       name=_seg_name("conversation", cid, win) if win else None)
 
 
-def _speech_m4a(pieces, chapters, missing, stem, kind, started, title, noun):
+def _speech_m4a(pieces, chapters, missing, stem, kind, started, title, noun, name=None):
     """pieces + chapters (from _speech_plan) -> one AAC m4a in EXPORTS, reused while the same plan holds."""
     import numpy as np
     import voice_embed as VE
@@ -4255,7 +4386,7 @@ def _speech_m4a(pieces, chapters, missing, stem, kind, started, title, noun):
     out = EXPORTS / f"{stem}-{key}.m4a"
     started = started or ""
     info = {"seconds": round(sum(p["dur"] for p in pieces), 1), "chapters": len(chapters), "missing_chunks": missing,
-            "name": f"{kind}-" + started[:16].replace("T", "-").replace(":", "") + ".m4a"}
+            "name": name or (f"{kind}-" + started[:16].replace("T", "-").replace(":", "") + ".m4a")}
     if out.exists():
         return out, info
     decoded, parts = {}, []

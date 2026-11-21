@@ -60,6 +60,9 @@ class ConvActivity : Activity() {
     private var sel = -1                                   // selected line (index)
     private var people = JSONArray()
     private var owner = ""
+    private var hasAudio = false
+    private lateinit var seg: Segment                      // "✂ בחר קטע"
+    private var segChip: TextView? = null
 
     private fun px(v: Int) = (v * dp).toInt()
     private fun round(color: Int, r: Int, stroke: Int? = null) = GradientDrawable().apply {
@@ -83,6 +86,11 @@ class ConvActivity : Activity() {
         super.onCreate(savedInstanceState)
         dp = resources.displayMetrics.density
         convId = intent.getIntExtra("id", 0); startAt = intent.getDoubleExtra("at", -1.0)
+        seg = Segment(this, "conv", convId.toString(), { lines }, { hasAudio }, {
+            rows.notifyDataSetChanged()
+            if (::tl.isInitialized) tl.range = seg.range()
+            paintSegChip()
+        }, clip)
         intent.getIntExtra("notif", 0).takeIf { it != 0 }?.let {           // opened from a reminder's button: it is read
             (getSystemService(NOTIFICATION_SERVICE) as android.app.NotificationManager).cancel(it) }
         root = LinearLayout(this).apply {
@@ -95,7 +103,12 @@ class ConvActivity : Activity() {
         load()
     }
 
-    override fun onDestroy() { clip.stop(); ui.removeCallbacksAndMessages(null); super.onDestroy() }
+    override fun onDestroy() { seg.stop(); clip.stop(); ui.removeCallbacksAndMessages(null); super.onDestroy() }
+
+    private fun paintSegChip() = segChip?.let { c ->
+        c.background = round(if (seg.active) col.surface else col.surface2, 14, if (seg.active) col.accent else Color.parseColor("#33FFECD6"))
+        c.setTextColor(if (seg.active) col.accent else col.ink)
+    }
 
     private fun load(keepView: Boolean = false) {
         thread {
@@ -143,15 +156,24 @@ class ConvActivity : Activity() {
                 setOnClickListener { maxLines = if (maxLines == 2) 40 else 2 }; contentDescription = "סיכום. הקש להרחבה" }
             root.addView(sum)
         }
-        if (j.optBoolean("has_audio")) {                   // PC 1.0.13+: the recordings are still kept
-            val recRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(0, px(8), 0, 0) }
+        hasAudio = j.optBoolean("has_audio")
+        val recRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(0, px(8), 0, 0) }
+        if (hasAudio) {                                    // PC 1.0.13+: the recordings are still kept
             val rec = chip("🎧 שתף הקלטה") {}
             rec.setOnClickListener { AudioShare.share(this, "/home/audio/conv/$convId.m4a", "conversation-$convId.m4a", "שתף את הקלטת השיחה", rec) }
             recRow.addView(rec)
-            recRow.addView(text("רק הדיבור. כולל קולות של אחרים: ודא שהם מסכימים לפני ששולחים.", 11f, col.faint).apply { setPaddingRelative(px(10), 0, 0, 0) },
-                LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-            root.addView(recRow)
+            recRow.addView(View(this), LinearLayout.LayoutParams(px(6), 1))
         }
+        segChip = null
+        if (lines.isNotEmpty()) {                          // 2026-11-21: a part of the conversation (Segment)
+            segChip = chip("✂ בחר קטע") { if (seg.active) seg.cancel() else seg.start() }.apply {
+                contentDescription = "בחר קטע מתוך השיחה: הקש על משפט ההתחלה ועל משפט הסוף" }
+            recRow.addView(segChip)
+        }
+        if (recRow.childCount > 0) root.addView(recRow)
+        if (hasAudio) root.addView(text("רק הדיבור. כולל קולות של אחרים: ודא שהם מסכימים לפני ששולחים.", 11f, col.faint).apply { setPadding(0, px(4), 0, 0) })
+        (seg.banner.parent as? ViewGroup)?.removeView(seg.banner)
+        root.addView(seg.banner, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = px(8) })
 
         // timeline + zoom
         tl = TimelineView(this)
@@ -199,7 +221,7 @@ class ConvActivity : Activity() {
         list = ListView(this).apply {
             divider = null; dividerHeight = 0; isFastScrollEnabled = lines.size > 80; setPadding(0, px(8), 0, px(20)); clipToPadding = false
             adapter = rows
-            setOnItemClickListener { _, _, pos, _ -> select(pos, play = true, scrollList = false) }
+            setOnItemClickListener { _, _, pos, _ -> if (seg.active) seg.tap(pos) else select(pos, play = true, scrollList = false) }
             setOnItemLongClickListener { _, _, pos, _ -> askWho(pos); true }
             setOnScrollListener(object : android.widget.AbsListView.OnScrollListener {
                 override fun onScrollStateChanged(v: android.widget.AbsListView?, s: Int) {}
@@ -212,6 +234,11 @@ class ConvActivity : Activity() {
             setOnTouchListener { _, e -> touching = e.actionMasked == android.view.MotionEvent.ACTION_MOVE; false }
         }
         root.addView(list, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        (seg.bar.parent as? ViewGroup)?.removeView(seg.bar)
+        root.addView(seg.bar, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            marginStart = -px(14); marginEnd = -px(14) })
+        tl.range = seg.range()
+        paintSegChip()
         if (lines.isEmpty()) root.addView(text("אין תמלול בשיחה הזו.", 14f, col.dim))
         oldLaneName?.let { n -> laneOf[n]?.let { toggleLane(it, jumpTo = false) } }   // a reload keeps the filter, plays nothing
         if (startAt >= 0) {
@@ -262,6 +289,7 @@ class ConvActivity : Activity() {
         rows.notifyDataSetChanged()
         if (scrollList) list.post { list.setSelectionFromTop(i, px(40)) }   // after the redraw, or the list keeps its place
         if (play) {
+            seg.stop()
             clip.play(u.getInt("id")) { s ->
                 playState = s
                 rows.notifyDataSetChanged()
@@ -284,18 +312,30 @@ class ConvActivity : Activity() {
                 addView(LinearLayout(this@ConvActivity).apply { orientation = LinearLayout.VERTICAL
                     addView(text("", 14f, bold = true)); addView(text("", 11f, col.faint)) }, LinearLayout.LayoutParams(px(84), ViewGroup.LayoutParams.WRAP_CONTENT))
                 addView(LinearLayout(this@ConvActivity).apply { orientation = LinearLayout.VERTICAL
-                    addView(text("", 11f, col.faint).apply { textDirection = View.TEXT_DIRECTION_LTR; textAlignment = View.TEXT_ALIGNMENT_VIEW_END })
+                    addView(LinearLayout(this@ConvActivity).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+                        addView(text("", 11f, col.faint).apply { textDirection = View.TEXT_DIRECTION_LTR })
+                        addView(text("⋯", 11f, col.dim).apply {           // edit who said it / share this line
+                            background = round(Color.TRANSPARENT, 6, Color.parseColor("#33FFECD6")); setPadding(px(6), 0, px(6), 0)
+                            gravity = Gravity.CENTER; minWidth = px(30); minHeight = px(22) },
+                            LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginStart = px(6) })
+                        addView(View(this@ConvActivity), LinearLayout.LayoutParams(0, 1, 1f))
+                        addView(text("", 10f, col.accentInk, true).apply { setPadding(px(6), px(1), px(6), px(1)); background = round(col.accent, 6) }) })
                     addView(text("", 15f)) }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
             }
             val u = lines[p]; val k = keyOf(u)
             val left = row.getChildAt(0) as LinearLayout; val right = row.getChildAt(1) as LinearLayout
             val nm = left.getChildAt(0) as TextView; val how = left.getChildAt(1) as TextView
-            val tm = right.getChildAt(0) as TextView; val tx = right.getChildAt(1) as TextView
+            val trow = right.getChildAt(0) as LinearLayout; val tx = right.getChildAt(1) as TextView
+            val tm = trow.getChildAt(0) as TextView; val ic = trow.getChildAt(1) as TextView; val flag = trow.getChildAt(3) as TextView
             val media = mediaOf(u)
             nm.text = when { media != null -> "📺 $media"; nameOf(u) != null -> nameOf(u)!!.split(" ")[0] + (if (u.optString("how") == "conv") "?" else ""); else -> "מי זה? ✎" }
             nm.setTextColor(if (nameOf(u) == null && media == null) col.accent else colorOf(k))
             how.text = if (media != null) "ברקע" else if (nameOf(u) != null) HOW[u.optString("how")] ?: "" else "הקש על השם"
-            nm.isClickable = true; nm.setOnClickListener { askWho(p) }
+            nm.isClickable = true; nm.setOnClickListener { if (seg.active) seg.tap(p) else askWho(p) }
+            ic.isClickable = true; ic.setOnClickListener { askWho(p) }; ic.visibility = if (seg.active) View.GONE else View.VISIBLE
+            ic.contentDescription = "עריכה ושיתוף של השורה"
+            val mk = seg.mark(p)
+            flag.text = seg.label(mk); flag.visibility = if (mk == Segment.START || mk == Segment.END || mk == Segment.BOTH) View.VISIBLE else View.GONE
             nm.contentDescription = "מי אמר את זה: ${nm.text}. הקש כדי לתקן"
             val marks = (if (u.optInt("split_of") > 0) " ✂" else "") + (if (u.optInt("overlap") == 1) " בו-זמנית" else "")
             tm.text = TimelineView.hm(sod(u.optString("t0")), true) + marks + (if (p == sel) when (playState) { "loading" -> "  ⏳"; "playing" -> "  🔊"; else -> "" } else "")
@@ -303,7 +343,11 @@ class ConvActivity : Activity() {
             tx.setTextColor(if (media != null) col.faint else col.ink)
             val dim = tl.selLane >= 0 && laneOf[k] != tl.selLane
             row.alpha = if (dim) 0.45f else 1f
-            row.background = if (p == sel) round(col.surface, 10, col.accent) else null
+            row.background = when (mk) {
+                Segment.START, Segment.END, Segment.BOTH -> round(Color.parseColor("#29EAA45E"), 10, col.accent)
+                Segment.IN -> round(Color.parseColor("#1AEAA45E"), 10)
+                else -> if (p == sel && !seg.active) round(col.surface, 10, col.accent) else null
+            }
             return row
         }
     }
@@ -317,6 +361,18 @@ class ConvActivity : Activity() {
         box.addView(text("״${u.optString("text").take(200)}״", 15f))
         val cands = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(0, px(8), 0, 0) }
         box.addView(cands)
+        lateinit var d: AlertDialog
+        if (mediaOf(u) == null) {                          // 2026-11-21: this line's sound / a part from here
+            val acts = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, px(4), 0, px(8)) }
+            if (hasAudio) {
+                val sh = chip("🎧 שתף את השורה") {}
+                sh.setOnClickListener { AudioShare.share(this, Segment.linePath("conv", convId.toString(), u.getInt("id")),
+                    "conversation-$convId-line.m4a", "שתף את השורה", sh, expect = Segment.partName("conv")) }
+                acts.addView(sh); acts.addView(View(this), LinearLayout.LayoutParams(px(6), 1))
+            }
+            acts.addView(chip("✂ התחל קטע מכאן") { d.dismiss(); seg.beginAt(p) })
+            box.addView(HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false; addView(acts) }, 1)
+        }
         val names = (0 until people.length()).map { people.getJSONObject(it) }
         val field = AutoCompleteTextView(this).apply {
             hint = "הקלד שם, או שם חדש…"; setTextColor(col.ink); setHintTextColor(col.faint); threshold = 1; isSingleLine = true
@@ -324,7 +380,6 @@ class ConvActivity : Activity() {
             setAdapter(ArrayAdapter(this@ConvActivity, android.R.layout.simple_dropdown_item_1line, names.map { it.optString("name") }))
         }
         box.addView(field)
-        lateinit var d: AlertDialog
         val save = { b: JSONObject -> d.dismiss(); label(u, b) }
         val typed = {
             val n = field.text.toString().trim()

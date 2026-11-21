@@ -51,6 +51,8 @@ class TimelineView(ctx: Context) : View(ctx) {
     var selLane = -1; set(v) { field = v; invalidate() }
     var selId = -1; set(v) { field = v; invalidate() }
     var playhead = -1.0; set(v) { field = v; invalidate() }
+    /** "✂ בחר קטע": the chosen part (seconds since midnight), or null. a == b: only the start is chosen so far */
+    var range: Pair<Double, Double>? = null; set(v) { field = v; invalidate() }
     var onTap: ((Seg) -> Unit)? = null
     var onLaneTap: ((Int) -> Unit)? = null
     var onView: (() -> Unit)? = null
@@ -71,6 +73,7 @@ class TimelineView(ctx: Context) : View(ctx) {
     private val small = TextPaint(Paint.ANTI_ALIAS_FLAG).apply { textSize = 10.5f * dp; color = Color.parseColor("#958A7D") }
     private val blockText = TextPaint(Paint.ANTI_ALIAS_FLAG).apply { textSize = 11 * dp; color = Color.parseColor("#1B130B"); isFakeBoldText = true }
     private val playPaint = Paint().apply { color = Color.parseColor("#E48A7F"); strokeWidth = 2 * dp }
+    private val edgePaint = Paint().apply { color = Color.parseColor("#EAA45E"); strokeWidth = 2 * dp }
     private val r = RectF()
 
     fun setData(l: List<Lane>, s: List<Seg>, start: Double, end: Double, minSpanS: Double) {
@@ -129,6 +132,14 @@ class TimelineView(ctx: Context) : View(ctx) {
             val lab = hm(g, withSec); val w = small.measureText(lab)
             c.drawText(lab, (gx - w / 2).coerceIn(plotL, plotR - w), lanes.size * laneH + axisH - 4 * dp, small)
             g += step
+        }
+        range?.let { (a, b) ->                                 // the chosen part, under the blocks
+            if (b >= viewStart && a <= end) {
+                val x0 = max(plotL, x(a)); val x1 = min(plotR, x(b))
+                fill.color = Color.parseColor("#2EEAA45E"); r.set(x0, 0f, max(x1, x0 + 1f), lanes.size * laneH); c.drawRect(r, fill)
+                if (a >= viewStart) c.drawLine(x(a), 0f, x(a), lanes.size * laneH, edgePaint)
+                if (b <= end && b > a) c.drawLine(x(b), 0f, x(b), lanes.size * laneH, edgePaint)
+            }
         }
         // lanes
         for ((i, ln) in lanes.withIndex()) {

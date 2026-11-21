@@ -39,18 +39,26 @@ class Clip(private val c: Context) {
     var playingId = -1; private set
 
     fun play(id: Int, s: Double? = null, e: Double? = null, onState: (String) -> Unit) {
+        val q = if (s != null && e != null) "?s=%.2f&e=%.2f".format(java.util.Locale.US, s, e) else ""
+        playPath(id, "/home/audio/utt/$id$q", "clip_$id.wav", "ההקלטה של השורה כבר לא שמורה", onState)
+    }
+
+    /** any audio path on the PC (a line, or a part of a conversation: id < 0 for those) */
+    fun playPath(id: Int, path: String, cacheName: String, goneMsg: String, onState: (String) -> Unit) {
         stop()
         val my = ++gen
         playingId = id
         onState("loading")
         thread {
             try {
-                val q = if (s != null && e != null) "?s=%.2f&e=%.2f".format(java.util.Locale.US, s, e) else ""
-                val h = URL(Prefs.base(c) + "/home/audio/utt/$id$q").openConnection() as HttpURLConnection
-                h.connectTimeout = 4000; h.readTimeout = 30000
+                val h = URL(Prefs.base(c) + path).openConnection() as HttpURLConnection
+                h.connectTimeout = 4000; h.readTimeout = 180_000
                 h.setRequestProperty("X-Home-Token", Prefs.token(c))
-                if (h.responseCode != 200) throw RuntimeException(if (h.responseCode == 404) "ההקלטה של השורה כבר לא שמורה" else "HTTP ${h.responseCode}")
-                val f = File(c.cacheDir, "clip_$id.wav")
+                if (h.responseCode != 200) throw RuntimeException(
+                    if (h.responseCode == 404) goneMsg
+                    else try { JSONObject(h.errorStream.bufferedReader().readText()).optString("error").ifEmpty { null } } catch (x: Exception) { null }
+                        ?: "HTTP ${h.responseCode}")
+                val f = File(c.cacheDir, cacheName)
                 h.inputStream.use { i -> f.outputStream().use { o -> i.copyTo(o) } }
                 h.disconnect()
                 ui.post {

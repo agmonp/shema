@@ -18,7 +18,8 @@ import kotlin.concurrent.thread
 /** "🎧 שתף הקלטה": one m4a from the PC (speech only, chapters = the real clock time) -> the share sheet (not back into Shema).
  *  path = "/home/audio/meeting/<id>.m4a" or "/home/audio/conv/<id>.m4a" (PC 1.0.12+ / 1.0.13+). */
 object AudioShare {
-    fun share(a: Activity, path: String, fallbackName: String, chooserTitle: String, btn: TextView) {
+    /** expect: the file name a part must come back with (an older PC ignores ?from=&to= and would send it all) */
+    fun share(a: Activity, path: String, fallbackName: String, chooserTitle: String, btn: TextView, expect: Regex? = null) {
         val ui = Handler(Looper.getMainLooper())
         val was = btn.text; btn.text = "מכין קובץ…"; btn.isEnabled = false
         thread {
@@ -31,8 +32,11 @@ object AudioShare {
                 h.setRequestProperty("X-Home-Token", Prefs.token(a))
                 if (h.responseCode == 200) {
                     val name = Regex("filename=\"([^\"]+)\"").find(h.getHeaderField("Content-Disposition") ?: "")?.groupValues?.get(1) ?: fallbackName
-                    f = File(dir, name)
-                    h.inputStream.use { i -> f.outputStream().use { o -> i.copyTo(o) } }
+                    if (expect != null && !expect.matches(name)) err = "צריך לעדכן את שמע במחשב כדי לשתף קטע"
+                    else {
+                        f = File(dir, name)
+                        h.inputStream.use { i -> f.outputStream().use { o -> i.copyTo(o) } }
+                    }
                 } else err = try { JSONObject(h.errorStream.bufferedReader().readText()).optString("error") } catch (e: Exception) { null } ?: "HTTP ${h.responseCode}"
                 h.disconnect()
             } catch (e: Exception) { err = "המחשב לא זמין, נסה שוב" }
