@@ -27,3 +27,5 @@ dist/
 commercial/android/app/build/
 commercial/android/.gradle/
 commercial/dist/
+node_modules/
+*.tsbuildinfo

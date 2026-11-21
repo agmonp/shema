@@ -1,0 +1,46 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html { -webkit-text-size-adjust: 100%; }
+  html.lenis, html.lenis body { height: auto; }
+  .lenis.lenis-smooth { scroll-behavior: auto !important; }
+  body {
+    background-color: #09090B;
+    color: #F4F4F5;
+    font-family: Heebo, Arial, sans-serif;
+    overflow-x: hidden;
+    -webkit-font-smoothing: antialiased;
+    font-feature-settings: 'kern' 1;
+  }
+  ::selection { background: #D4AF7A; color: #09090B; }
+}
+
+@layer components {
+  /* Elevated surface: near-opaque, hairline border, a light reflection on the top edge only */
+  .surface {
+    position: relative;
+    background: linear-gradient(180deg, rgba(22, 22, 26, 0.86), rgba(16, 16, 19, 0.86));
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-top-color: rgba(255, 255, 255, 0.15);
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.02) inset, 0 40px 80px -40px rgba(0, 0, 0, 0.8);
+    -webkit-backdrop-filter: blur(24px) saturate(120%);
+    backdrop-filter: blur(24px) saturate(120%);
+  }
+  .surface::before {
+    content: ''; position: absolute; inset: -1px -1px auto; height: 1px; border-radius: inherit; pointer-events: none;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.35) 50%, transparent);
+    opacity: 0.6;
+  }
+  .hairline { border: 1px solid rgba(255, 255, 255, 0.18); }
+  .eyebrow { font-size: 12px; letter-spacing: 0.14em; color: #8E8E93; font-weight: 500; }
+  .grain {
+    position: fixed; inset: 0; z-index: 5; pointer-events: none; opacity: 0.05; mix-blend-mode: overlay;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 160 160' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
