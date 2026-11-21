@@ -211,6 +211,7 @@ section { padding: 110px 0; }
 .gallery img { width: 100%; border-radius: 10px; display: block; }
 .gallery h3 { font-size: 18px; margin: 16px 10px 4px; }
 .gallery p { font-size: 14px; margin: 0 10px 14px; color: #9aa8be; }
+.gallery.phones img { max-width: 300px; margin: 0 auto; }
 
 .flow { display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; }
 .step { border-top: 1px solid #4a5568; padding: 25px 8px; }
@@ -490,6 +491,34 @@ footer .container { display: flex; justify-content: space-between; gap: 20px; fl
       </div>
       <div class="panel reveal">
         <img loading="lazy" src="https://raw.githubusercontent.com/agmonp/shema/main/docs/pc-conversation.png" alt="תצוגת שיחה עם תמלול וסיכום">
+      </div>
+    </div>
+  </section>
+
+  <!-- New: a part of a recording (app 1.0.24 + PC 1.0.17) -->
+  <section id="segment">
+    <div class="container">
+      <div class="section-head reveal">
+        <span class="section-tag">NEW · קטע מתוך הקלטה</span>
+        <h2>רק החלק שחשוב.<br><span class="gradient">סיכום וקובץ שמע של קטע.</span></h2>
+        <p>בוחרים בטלפון משפט התחלה ומשפט סוף בתוך שיחה או פגישה, מכוונים כל גבול ב־5 שניות, ומקבלים סיכום של הקטע הזה בלבד וקובץ שמע שלו לשליחה. הסיכום של כל השיחה נשאר כמו שהוא.</p>
+      </div>
+      <div class="gallery phones">
+        <article class="reveal">
+          <img loading="lazy" src="https://raw.githubusercontent.com/agmonp/shema/main/docs/phone-segment-pick.png" alt="בחירת קטע בשיחה: משפט התחלה ומשפט סוף מסומנים, ופס עם משך הקטע וכפתורי ±5 שניות">
+          <h3>✂ בוחרים קטע</h3>
+          <p>מקישים על משפט ההתחלה ועל משפט הסוף. רואים את המשך, משמיעים, ומזיזים כל גבול ב־5 שניות.</p>
+        </article>
+        <article class="reveal">
+          <img loading="lazy" src="https://raw.githubusercontent.com/agmonp/shema/main/docs/phone-segment-summary.png" alt="סיכום של הקטע שנבחר בלבד, עם שמות הדוברים">
+          <h3>סיכום של הקטע בלבד</h3>
+          <p>אותו סיכום כמו של שיחה שלמה, עם שמות הדוברים, רק על המשפטים שבקטע. אפשר להעתיק או לשתף.</p>
+        </article>
+        <article class="reveal">
+          <img loading="lazy" src="https://raw.githubusercontent.com/agmonp/shema/main/docs/phone-line-share.png" alt="חלון מי אמר את זה, עם שיתוף הסאונד של השורה">
+          <h3>🎧 משתפים גם משפט אחד</h3>
+          <p>מכל שורה בתמלול: מתקנים מי אמר אותה, משתפים את הסאונד שלה, או מתחילים ממנה קטע.</p>
+        </article>
       </div>
     </div>
   </section>
