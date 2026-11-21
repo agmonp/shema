@@ -4,6 +4,8 @@ on:
     branches: [main]
     paths:
       - index.html
+      - classic.html
+      - assets/**
       - privacy.html
       - shema-icon.svg
       - .github/workflows/pages.yml
@@ -28,6 +30,8 @@ jobs:
         run: |
           mkdir -p _site
           cp index.html _site/index.html
+          cp classic.html _site/classic.html
+          cp -r assets _site/assets
           cp privacy.html _site/privacy.html
           cp shema-icon.svg _site/shema-icon.svg
           touch _site/.nojekyll
