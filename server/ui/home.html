@@ -489,6 +489,32 @@ mark{background:rgba(234,164,94,.3);color:inherit;border-radius:3px}
 @media (max-width:600px){ .mlive .acts .stop{margin-inline-start:0;flex:1} .mlive .acts .mark{flex:1}
   .ml .t{width:auto} .ml{flex-wrap:wrap;gap:2px 8px} .ml .tx{flex-basis:100%;order:5}
   .mws .mhd .acts button{flex:1 1 40%} .mflt select{flex:1} }
+/* "✂ בחר קטע" (2026-11-22): pick a first and a last line -> that part's audio and summary; ⋯ on every line */
+.lm{flex:none;color:var(--faint);font-size:15px;line-height:1;padding:0 6px;border-radius:8px;vertical-align:middle}
+.lm:hover,.lm:focus-visible{color:var(--accent);background:var(--surface3);outline:none}
+.lmenu{position:fixed;z-index:70;background:var(--surface2);border:1px solid var(--line2);border-radius:12px;padding:4px;min-width:230px;box-shadow:0 8px 24px rgba(0,0,0,.45)}
+.lmenu button{display:block;width:100%;text-align:start;padding:8px 10px;border-radius:8px;font-size:14px}
+.lmenu button:hover,.lmenu button:focus-visible{background:var(--surface3);outline:none}
+.segon .utt:not(.media),.segon .ml[data-u]{cursor:pointer}
+.segon .utt:not(.media):hover,.segon .ml[data-u]:hover{background:rgba(234,164,94,.05)}
+.seg-in{background:rgba(234,164,94,.10)!important}
+.seg-a,.seg-b{box-shadow:inset -3px 0 0 var(--accent);background:rgba(234,164,94,.18)!important}
+.segbar{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);z-index:60;background:var(--surface3);border:1px solid var(--line2);
+  border-radius:14px;padding:10px 12px;box-shadow:0 8px 28px rgba(0,0,0,.4);width:min(720px,calc(100vw - 24px))}
+.segbar .top{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.segbar .top b{font-size:14px} .segbar .top .len{color:var(--dim);font-size:13px}
+.segbar .top .x{margin-inline-start:auto;color:var(--faint);font-size:18px;padding:0 6px}
+.segbar .edges{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;font-size:12px;color:var(--faint);align-items:center}
+.segbar .edges button{border:1px solid var(--line2);background:var(--surface2);border-radius:8px;padding:3px 8px;font-size:12px;color:var(--ink)}
+.segbar .edges .sp{width:12px}
+.segbar .acts{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.segbar .acts button{border-radius:10px;padding:7px 12px;min-height:36px;font-weight:700;border:1px solid var(--line2);background:var(--surface2);color:var(--ink)}
+.segbar .acts button.pri{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.segbar .acts button:disabled{opacity:.45}
+.segbar .legend{margin:8px 0 0;font-size:11px}
+.segsum .sum{white-space:pre-wrap} .segsum ul{margin:4px 0;padding-inline-start:18px}
+.segsum .acts{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px}
+.segsum .acts button{border:1px solid var(--line2);background:var(--surface2);border-radius:10px;padding:6px 12px;font-weight:700}
 </style>
 </head>
 <body>
@@ -812,7 +838,7 @@ function uttRow(u){
     <div class="body"><span class="t">${hms(u.t0)}</span> ${esc(u.media)} ברקע · ${Math.round(u.seconds)} שנ׳</div></div>`;
   return `<div class="utt"><button class="who${u.how === "conv" || u.how === "call" || u.how === "mic" ? " maybe" : ""}" data-u="${u.id}" style="color:${colorOf(u.name)}" title="לחץ כדי לומר מי זה">${esc(first(u.name))}${u.how === "conv" ? "?" : ""}
       <small>${u.name ? (HOW[u.how] || "") : "מי זה? ✎"}</small></button>
-    <div class="body"><span class="t">${hms(u.t0)}</span>${u.split_of ? `<span class="mk" title="פוצל מתוך שורה אחת · לחץ על השורה ← ⋯ עוד כדי לבטל">✂${u.overlap ? " בו-זמנית" : ""}</span>` : ""} ${esc(u.text)}${u.text ? `<button class="gold" data-g="${u.id}" title="הוסף לסט הזהב: מדידת איכות התמלול">⭐ זהב</button>` : ""}<div class="feel">${feel(u)}</div></div></div>`;
+    <div class="body"><span class="t">${hms(u.t0)}</span><button class="lm" data-lm="${u.id}" title="שתף את השורה, העתק אותה או התחל ממנה קטע" aria-label="אפשרויות לשורה">⋯</button>${u.split_of ? `<span class="mk" title="פוצל מתוך שורה אחת · לחץ על השורה ← ⋯ עוד כדי לבטל">✂${u.overlap ? " בו-זמנית" : ""}</span>` : ""} ${esc(u.text)}${u.text ? `<button class="gold" data-g="${u.id}" title="הוסף לסט הזהב: מדידת איכות התמלול">⭐ זהב</button>` : ""}<div class="feel">${feel(u)}</div></div></div>`;
 }
 let UMAP = {};
 function bindWho(root, U){
@@ -824,6 +850,7 @@ function bindWho(root, U){
     if (body) { body.classList.add("tap"); body.onclick = e => { if (e.target.closest("button,a,audio") || String(getSelection())) return; askWho(UMAP[b.dataset.u]); }; }
   });
   root.querySelectorAll("button.gold[data-g]").forEach(b => b.onclick = () => askGold(UMAP[b.dataset.g]));
+  bindLineMenus(root);
 }
 function askGold(u){
   const sh = document.createElement("div");
@@ -1153,15 +1180,18 @@ async function showConv(id, box, quiet, focusUtt){
       ${c.summary ? `<div class="sum">${esc(c.summary)}</div>` : ""}${c.mood_text ? `<div class="mood">${esc(c.mood_text)}</div>` : ""}
       ${pp.length ? `<div class="pp">${pp.map(([n, t]) => `<b style="color:${colorOf(n)}">${esc(first(n))}</b><span>${esc(t)}</span>`).join("")}</div>` : ""}
       ${D.meeting ? meetBlock(D.meeting) : ""}${moments}<div class="chips">${c.media_note ? `<span class="chip media">📺 ברקע: ${esc(c.media_note)}</span>` : ""}${sig}${sounds}${intr}<span class="chip">${c.turns ?? 0} חילופי דוברים</span></div>
-      ${D.has_audio ? `<div class="convrec"><button id="cdla" title="קובץ m4a: רק הקטעים שבהם דיברו. הפרקים בקובץ נקראים לפי השעה האמיתית בשיחה">⬇ הורד הקלטה</button></div>
-        <div class="legend">ההקלטה כוללת קולות של אנשים נוספים. לפני ששולחים אותה הלאה, ודא שהם מסכימים.</div>` : ""}</div>
+      <div class="convrec">${D.has_audio ? `<button id="cdla" title="קובץ m4a: רק הקטעים שבהם דיברו. הפרקים בקובץ נקראים לפי השעה האמיתית בשיחה">⬇ הורד הקלטה</button>` : ""}
+        ${U.some(u => !u.media) ? `<button id="cseg" title="בוחרים משפט התחלה ומשפט סוף, ומקבלים סיכום ${D.has_audio ? "וקובץ שמע " : ""}של החלק הזה בלבד">✂ בחר קטע</button>` : ""}</div>
+      ${D.has_audio ? `<div class="legend">ההקלטה כוללת קולות של אנשים נוספים. לפני ששולחים אותה הלאה, ודא שהם מסכימים.</div>` : ""}</div>
     <div class="card" id="ctxcard" hidden></div>
     ${toneChart(U) ? `<div class="card"><h2>טון השיחה</h2>${toneChart(U)}</div>` : ""}
     <div class="card"><h2>מי אמר מה</h2>
       ${unknown ? `<div class="legend" style="margin:0 0 6px">${unknown} משפטים לא זוהו. לחץ על "מי זה? ✎" ליד משפט, הקשב ובחר מי מדבר: המחשב לומד את הקול ומזהה מחדש את השאר.</div>` : ""}
       <div id="utts">${U.map(uttRow).join("")}</div>
       <div class="legend">"מהרגיל" = לעומת הקול הרגיל של אותו אדם ב-30 הימים האחרונים (מופיע אחרי שנאספו מספיק משפטים שלו/ה).</div></div>`;
+  segContext("conv", c.id, U, $("#utts"), c.topic, D.has_audio);
   bindWho($("#utts"), U);
+  const cs = $("#cseg"); if (cs) cs.onclick = () => segStart();
   if (focusUtt) {
     const row = document.querySelector(`#utts .who[data-u="${focusUtt}"]`)?.closest(".utt");
     if (row) { row.classList.add("focus"); requestAnimationFrame(() => row.scrollIntoView({block: "center"})); }
@@ -1518,7 +1548,7 @@ function meetTick(){                 // the live view's clock, from the recorder
 const M_MAYBE = ["conv", "call", "mic"];
 function lineHtml(u, play){
   const sd = SIDE[u.side], maybe = u.name && M_MAYBE.includes(u.how);
-  return `<div class="ml" data-u="${u.id}">${play ? `<button class="pl" data-p="${u.id}" aria-label="השמע את השורה" title="השמע">▶</button>` : ""}<span class="t">${hms(u.t0)}</span>
+  return `<div class="ml" data-u="${u.id}">${play ? `<button class="pl" data-p="${u.id}" aria-label="השמע את השורה" title="השמע">▶</button>` : ""}<span class="t">${hms(u.t0)}</span>${play ? `<button class="lm" data-lm="${u.id}" title="שתף את השורה, העתק אותה או התחל ממנה קטע" aria-label="אפשרויות לשורה">⋯</button>` : ""}
     <button class="who${u.name ? (maybe ? " maybe" : "") : " unk"}" data-w="${u.id}" ${u.name ? `style="color:${colorOf(u.name)}"` : ""}
       title="${u.name ? esc((HOW[u.how] || "") + " · לחץ כדי לתקן") : "מי זה? לחץ כדי לומר"}">${u.name ? esc(first(u.name)) + (maybe ? "?" : "") : "מי זה?"}</button>
     ${sd ? `<span class="sd" title="${sd[1]}">${sd[0]}</span>` : ""}<span class="tx" dir="auto">${esc(u.text)}</span></div>`;
@@ -1540,6 +1570,7 @@ function bindLines(box, L, results){
     const id = t.parentElement.dataset.u;
     results ? playUtt(id, t.parentElement.querySelector(".pl")) : askWho(by[id]); });
   box.querySelectorAll("[data-p]").forEach(b => b.onclick = () => playUtt(b.dataset.p, b));
+  bindLineMenus(box);
 }
 function playUtt(id, btn){
   const reset = () => document.querySelectorAll(".ml .pl.on").forEach(b => { b.classList.remove("on"); b.textContent = "▶"; });
@@ -1585,7 +1616,7 @@ function meetPoll(id, ms){
   M_T = setTimeout(async () => {
     M_T = null;
     if (location.hash !== meetHref(id)) return;
-    if (document.querySelector(".sheet")) return meetPoll(id, ms);        // "מי זה?" is open: don't redraw under it
+    if (document.querySelector(".sheet") || SEG) return meetPoll(id, ms);  // "מי זה?" / a part being picked: don't redraw under it
     let v; try { v = await J("/home/api/meeting?id=" + encodeURIComponent(id)); } catch { return meetPoll(id, ms); }
     if (location.hash !== meetHref(id) || !v.meeting) return;
     const mode = meetMode(v);
@@ -1655,6 +1686,7 @@ function meetWaiting(v, box){
       <div class="legend">אפשר לסגור את הדף: הסיכום יחכה כאן. שם שתתקן עכשיו בתמלול ייכנס לסיכום.</div></div>
     <div class="card"><h2>התמלול עד עכשיו <span class="n" style="color:var(--faint);font-weight:500;font-size:13px">${v.lines.length} שורות</span></h2>
       <div class="lines" id="mlines" style="max-height:60vh;overflow:auto">${linesHtml(v.lines, v.marks, true) || `<div class="legend">עוד אין שורות.</div>`}</div></div>`;
+  segContext("meeting", v.meeting.id, v.lines, $("#mlines"), v.meeting.title || v.topic, v.has_audio);
   bindLines($("#mlines"), v.lines, true);
 }
 const srcLink = (uid, t0) => uid ? `<a class="src" data-j="${uid}" role="button" tabindex="0" title="קפוץ לשורה בתמלול והשמע אותה">▶ ${hms(t0)} · לשורה ›</a>` : "";
@@ -1734,7 +1766,7 @@ function meetResults(v, box){
       <h2>${esc(m.title || v.topic || "פגישה")}</h2>
       ${(v.people || []).length ? `<div class="ppl">${v.people.map(p => `<span style="color:${colorOf(p)}">${esc(p)}</span>`).join("")}</div>` : ""}
       <div class="acts"><button id="mcopy">📋 העתק סיכום</button><button id="mcopyt">📄 העתק תמלול</button>
-        <button id="mdl">⬇ הורד כקובץ טקסט</button>${v.has_audio ? `<button id="mdla" title="קובץ m4a: רק הקטעים שבהם דיברו. הפרקים בקובץ נקראים לפי השעה האמיתית בפגישה">⬇ הורד הקלטה</button>` : ""}${m.conv_id ? `<button id="mresum">↻ סכם מחדש</button>` : ""}</div>
+        <button id="mdl">⬇ הורד כקובץ טקסט</button>${v.lines.length ? `<button id="mseg" title="בוחרים משפט התחלה ומשפט סוף, ומקבלים סיכום ${v.has_audio ? "וקובץ שמע " : ""}של החלק הזה בלבד">✂ בחר קטע</button>` : ""}${v.has_audio ? `<button id="mdla" title="קובץ m4a: רק הקטעים שבהם דיברו. הפרקים בקובץ נקראים לפי השעה האמיתית בפגישה">⬇ הורד הקלטה</button>` : ""}${m.conv_id ? `<button id="mresum">↻ סכם מחדש</button>` : ""}</div>
       ${v.has_audio ? `<div class="legend">ההקלטה כוללת קולות של אנשים נוספים. לפני ששולחים אותה הלאה, ודא שהם מסכימים.</div>` : ""}</div>
     <div class="mgrid"><div>
       ${m.status === "empty" ? `<div class="card"><div class="legend" style="margin:0">לא נשמע דיבור בפגישה הזו.</div></div>` : ""}
@@ -1756,7 +1788,9 @@ function meetResults(v, box){
       <div class="lines" id="mlines">${linesHtml(v.lines, v.marks, true) || `<div class="legend">אין שורות.</div>`}</div>
       <div class="legend">▶ משמיע את השורה · לחיצה על שם = מי זה?${v.source === "both" ? " · 🎙 הצד שלך · 🔊 הצד השני בשיחה" : ""}</div></div></div></div></div>`;
   drawTasks(v);
+  segContext("meeting", m.id, v.lines, $("#mlines"), m.title || v.topic, v.has_audio);
   bindLines($("#mlines"), v.lines, true);
+  const ms = $("#mseg"); if (ms) ms.onclick = () => { const s = $("#msearch"); if (s && s.value) { s.value = ""; s.oninput(); } segStart(); };
   bindJumps($("#mdec")); bindDismiss($("#mdec"));
   bindJumps(box.querySelector(".trc"));                     // the timeline: jump to a line
   const s = $("#msearch");
@@ -1790,6 +1824,191 @@ async function downloadRec(btn, url, fallback, where){
   } catch (e) { toast("המחשב לא ענה"); }
   finally { btn.disabled = false; btn.textContent = was; }
 }
+// ---------------------------------------------------------------- "✂ בחר קטע" + ⋯ on every line (PC, 2026-11-22)
+// The same as the phone app: tap a first and a last line of a conversation / meeting, move either edge by 5 s, then
+// play / download / share that part's audio or get a summary of only that part. The server does the work
+// (/home/audio/conv|meeting/<id>.m4a?from=&to=&ds=&de= and /home/api/segment_summary); nothing here is saved.
+let SEGX = null;          // the open conversation / meeting: {kind, id, U (lines), box, title, audio}
+let SEG = null;           // the part being picked: {a, b, ds, de, bar}
+function segContext(kind, id, U, box, title, audio){
+  segExit(); SEGX = {kind, id: String(id), U, box, title: title || "", audio: !!audio};
+}
+const segLine = id => SEGX && SEGX.U.find(u => String(u.id) === String(id) && !u.media);
+const segQuery = (a, b, ds, de) => `from=${a}&to=${b}&ds=${ds || 0}&de=${de || 0}`;
+const segUrl = (a, b, ds, de) => `/home/audio/${SEGX.kind}/${encodeURIComponent(SEGX.id)}.m4a?${segQuery(a, b, ds, de)}`;
+const lineWho = u => u.name ? first(u.name) : "לא מזוהה";
+const lineText = u => `״${(u.text || "").trim()}״ (${lineWho(u)}, ${hm(u.t0)})`;
+
+// ⋯ next to a line: share its sound, copy it, start a part from it, or "who said this"
+function lineMenu(u, anchor){
+  document.querySelector(".lmenu")?.remove();
+  if (!u) return;
+  const m = document.createElement("div"); m.className = "lmenu"; m.setAttribute("role", "menu");
+  const inCtx = !!segLine(u.id), audio = inCtx && SEGX.audio;   // only lines of the conversation / meeting on screen
+  m.innerHTML = `${audio ? `<button data-a="share">🎧 שתף את הסאונד של השורה</button>` : ""}
+    <button data-a="copy">📋 העתק את השורה</button>
+    ${inCtx ? `<button data-a="seg">✂ התחל קטע מכאן</button>` : ""}
+    <button data-a="who">✎ מי אמר את זה?</button>`;
+  document.body.appendChild(m);
+  const r = anchor.getBoundingClientRect(), w = m.offsetWidth, h = m.offsetHeight;
+  m.style.top = Math.min(innerHeight - h - 8, r.bottom + 4) + "px";
+  m.style.left = Math.max(8, Math.min(innerWidth - w - 8, r.right - w)) + "px";
+  const close = () => { m.remove(); document.removeEventListener("pointerdown", out, true); document.removeEventListener("keydown", key, true); };
+  const out = e => { if (!m.contains(e.target)) close(); };
+  const key = e => { if (e.key === "Escape") { e.stopPropagation(); close(); anchor.focus(); } };
+  document.addEventListener("pointerdown", out, true); document.addEventListener("keydown", key, true);
+  m.querySelectorAll("[data-a]").forEach(b => b.onclick = () => { close(); ({
+    share: () => shareAudio(segUrl(u.id, u.id, 0, 0), lineText(u), b),
+    copy: () => copyText(lineText(u), "השורה הועתקה."),
+    seg: () => segStart(u.id),
+    who: () => askWho(u),
+  })[b.dataset.a](); });
+  m.querySelector("button").focus();
+}
+function bindLineMenus(root){
+  root.querySelectorAll("[data-lm]").forEach(b => b.onclick = e => { e.stopPropagation(); lineMenu(segLine(b.dataset.lm) || UMAP[b.dataset.lm], b); });
+}
+
+// share a part's audio: the system share sheet with the file where the browser can (Edge / Chrome on this PC),
+// otherwise the file is downloaded and the text copied, ready to attach in WhatsApp or mail.
+async function shareAudio(url, text, btn){
+  const was = btn && btn.textContent; if (btn) { btn.disabled = true; btn.textContent = "מכין קובץ…"; }
+  try {
+    const r = await fetch(url);
+    if (!r.ok) { const j = await r.json().catch(() => ({})); return toast(j.error || "הקובץ לא נוצר"); }
+    const name = ((r.headers.get("Content-Disposition") || "").match(/filename="([^"]+)"/) || [])[1] || "shema.m4a";
+    const file = new File([await r.blob()], name, {type: "audio/mp4"});
+    if (navigator.canShare && navigator.canShare({files: [file]})) {
+      try { await navigator.share({files: [file], text, title: "שמע"}); return; }
+      catch (e) { if (e.name === "AbortError") return; }
+    }
+    const a = document.createElement("a"); a.href = URL.createObjectURL(file); a.download = name;
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    try { await navigator.clipboard.writeText(text); } catch {}
+    toast("הקובץ ירד והטקסט הועתק: אפשר לצרף אותו בוואטסאפ או במייל.");
+  } catch { toast("המחשב לא ענה"); }
+  finally { if (btn && btn.isConnected) { btn.disabled = false; btn.textContent = was; } }
+}
+
+function segRows(){ return SEGX ? [...SEGX.box.querySelectorAll(SEGX.kind === "conv" ? ".utt" : ".ml[data-u]")] : []; }
+const segRowId = row => row.dataset.u || row.querySelector(".who[data-u]")?.dataset.u;
+function segStart(fromId){
+  if (!SEGX) return;
+  segExit(true);
+  SEG = {a: fromId ? +fromId : null, b: null, ds: 0, de: 0, bar: document.createElement("div"), aud: null};
+  SEGX.box.classList.add("segon");
+  SEGX.box.addEventListener("click", segClick, true);
+  SEG.bar.className = "segbar"; SEG.bar.setAttribute("role", "region"); SEG.bar.setAttribute("aria-label", "בחירת קטע");
+  document.body.appendChild(SEG.bar);
+  document.addEventListener("keydown", segKey, true);
+  segDraw();
+}
+function segExit(keepCtx){
+  if (!SEG) return;
+  if (SEG.aud) SEG.aud.pause();
+  SEG.bar.remove();
+  if (SEGX && SEGX.box) {
+    SEGX.box.classList.remove("segon"); SEGX.box.removeEventListener("click", segClick, true);
+    SEGX.box.querySelectorAll(".seg-in,.seg-a,.seg-b").forEach(r => r.classList.remove("seg-in", "seg-a", "seg-b"));
+  }
+  document.removeEventListener("keydown", segKey, true);
+  SEG = null;
+}
+function segKey(e){ if (e.key === "Escape" && !document.querySelector(".sheet,.lmenu")) { e.stopPropagation(); segExit(); } }
+// in pick mode a click on a line picks it (instead of "who said this" / play); the first pick is the start
+function segClick(e){
+  if (!SEG) return;
+  if (e.target.closest("[data-lm]")) return;                                  // ⋯ still opens its menu
+  const row = e.target.closest(SEGX.kind === "conv" ? ".utt" : ".ml[data-u]");
+  if (!row || row.classList.contains("media")) return;
+  e.preventDefault(); e.stopPropagation();
+  const id = +segRowId(row);
+  if (SEG.a === null || SEG.b !== null) { SEG.a = id; SEG.b = null; SEG.ds = SEG.de = 0; }
+  else SEG.b = id;
+  segDraw();
+}
+function segEdges(){                       // the two lines in time order + the part's clock times (after ±5 s)
+  const A = segLine(SEG.a), B = segLine(SEG.b ?? SEG.a);
+  if (!A || !B) return null;
+  const [x, y] = (A.t0 < B.t0 || (A.t0 === B.t0 && A.id <= B.id)) ? [A, B] : [B, A];
+  const t0 = new Date(new Date(x.t0).getTime() + SEG.ds * 1000);
+  const t1 = new Date(Math.max(new Date(y.t1 || y.t0), new Date(x.t1 || x.t0)) + SEG.de * 1000);
+  return {x, y, t0, t1, sec: (t1 - t0) / 1000};
+}
+function segDraw(){
+  const rows = segRows(), E = SEG.a !== null ? segEdges() : null, both = SEG.b !== null;
+  rows.forEach(r => {
+    const id = +segRowId(r), u = segLine(id);
+    r.classList.toggle("seg-a", !!E && id === E.x.id);
+    r.classList.toggle("seg-b", !!E && both && id === E.y.id);
+    r.classList.toggle("seg-in", !!E && both && !!u && u.t0 > E.x.t0 && u.t0 < E.y.t0);
+  });
+  const clk = d => d.toTimeString().slice(0, 8);
+  const lenTxt = E ? `<bdi dir="ltr">${clk(E.t0)}–${clk(E.t1)}</bdi> · ${E.sec < 60 ? Math.round(E.sec) + " שנ׳" : `<bdi dir="ltr">${mmss(E.sec)}</bdi> דק׳`}` : "";
+  const step = SEG.a === null ? "לחץ על משפט ההתחלה" : !both ? "עכשיו לחץ על משפט הסוף (או השתמש בשורה אחת)" : "הקטע נבחר";
+  const ok = !!E && E.sec >= 0.3, audio = SEGX.audio;
+  SEG.bar.innerHTML = `<div class="top"><b>✂ ${step}</b>${lenTxt ? `<span class="len">${lenTxt}</span>` : ""}
+      <button class="x" data-s="close" title="סגור (Esc)" aria-label="סגור">×</button></div>
+    ${E ? `<div class="edges"><span>התחלה</span><button data-s="ds-">5 שנ׳ קודם</button><button data-s="ds+">5 שנ׳ אחר כך</button><span class="sp"></span>
+      <span>סוף</span><button data-s="de-">5 שנ׳ קודם</button><button data-s="de+">5 שנ׳ אחר כך</button></div>` : ""}
+    <div class="acts">${E && !both ? `<button data-s="one">רק השורה הזו</button>` : ""}
+      ${audio ? `<button data-s="play" ${ok ? "" : "disabled"}>${SEG.aud && !SEG.aud.paused ? "■ עצור" : "▶ השמע"}</button>` : ""}
+      <button class="pri" data-s="sum" ${ok && both ? "" : "disabled"}>📝 סכם את הקטע</button>
+      ${audio ? `<button data-s="share" ${ok ? "" : "disabled"}>📤 שתף קובץ שמע</button><button data-s="dl" ${ok ? "" : "disabled"}>⬇ הורד</button>` : ""}</div>
+    <div class="legend">${audio ? "הקובץ כולל רק את הדיבור שבקטע. יש בו קולות של אנשים נוספים: לפני ששולחים הלאה, ודא שהם מסכימים." : "ההקלטות של השיחה הזו כבר לא שמורות, אז אפשר רק לסכם."}</div>`;
+  SEG.bar.querySelectorAll("[data-s]").forEach(b => b.onclick = () => segAct(b.dataset.s, b));
+}
+function segAct(s, btn){
+  const E = segEdges(), q = () => [E.x.id, E.y.id, SEG.ds, SEG.de];
+  const shift = (k, d) => { SEG[k] = Math.max(-120, Math.min(120, SEG[k] + d)); if (SEG.aud) { SEG.aud.pause(); SEG.aud = null; } segDraw(); };
+  ({
+    close: () => segExit(),
+    one: () => { SEG.b = SEG.a; segDraw(); },
+    "ds-": () => shift("ds", -5), "ds+": () => shift("ds", 5), "de-": () => shift("de", -5), "de+": () => shift("de", 5),
+    play: () => {
+      if (SEG.aud && !SEG.aud.paused) { SEG.aud.pause(); SEG.aud = null; return segDraw(); }
+      const a = SEG.aud = new Audio(segUrl(...q()));
+      a.onended = a.onpause = () => segDraw();
+      a.onerror = () => { SEG.aud = null; segDraw(); toast("לא הצלחתי להשמיע את הקטע (אולי ההקלטה כבר לא שמורה)."); };
+      a.play().then(segDraw).catch(() => {});
+    },
+    share: () => shareAudio(segUrl(...q()), `קטע מ${SEGX.kind === "meeting" ? "הפגישה" : "השיחה"}${SEGX.title ? " ״" + SEGX.title + "״" : ""}, ${E.t0.toTimeString().slice(0, 5)}–${E.t1.toTimeString().slice(0, 5)}`, btn),
+    dl: () => downloadRec(btn, segUrl(...q()), `${SEGX.kind}-${SEGX.id}-part.m4a`, SEGX.kind === "meeting" ? "בפגישה" : "בשיחה"),
+    sum: () => segSummary(q(), btn),
+  })[s]();
+}
+async function segSummary([a, b, ds, de], btn){
+  btn.disabled = true; btn.textContent = "מסכם… (עד דקה)";
+  const r = await J(`/home/api/segment_summary?kind=${SEGX.kind}&id=${encodeURIComponent(SEGX.id)}&${segQuery(a, b, ds, de)}`).catch(() => null);
+  if (btn.isConnected) { btn.disabled = false; btn.textContent = "📝 סכם את הקטע"; }
+  if (!r) return toast("המחשב לא ענה");
+  if (!r.ok || !r.summary) return toast(r.error || "לא התקבל סיכום");
+  const li = (t, a) => a && a.length ? `<div class="grp">${t}</div><ul>${a.map(x => `<li>${esc(x)}</li>`).join("")}</ul>` : "";
+  const tasks = (r.tasks || []).map(t => `${t.who ? t.who + ": " : ""}${t.what}${t.due ? " (" + t.due + ")" : ""}`);
+  const pp = Object.entries(r.per_person || {});
+  const text = [`✂ ${r.topic || "סיכום קטע"} (${hm(r.t0)}–${hm(r.t1)})`, r.summary,
+    ...(r.decisions || []).length ? ["", "החלטות:", ...r.decisions.map(x => "• " + x)] : [],
+    ...tasks.length ? ["", "משימות:", ...tasks.map(x => "• " + x)] : [],
+    ...(r.next_steps || []).length ? ["", "הצעדים הבאים:", ...r.next_steps.map(x => "• " + x)] : []].join("\n");
+  const sh = document.createElement("div"); sh.className = "sheet";
+  sh.innerHTML = `<div class="box segsum" role="dialog" aria-label="סיכום הקטע"><button class="x" aria-label="סגור">×</button>
+    <h3>✂ ${esc(r.topic || "סיכום הקטע")}</h3>
+    <div class="q">⁦${hm(r.t0)}–${hm(r.t1)}⁩ · ${r.lines} שורות${(r.people || []).length ? " · " + r.people.map(esc).join(", ") : ""}</div>
+    <div class="sum">${esc(r.summary)}</div>
+    ${pp.length ? `<div class="grp">מי אמר מה</div>${pp.map(([n, t]) => `<div><b style="color:${colorOf(n)}">${esc(first(n))}:</b> ${esc(t)}</div>`).join("")}` : ""}
+    ${li("החלטות", r.decisions)}${li("משימות", tasks)}${li("הצעדים הבאים", r.next_steps)}
+    <div class="acts"><button data-c="copy">📋 העתק</button>${navigator.share ? `<button data-c="share">📤 שתף</button>` : ""}</div>
+    <div class="legend">רק על השורות שבקטע. הסיכום של כל ${SEGX.kind === "meeting" ? "הפגישה" : "השיחה"} לא משתנה, וזה לא נשמר.</div></div>`;
+  document.body.appendChild(sh);
+  const close = () => sh.remove();
+  sh.querySelector(".x").onclick = close; sh.onclick = e => { if (e.target === sh) close(); };
+  sh.querySelector('[data-c="copy"]').onclick = () => copyText(text, "הסיכום של הקטע הועתק. אפשר להדביק בוואטסאפ או במייל.");
+  const sb = sh.querySelector('[data-c="share"]');
+  if (sb) sb.onclick = () => navigator.share({text, title: "שמע"}).catch(e => { if (e.name !== "AbortError") copyText(text, "הסיכום הועתק."); });
+  sh.querySelector(".x").focus();
+}
+window.addEventListener("hashchange", () => { segExit(); document.querySelector(".lmenu")?.remove(); });
+
 // ---------------------------------------------------------------- "בחר" -> pick several -> "מחק" (with undo)
 // Nothing new on the screen until "בחר": then a box on each row and one bar at the bottom. Deleted rows vanish at once;
 // the delete is sent when the undo time is over (or when the page closes), so "בטל" really brings everything back.
